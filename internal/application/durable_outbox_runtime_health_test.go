@@ -381,7 +381,7 @@ func TestDurableRuntimeHealthFailedAfterDispatcherError(t *testing.T) {
 	}
 }
 
-func TestDurableRuntimeHealthFailsWhenDispatcherStopsWithoutError(t *testing.T) {
+func TestDurableRuntimeHealthTreatsUnexpectedNilDispatcherExitAsFailed(t *testing.T) {
 	t.Parallel()
 
 	runtime, _ := h7bRuntime(
@@ -605,7 +605,7 @@ func TestDurableRuntimeHealthRejectsTransitionFromTerminalState(t *testing.T) {
 	}
 }
 
-func TestDurableRuntimeHealthConcurrentCloseEndsInSingleTerminalState(t *testing.T) {
+func TestDurableRuntimeConcurrentCloseEndsInSingleTerminalHealthState(t *testing.T) {
 	t.Parallel()
 
 	runtime, _ := h7bRuntime(
@@ -613,19 +613,178 @@ func TestDurableRuntimeHealthConcurrentCloseEndsInSingleTerminalState(t *testing
 		durableRuntimeRunUntilCanceled(make(chan struct{})),
 		nil,
 	)
+	source := runtime.HealthSource()
 
-	var closers sync.WaitGroup
-	for i := 0; i < 4; i++ {
-		closers.Add(1)
+	const callers = 32
+
+	start := make(chan struct{})
+	results := make(chan error, callers)
+	for index := 0; index < callers; index++ {
 		go func() {
-			defer closers.Done()
-			_ = runtime.Close()
+			<-start
+			results <- runtime.Close()
 		}()
 	}
-	closers.Wait()
+	close(start)
 
-	if got := runtime.HealthSource().State(); got != MessageDeliveryHealthStopped {
+	for index := 0; index < callers; index++ {
+		if err := <-results; err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	}
+
+	if got := source.State(); got != MessageDeliveryHealthStopped {
 		t.Fatalf("State() = %q, want stopped", got)
+	}
+}
+
+func TestDurableRuntimeHealthConcurrentReadsDuringShutdown(t *testing.T) {
+	t.Parallel()
+
+	cancelObserved := make(chan struct{})
+	release := make(chan struct{})
+	runtime, _ := h7bRuntime(
+		t,
+		h7bBlockingRunner(cancelObserved, release),
+		nil,
+	)
+	source := runtime.HealthSource()
+
+	const readers = 8
+	var wg sync.WaitGroup
+	for index := 0; index < readers; index++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				state := source.State()
+				if state == MessageDeliveryHealthStopped {
+					return
+				}
+				if _, err := source.ReadMessageDeliveryHealth(
+					context.Background(),
+				); err != nil &&
+					!errors.Is(err, ErrMessageDeliveryHealthUnavailable) {
+					t.Errorf("ReadMessageDeliveryHealth() error = %v", err)
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		}()
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- runtime.Close()
+	}()
+
+	durableRuntimeTestWait(t, cancelObserved)
+	close(release)
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	wg.Wait()
+
+	if got := source.State(); got != MessageDeliveryHealthStopped {
+		t.Fatalf("State() = %q, want stopped", got)
+	}
+}
+
+func TestDurableRuntimeHealthRejectsTransitionsFromStopped(t *testing.T) {
+	t.Parallel()
+
+	runtime := &DurableOutboxRuntime{
+		healthState: MessageDeliveryHealthStopped,
+	}
+
+	if runtime.transitionMessageDeliveryHealth(
+		MessageDeliveryHealthRunning,
+	) {
+		t.Fatal("stopped -> running transition was accepted")
+	}
+	if runtime.transitionMessageDeliveryHealth(
+		MessageDeliveryHealthStopping,
+	) {
+		t.Fatal("stopped -> stopping transition was accepted")
+	}
+	if got := runtime.messageDeliveryHealthState(); got != MessageDeliveryHealthStopped {
+		t.Fatalf("State() = %q, want stopped", got)
+	}
+}
+
+func TestDurableRuntimeHealthRejectsTransitionsFromFailed(t *testing.T) {
+	t.Parallel()
+
+	runtime := &DurableOutboxRuntime{
+		healthState: MessageDeliveryHealthFailed,
+	}
+
+	if runtime.transitionMessageDeliveryHealth(
+		MessageDeliveryHealthStopping,
+	) {
+		t.Fatal("failed -> stopping transition was accepted")
+	}
+	if runtime.transitionMessageDeliveryHealth(
+		MessageDeliveryHealthRunning,
+	) {
+		t.Fatal("failed -> running transition was accepted")
+	}
+	if got := runtime.messageDeliveryHealthState(); got != MessageDeliveryHealthFailed {
+		t.Fatalf("State() = %q, want failed", got)
+	}
+}
+
+func TestDurableRuntimeHealthReadsSnapshotCounts(t *testing.T) {
+	t.Parallel()
+
+	runtime, store := h7bRuntime(
+		t,
+		durableRuntimeRunUntilCanceled(make(chan struct{})),
+		nil,
+	)
+	t.Cleanup(func() {
+		_ = runtime.Close()
+	})
+
+	base := time.Unix(1700000000, 0).UTC()
+	seed := []outbox.State{
+		outbox.StateQueued,
+		outbox.StateQueued,
+		outbox.StateDispatching,
+		outbox.StateAccepted,
+		outbox.StateFailedRetryable,
+		outbox.StateFailedPermanent,
+		outbox.StateUncertain,
+		outbox.StateCanceled,
+	}
+	for index, state := range seed {
+		h7bSeedEntry(
+			t,
+			store,
+			"s-"+string(rune('a'+index)),
+			base.Add(time.Duration(index)*time.Second),
+			state,
+		)
+	}
+
+	health, err := runtime.HealthSource().ReadMessageDeliveryHealth(
+		context.Background(),
+	)
+	if err != nil {
+		t.Fatalf("ReadMessageDeliveryHealth() error = %v", err)
+	}
+	want := MessageDeliveryHealth{
+		State:           MessageDeliveryHealthRunning,
+		Queued:          2,
+		Dispatching:     1,
+		Accepted:        1,
+		FailedRetryable: 1,
+		FailedPermanent: 1,
+		Uncertain:       1,
+		Canceled:        1,
+	}
+	if health != want {
+		t.Fatalf("health = %#v, want %#v", health, want)
 	}
 }
 
@@ -675,4 +834,106 @@ func (s *h7bFailingOperationalStore) ReadOperationalSnapshot(
 	context.Context,
 ) (outbox.OperationalSnapshot, error) {
 	return outbox.OperationalSnapshot{}, s.err
+}
+
+// h7bSeedEntry stores one entry and drives it into the requested state.
+func h7bSeedEntry(
+	t *testing.T,
+	store outbox.Store,
+	id string,
+	at time.Time,
+	state outbox.State,
+) {
+	t.Helper()
+	ctx := context.Background()
+
+	entry := outbox.Entry{
+		ID:         outbox.ID(id),
+		AccountKey: "account-1",
+		ChatID:     42,
+		Text:       "payload-" + id,
+		State:      outbox.StateQueued,
+		CreatedAt:  at,
+		UpdatedAt:  at,
+	}
+	if err := store.Enqueue(ctx, entry); err != nil {
+		t.Fatalf("Enqueue(%s) error = %v", id, err)
+	}
+
+	switch state {
+	case outbox.StateQueued:
+		return
+	case outbox.StateCanceled:
+		if _, err := store.Cancel(
+			ctx,
+			entry.ID,
+			entry.Version,
+			at,
+		); err != nil {
+			t.Fatalf("Cancel(%s) error = %v", id, err)
+		}
+		return
+	}
+
+	claimed, err := store.Claim(
+		ctx,
+		entry.ID,
+		entry.Version,
+		"owner",
+		at.Add(time.Hour),
+		at,
+	)
+	if err != nil {
+		t.Fatalf("Claim(%s) error = %v", id, err)
+	}
+
+	switch state {
+	case outbox.StateDispatching:
+		return
+	case outbox.StateAccepted:
+		if _, err := store.MarkAccepted(
+			ctx,
+			entry.ID,
+			claimed.Version,
+			1,
+			at.Add(time.Second),
+		); err != nil {
+			t.Fatalf("MarkAccepted(%s) error = %v", id, err)
+		}
+	case outbox.StateFailedRetryable:
+		if _, err := store.MarkRetryable(
+			ctx,
+			entry.ID,
+			claimed.Version,
+			at.Add(time.Minute),
+			500,
+			"retry",
+			at.Add(time.Second),
+		); err != nil {
+			t.Fatalf("MarkRetryable(%s) error = %v", id, err)
+		}
+	case outbox.StateFailedPermanent:
+		if _, err := store.MarkPermanentFailure(
+			ctx,
+			entry.ID,
+			claimed.Version,
+			400,
+			"failed",
+			at.Add(time.Second),
+		); err != nil {
+			t.Fatalf("MarkPermanentFailure(%s) error = %v", id, err)
+		}
+	case outbox.StateUncertain:
+		if _, err := store.MarkUncertain(
+			ctx,
+			entry.ID,
+			claimed.Version,
+			"uncertain",
+			at.Add(time.Second),
+		); err != nil {
+			t.Fatalf("MarkUncertain(%s) error = %v", id, err)
+		}
+	default:
+		t.Fatalf("unsupported seed state %q", state)
+	}
 }

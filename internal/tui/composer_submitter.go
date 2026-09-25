@@ -1,0 +1,92 @@
+package tui
+
+import (
+	"context"
+	"errors"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+type SubmissionState string
+
+const (
+	SubmissionQueued SubmissionState = "queued"
+	SubmissionSent   SubmissionState = "sent"
+)
+
+type Submission struct {
+	ID    string
+	State SubmissionState
+}
+
+type ComposerSubmitter interface {
+	SubmitMessage(
+		ctx context.Context,
+		chatID int64,
+		text string,
+	) (Submission, error)
+}
+
+type Dependencies struct {
+	Source           ChatSource
+	MessageSubmitter ComposerSubmitter
+}
+
+type composerSubmissionMsg struct {
+	chatID     int64
+	operation  uint64
+	submission Submission
+	err        error
+}
+
+func NewModelWithDependencies(
+	ctx context.Context,
+	deps Dependencies,
+) (Model, error) {
+	if deps.MessageSubmitter == nil {
+		return Model{}, errors.New("message submitter is required")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	model := NewModel()
+	if deps.Source != nil {
+		model = NewModelWithSource(deps.Source)
+	}
+	model.ctx = ctx
+	model.submitter = deps.MessageSubmitter
+	return model, nil
+}
+
+func NewModelWithSourceAndSubmitter(
+	ctx context.Context,
+	source ChatSource,
+	submitter ComposerSubmitter,
+) (Model, error) {
+	return NewModelWithDependencies(ctx, Dependencies{
+		Source:           source,
+		MessageSubmitter: submitter,
+	})
+}
+
+func submitComposerCmd(
+	ctx context.Context,
+	submitter ComposerSubmitter,
+	chatID int64,
+	text string,
+	operation uint64,
+) tea.Cmd {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return func() tea.Msg {
+		submission, err := submitter.SubmitMessage(ctx, chatID, text)
+		return composerSubmissionMsg{
+			chatID:     chatID,
+			operation:  operation,
+			submission: submission,
+			err:        err,
+		}
+	}
+}

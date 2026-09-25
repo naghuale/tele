@@ -1,0 +1,12 @@
+
+# Local operating-system metadata
+.DS_Store
+
+# Local backup files
+*.bak
+
+# Local archive artifacts
+pr04_tdlib_lifecycle_v3.zip
+
+# Local build output
+dist/

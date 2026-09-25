@@ -131,9 +131,11 @@ func prepareDeliveryAuthResult(
 		)
 	}
 
+	accountKey := deliveryAccountKey(cfg)
+
 	tuiSubmitter, err := NewTUISubmitter(
 		delivery.Submitter(),
-		deliveryAccountKey(cfg),
+		accountKey,
 	)
 	if err != nil {
 		return AuthRunResult{}, errors.Join(
@@ -169,6 +171,7 @@ func prepareDeliveryAuthResult(
 	return AuthRunResult{
 		Source:          NewTelegramChatService(session),
 		Submitter:       tuiSubmitter,
+		AccountKey:      accountKey,
 		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)

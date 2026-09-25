@@ -42,6 +42,10 @@ type AuthRunResult struct {
 	Source    tui.ChatSource
 	Submitter tui.ComposerSubmitter
 
+	// AccountKey is the stable account identifier used for delivery status
+	// reads.
+	AccountKey string
+
 	// MessageStatuses is nil in direct delivery mode and non-nil when the
 	// runtime can report durable delivery status metadata.
 	MessageStatuses tui.MessageStatusSource
@@ -167,6 +171,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 					tui.Dependencies{
 						Source:           authResult.Source,
 						MessageSubmitter: authResult.Submitter,
+						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
 					},
 				)

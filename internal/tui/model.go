@@ -44,8 +44,23 @@ type Model struct {
 	ctx       context.Context
 	submitter ComposerSubmitter
 
-	// messageStatuses is nil in direct delivery mode.
+	// accountKey is the stable account identifier used for delivery status
+	// reads. It is empty when the TUI runs without an account.
+	accountKey string
+
+	// messageStatuses is the optional durable status source. It is nil in
+	// direct delivery mode.
 	messageStatuses MessageStatusSource
+
+	// deliveryStatuses is the last accepted status snapshot for the active
+	// chat, replaced as a whole on every successful poll.
+	deliveryStatuses []MessageStatus
+
+	messageStatusLoading    bool
+	messageStatusErr        error
+	messageStatusGeneration uint64
+	messageStatusAccountKey string
+	messageStatusChatID     int64
 
 	chats        []Chat
 	selectedChat int
@@ -133,6 +148,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case composerSubmissionMsg:
 		return m.updateComposerSubmission(msg)
+
+	case messageStatusesLoadedMsg:
+		return m.handleMessageStatusesLoaded(msg)
+
+	case messageStatusesFailedMsg:
+		return m.handleMessageStatusesFailed(msg)
+
+	case messageStatusPollTickMsg:
+		return m.handleMessageStatusPollTick(msg)
 
 	case tea.KeyMsg:
 		return m.updateKey(msg)
@@ -296,6 +320,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.authCanceled = true
 		}
 		m.quitting = true
+		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
 	}
 
@@ -315,6 +340,7 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyEsc:
 		m.quitting = true
+		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
 
 	case msg.Type == tea.KeyEnter:
@@ -327,12 +353,24 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sendState = sendStateIdle
 		m.sendErr = nil
 
+		statusCmd := m.setMessageStatusTarget(
+			m.accountKey,
+			m.chats[m.selectedChat].ID,
+		)
+
 		if m.source != nil && len(m.chats[m.selectedChat].Messages) == 0 {
 			m.historyState = loadStateLoading
 			m.loadErr = nil
-			return m, loadHistoryCmd(m.source, m.chats[m.selectedChat].ID, historyPageSize)
+			return m, tea.Batch(
+				loadHistoryCmd(
+					m.source,
+					m.chats[m.selectedChat].ID,
+					historyPageSize,
+				),
+				statusCmd,
+			)
 		}
-		return m, nil
+		return m, statusCmd
 
 	case isUp(msg):
 		if m.selectedChat > 0 {
@@ -367,6 +405,9 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sendOperation++
 		m.sendState = sendStateIdle
 		m.sendErr = nil
+		// Leaving the conversation stops status polling and discards the
+		// in-flight response of the chat that is no longer active.
+		m.invalidateMessageStatusPolling()
 
 		m.screen = ScreenChats
 		m.focus = FocusChatList
@@ -509,10 +550,12 @@ func (m Model) updateAuthKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.composer = nil
 		m.authCanceled = true
 		m.quitting = true
+		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
 
 	case tea.KeyEnter:
 		m.quitting = true
+		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
 
 	case tea.KeyRunes:

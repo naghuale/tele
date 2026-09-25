@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -30,6 +31,10 @@ type ComposerSubmitter interface {
 type Dependencies struct {
 	Source           ChatSource
 	MessageSubmitter ComposerSubmitter
+
+	// AccountKey is the stable account identifier used for durable delivery
+	// status reads. Status polling stays disabled while it is empty.
+	AccountKey string
 
 	// MessageStatuses is optional.
 	//
@@ -62,6 +67,7 @@ func NewModelWithDependencies(
 	}
 	model.ctx = ctx
 	model.submitter = deps.MessageSubmitter
+	model.accountKey = strings.TrimSpace(deps.AccountKey)
 	model.messageStatuses = deps.MessageStatuses
 	return model, nil
 }

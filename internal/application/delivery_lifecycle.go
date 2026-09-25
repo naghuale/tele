@@ -26,6 +26,86 @@ type deliveryOpenFunc func(
 	MessageDeliveryRuntimeDeps,
 ) (MessageDeliveryRuntime, error)
 
+// deliveryHealthSampling configures durable health sampling.
+//
+// Sampling is optional: a nil Recorder disables it and delivery continues
+// unchanged. A nil Clock selects the system clock and a non-positive Interval
+// selects the application default.
+type deliveryHealthSampling struct {
+	Recorder MessageDeliveryHealthRecorder
+	Clock    outbox.Clock
+	Interval time.Duration
+}
+
+// messageDeliveryHealthSamplingHandle owns the sampling goroutine.
+type messageDeliveryHealthSamplingHandle struct {
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// stop cancels sampling and waits for the goroutine to finish.
+//
+// Waiting is mandatory: the health source reads the open outbox store, so
+// sampling must never outlive it.
+func (h *messageDeliveryHealthSamplingHandle) stop() {
+	if h == nil {
+		return
+	}
+	h.cancel()
+	<-h.done
+}
+
+// startDeliveryHealthSampling starts at most one sampler for a durable
+// runtime.
+//
+// Direct mode has no health source, so no sampler and no goroutine are
+// created and no synthetic health is recorded. A construction failure disables
+// sampling instead of failing startup: telemetry is an observability path, not
+// a delivery dependency.
+func startDeliveryHealthSampling(
+	ctx context.Context,
+	source MessageDeliveryHealthSource,
+	sampling deliveryHealthSampling,
+) *messageDeliveryHealthSamplingHandle {
+	if source == nil || sampling.Recorder == nil {
+		return nil
+	}
+
+	clock := sampling.Clock
+	if clock == nil {
+		clock = outbox.SystemClock{}
+	}
+	interval := sampling.Interval
+	if interval <= 0 {
+		interval = defaultMessageDeliveryHealthSampleInterval
+	}
+
+	sampler, err := NewMessageDeliveryHealthSampler(
+		MessageDeliveryHealthSamplerConfig{Interval: interval},
+		MessageDeliveryHealthSamplerDeps{
+			Source:   source,
+			Recorder: sampling.Recorder,
+			Clock:    clock,
+		},
+	)
+	if err != nil {
+		return nil
+	}
+
+	samplerCtx, cancel := context.WithCancel(ctx)
+	handle := &messageDeliveryHealthSamplingHandle{
+		cancel: cancel,
+		done:   make(chan struct{}),
+	}
+	go func() {
+		defer close(handle.done)
+		// A sampler error is never surfaced as a delivery error.
+		_ = sampler.Run(samplerCtx)
+	}()
+
+	return handle
+}
+
 func messageDeliveryConfigFromConfig(
 	cfg config.Config,
 ) MessageDeliveryRuntimeConfig {
@@ -77,6 +157,7 @@ func prepareDeliveryAuthResult(
 	session deliverySession,
 	cancel context.CancelCauseFunc,
 	openDelivery deliveryOpenFunc,
+	sampling deliveryHealthSampling,
 ) (AuthRunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return AuthRunResult{}, err
@@ -145,6 +226,12 @@ func prepareDeliveryAuthResult(
 		)
 	}
 
+	samplingHandle := startDeliveryHealthSampling(
+		ctx,
+		delivery.HealthSource(),
+		sampling,
+	)
+
 	var closing atomic.Bool
 	if done := delivery.Done(); done != nil {
 		go func() {
@@ -178,6 +265,9 @@ func prepareDeliveryAuthResult(
 			if shutdownCtx == nil {
 				shutdownCtx = context.Background()
 			}
+			// Sampling is stopped and awaited before the durable outbox is
+			// closed, so the store is never read after shutdown.
+			samplingHandle.stop()
 			return errors.Join(
 				wrapCloseError(
 					"close message delivery runtime",

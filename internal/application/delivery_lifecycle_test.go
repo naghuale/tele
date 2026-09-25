@@ -156,6 +156,7 @@ func TestRunApplicationWiresDirectSubmitterInDirectMode(t *testing.T) {
 			gotDeps = deliveryDeps
 			return runtime, nil
 		},
+		deliveryHealthSampling{},
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -213,6 +214,7 @@ func TestRunApplicationWiresDurableSubmitterInDurableMode(t *testing.T) {
 			gotDeps = deps
 			return runtime, nil
 		},
+		deliveryHealthSampling{},
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -270,6 +272,7 @@ func TestRunApplicationDoesNotFallbackAfterDurableOpenFails(t *testing.T) {
 		) (MessageDeliveryRuntime, error) {
 			return nil, sentinel
 		},
+		deliveryHealthSampling{},
 	)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("error = %v, want sentinel", err)
@@ -310,6 +313,7 @@ func TestRunApplicationReturnsDispatcherFailure(t *testing.T) {
 		) (MessageDeliveryRuntime, error) {
 			return runtime, nil
 		},
+		deliveryHealthSampling{},
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -353,6 +357,7 @@ func TestRunApplicationClosesDeliveryBeforeSession(t *testing.T) {
 		) (MessageDeliveryRuntime, error) {
 			return runtime, nil
 		},
+		deliveryHealthSampling{},
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -389,6 +394,7 @@ func TestRunApplicationDoesNotCancelForNormalClose(t *testing.T) {
 		) (MessageDeliveryRuntime, error) {
 			return runtime, nil
 		},
+		deliveryHealthSampling{},
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)

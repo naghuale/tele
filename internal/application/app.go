@@ -61,6 +61,10 @@ type Environment struct {
 	RunTUI              func(tui.ChatSource) error
 	RunTUIWithSubmitter func(context.Context, tui.Dependencies) error
 
+	// OutboxHealthRecorder is the optional durable outbox telemetry backend.
+	// A nil value keeps sampling structurally enabled with a no-op backend.
+	OutboxHealthRecorder recorder.OutboxHealthRecorder
+
 	ReportTDLib        TDLibReporter
 	NewTelegramRuntime RuntimeFactory
 }
@@ -369,12 +373,27 @@ func runTUI(args []string, env Environment) int {
 			)
 		}
 
+		healthRecorder := env.OutboxHealthRecorder
+		if healthRecorder == nil {
+			healthRecorder = recorder.NewNoopOutboxHealth()
+		}
+		tuiHealthRecorder, err := NewMessageDeliveryHealthRecorder(
+			healthRecorder,
+		)
+		if err != nil {
+			return AuthRunResult{}, fmt.Errorf(
+				"create message delivery health recorder: %w",
+				err,
+			)
+		}
+
 		return prepareDeliveryAuthResult(
 			authCtx,
 			cfg,
 			session,
 			cancel,
 			openDelivery,
+			deliveryHealthSampling{Recorder: tuiHealthRecorder},
 		)
 	}
 

@@ -194,7 +194,14 @@ func openDurableOutboxRuntime(
 	dispatcherCtx, cancel := context.WithCancel(ctx)
 	runtime.dispatcherCancel = cancel
 	runtime.available.Store(true)
-	runtime.transitionMessageDeliveryHealth(MessageDeliveryHealthRunning)
+	if !runtime.transitionMessageDeliveryHealth(
+		MessageDeliveryHealthRunning,
+	) {
+		cancel()
+		return cleanup(errors.New(
+			"durable outbox runtime: transition health to running",
+		))
+	}
 	go runtime.runDispatcher(
 		dispatcherCtx,
 		factory.runDispatcher,

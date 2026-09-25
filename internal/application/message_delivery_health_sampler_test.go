@@ -831,6 +831,8 @@ func TestMessageDeliveryHealthSamplerConcurrentCancellation(t *testing.T) {
 	sampler := h7c2Sampler(t, source, &h7c2RecordingHealthRecorder{}, clock, time.Second)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var wg sync.WaitGroup
 	for index := 0; index < 8; index++ {
 		wg.Add(1)

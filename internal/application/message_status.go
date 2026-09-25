@@ -54,3 +54,26 @@ func projectMessageStatus(
 		UpdatedAt:     entry.UpdatedAt,
 	}, nil
 }
+
+func projectEntryStatus(
+	status outbox.EntryStatus,
+) (MessageStatus, error) {
+	state, err := projectMessageState(status.State)
+	if err != nil {
+		return MessageStatus{}, fmt.Errorf(
+			"project status for entry %q: %w",
+			status.ID,
+			err,
+		)
+	}
+
+	return MessageStatus{
+		EntryID:       status.ID,
+		AccountKey:    status.AccountKey,
+		ChatID:        status.ChatID,
+		State:         state,
+		Attempt:       status.Attempt,
+		NextAttemptAt: status.NextAttemptAt,
+		UpdatedAt:     status.UpdatedAt,
+	}, nil
+}

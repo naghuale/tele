@@ -183,3 +183,115 @@ func TestProjectMessageStatusErrorDoesNotExposeText(t *testing.T) {
 		t.Fatal("projectMessageStatus() error contains message text")
 	}
 }
+
+func TestProjectEntryStatus(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000000, 789).UTC()
+	next := now.Add(90 * time.Second)
+
+	tests := []struct {
+		name   string
+		status outbox.EntryStatus
+		want   MessageStatus
+	}{
+		{
+			name: "queued",
+			status: outbox.EntryStatus{
+				ID:         "entry-1",
+				AccountKey: "account-1",
+				ChatID:     42,
+				State:      outbox.StateQueued,
+				Attempt:    0,
+				UpdatedAt:  now,
+			},
+			want: MessageStatus{
+				EntryID:    "entry-1",
+				AccountKey: "account-1",
+				ChatID:     42,
+				State:      MessageDeliveryQueued,
+				UpdatedAt:  now,
+			},
+		},
+		{
+			name: "retrying keeps next attempt",
+			status: outbox.EntryStatus{
+				ID:            "entry-2",
+				AccountKey:    "account-1",
+				ChatID:        42,
+				State:         outbox.StateFailedRetryable,
+				Attempt:       4,
+				NextAttemptAt: next,
+				UpdatedAt:     now,
+			},
+			want: MessageStatus{
+				EntryID:       "entry-2",
+				AccountKey:    "account-1",
+				ChatID:        42,
+				State:         MessageDeliveryRetrying,
+				Attempt:       4,
+				NextAttemptAt: next,
+				UpdatedAt:     now,
+			},
+		},
+		{
+			name: "uncertain ignores version",
+			status: outbox.EntryStatus{
+				ID:         "entry-3",
+				AccountKey: "account-1",
+				ChatID:     42,
+				State:      outbox.StateUncertain,
+				Attempt:    2,
+				UpdatedAt:  now,
+				Version:    17,
+			},
+			want: MessageStatus{
+				EntryID:    "entry-3",
+				AccountKey: "account-1",
+				ChatID:     42,
+				State:      MessageDeliveryUncertain,
+				Attempt:    2,
+				UpdatedAt:  now,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := projectEntryStatus(test.status)
+			if err != nil {
+				t.Fatalf("projectEntryStatus() error = %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("projectEntryStatus() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestProjectEntryStatusRejectsUnknownState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000000, 0).UTC()
+	status := outbox.EntryStatus{
+		ID:         "entry-1",
+		AccountKey: "account-1",
+		ChatID:     42,
+		State:      outbox.State("future"),
+		UpdatedAt:  now,
+	}
+
+	got, err := projectEntryStatus(status)
+	if err == nil {
+		t.Fatal("projectEntryStatus() error = nil, want non-nil")
+	}
+	if got != (MessageStatus{}) {
+		t.Fatalf("projectEntryStatus() = %#v, want zero status", got)
+	}
+	if !strings.Contains(err.Error(), "entry-1") {
+		t.Fatalf("projectEntryStatus() error = %v, want entry id", err)
+	}
+}

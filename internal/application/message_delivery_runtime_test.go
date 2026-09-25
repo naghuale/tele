@@ -28,14 +28,19 @@ func (s *h4RecordingComposerSubmitter) SubmitMessage(
 }
 
 type h4StubRuntime struct {
-	submitter ComposerMessageSubmitter
-	done      <-chan struct{}
-	err       error
-	closeErr  error
+	submitter    ComposerMessageSubmitter
+	statusSource MessageStatusSource
+	done         <-chan struct{}
+	err          error
+	closeErr     error
 }
 
 func (r *h4StubRuntime) Submitter() ComposerMessageSubmitter {
 	return r.submitter
+}
+
+func (r *h4StubRuntime) StatusSource() MessageStatusSource {
+	return r.statusSource
 }
 
 func (r *h4StubRuntime) Done() <-chan struct{} {
@@ -114,6 +119,52 @@ func TestOpenMessageDeliveryRuntimeSelectsDurableMode(t *testing.T) {
 	}
 	if durableCalls.Load() != 1 {
 		t.Fatalf("durable factory calls = %d, want 1", durableCalls.Load())
+	}
+}
+
+func TestOpenMessageDeliveryRuntimeDirectModeHasNoStatusSource(t *testing.T) {
+	t.Parallel()
+
+	runtime, err := openMessageDeliveryRuntime(
+		context.Background(),
+		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDirect},
+		MessageDeliveryRuntimeDeps{
+			DirectSubmitter: &h4RecordingComposerSubmitter{},
+		},
+		h4FactoryWithRuntime(nil, nil),
+	)
+	if err != nil {
+		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
+	}
+	if source := runtime.StatusSource(); source != nil {
+		t.Fatalf("StatusSource() = %#v, want nil", source)
+	}
+}
+
+func TestOpenMessageDeliveryRuntimeExposesDurableStatusSource(t *testing.T) {
+	t.Parallel()
+
+	reader := &h6bFakeEntryStatusReader{}
+	source, err := NewOutboxMessageStatusSource(reader, 0)
+	if err != nil {
+		t.Fatalf("NewOutboxMessageStatusSource() error = %v", err)
+	}
+	stub := &h4StubRuntime{
+		submitter:    &h4RecordingComposerSubmitter{},
+		statusSource: source,
+	}
+
+	runtime, err := openMessageDeliveryRuntime(
+		context.Background(),
+		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDurable},
+		MessageDeliveryRuntimeDeps{},
+		h4FactoryWithRuntime(stub, nil),
+	)
+	if err != nil {
+		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
+	}
+	if runtime.StatusSource() != source {
+		t.Fatal("StatusSource() did not return durable status source")
 	}
 }
 

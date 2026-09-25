@@ -10,6 +10,7 @@ import (
 
 type MessageDeliveryRuntime interface {
 	Submitter() ComposerMessageSubmitter
+	StatusSource() MessageStatusSource
 	Done() <-chan struct{}
 	Err() error
 	Close() error

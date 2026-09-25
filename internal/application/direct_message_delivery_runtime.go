@@ -22,6 +22,11 @@ func (r *DirectMessageDeliveryRuntime) Submitter() ComposerMessageSubmitter {
 	return r.submitter
 }
 
+// StatusSource reports that direct submission has no durable status to query.
+func (r *DirectMessageDeliveryRuntime) StatusSource() MessageStatusSource {
+	return nil
+}
+
 func (r *DirectMessageDeliveryRuntime) Done() <-chan struct{} {
 	return nil
 }

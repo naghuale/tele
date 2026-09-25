@@ -25,8 +25,9 @@ type DurableOutboxRuntimeDeps struct {
 }
 
 type DurableOutboxRuntime struct {
-	submitter ComposerMessageSubmitter
-	opened    *outbox.Outbox
+	submitter    ComposerMessageSubmitter
+	statusSource MessageStatusSource
+	opened       *outbox.Outbox
 
 	dispatcherCancel context.CancelFunc
 	dispatcherDone   chan struct{}
@@ -137,6 +138,20 @@ func openDurableOutboxRuntime(
 		return cleanup(errors.New("durable outbox runtime: opened dispatcher is nil"))
 	}
 
+	statusReader, ok := opened.Store.(outbox.EntryStatusReader)
+	if !ok {
+		return cleanup(errors.New(
+			"durable outbox runtime: opened store does not support status queries",
+		))
+	}
+	statusSource, err := NewOutboxMessageStatusSource(statusReader, 0)
+	if err != nil {
+		return cleanup(fmt.Errorf(
+			"durable outbox runtime: status source: %w",
+			err,
+		))
+	}
+
 	queue, err := NewOutboxMessageSubmitter(
 		opened.Store,
 		deps.Clock,
@@ -149,6 +164,7 @@ func openDurableOutboxRuntime(
 	}
 
 	runtime := &DurableOutboxRuntime{
+		statusSource:   statusSource,
 		opened:         opened,
 		dispatcherDone: make(chan struct{}),
 		closed:         make(chan struct{}),
@@ -236,6 +252,13 @@ func (r *DurableOutboxRuntime) Submitter() ComposerMessageSubmitter {
 		return nil
 	}
 	return r.submitter
+}
+
+func (r *DurableOutboxRuntime) StatusSource() MessageStatusSource {
+	if r == nil {
+		return nil
+	}
+	return r.statusSource
 }
 
 func (r *DurableOutboxRuntime) Close() error {

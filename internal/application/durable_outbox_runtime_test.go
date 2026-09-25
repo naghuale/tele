@@ -1108,6 +1108,9 @@ func TestDurableOutboxRuntimeNilReceiver(t *testing.T) {
 	if runtime.Submitter() != nil {
 		t.Fatal("Submitter() != nil")
 	}
+	if runtime.StatusSource() != nil {
+		t.Fatal("StatusSource() != nil")
+	}
 	if runtime.Done() != nil {
 		t.Fatal("Done() != nil")
 	}
@@ -1116,5 +1119,129 @@ func TestDurableOutboxRuntimeNilReceiver(t *testing.T) {
 	}
 	if err := runtime.Close(); err != nil {
 		t.Fatalf("Close() error = %v, want nil", err)
+	}
+}
+
+type durableRuntimeStoreWithoutStatusReader struct {
+	outbox.Store
+}
+
+func TestOpenDurableOutboxRuntimeExposesStatusSource(t *testing.T) {
+	t.Parallel()
+
+	store := outbox.NewMemoryStore()
+	session := &durableRuntimeTestSession{}
+	started := make(chan struct{})
+	opened := durableRuntimeTestOpened(store, session)
+	factory := durableRuntimeTestFactory(
+		opened,
+		durableRuntimeRunUntilCanceled(started),
+		nil,
+	)
+	runtime, err := openDurableOutboxRuntime(
+		context.Background(),
+		durableRuntimeTestConfig(t),
+		durableRuntimeTestDeps(
+			session,
+			newDurableRuntimeTestKeyProvider(),
+			durableRuntimeTestIDGenerator("status-source"),
+		),
+		factory,
+	)
+	if err != nil {
+		t.Fatalf("openDurableOutboxRuntime() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := runtime.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+	durableRuntimeTestWait(t, started)
+
+	source := runtime.StatusSource()
+	if source == nil {
+		t.Fatal("StatusSource() = nil")
+	}
+
+	if _, err := runtime.Submitter().SubmitMessage(
+		context.Background(),
+		"account-1",
+		42,
+		"hello",
+	); err != nil {
+		t.Fatalf("SubmitMessage() error = %v", err)
+	}
+
+	statuses, err := source.ListMessageStatuses(
+		context.Background(),
+		"account-1",
+		42,
+	)
+	if err != nil {
+		t.Fatalf("ListMessageStatuses() error = %v", err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %#v, want one entry", statuses)
+	}
+	if statuses[0].AccountKey != "account-1" || statuses[0].ChatID != 42 {
+		t.Fatalf("status = %#v, want account-1 chat 42", statuses[0])
+	}
+	if statuses[0].EntryID == "" {
+		t.Fatal("status entry id is empty")
+	}
+	switch statuses[0].State {
+	case MessageDeliveryQueued, MessageDeliverySending, MessageDeliverySent:
+	default:
+		t.Fatalf("status state = %q, want delivery progress", statuses[0].State)
+	}
+}
+
+func TestOpenDurableOutboxRuntimeRejectsStoreWithoutStatusReader(t *testing.T) {
+	t.Parallel()
+
+	session := &durableRuntimeTestSession{}
+	opened := durableRuntimeTestOpened(
+		durableRuntimeStoreWithoutStatusReader{Store: outbox.NewMemoryStore()},
+		session,
+	)
+
+	var closeCalls atomic.Int32
+	var runCalls atomic.Int32
+	factory := durableRuntimeTestFactory(
+		opened,
+		func(context.Context, *outbox.Dispatcher) error {
+			runCalls.Add(1)
+			return nil
+		},
+		func(*outbox.Outbox) error {
+			closeCalls.Add(1)
+			return nil
+		},
+	)
+
+	runtime, err := openDurableOutboxRuntime(
+		context.Background(),
+		durableRuntimeTestConfig(t),
+		durableRuntimeTestDeps(
+			session,
+			newDurableRuntimeTestKeyProvider(),
+			durableRuntimeTestIDGenerator("no-status-reader"),
+		),
+		factory,
+	)
+	if err == nil {
+		t.Fatal("error = nil, want non-nil")
+	}
+	if runtime != nil {
+		t.Fatalf("runtime = %#v, want nil", runtime)
+	}
+	if !strings.Contains(err.Error(), "status") {
+		t.Fatalf("error = %v, want status capability error", err)
+	}
+	if closeCalls.Load() != 1 {
+		t.Fatalf("close calls = %d, want 1", closeCalls.Load())
+	}
+	if runCalls.Load() != 0 {
+		t.Fatalf("dispatcher runs = %d, want 0", runCalls.Load())
 	}
 }

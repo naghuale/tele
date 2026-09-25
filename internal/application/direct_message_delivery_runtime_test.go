@@ -65,12 +65,27 @@ func TestDirectMessageDeliveryRuntimeCloseIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestDirectMessageDeliveryRuntimeStatusSourceIsNil(t *testing.T) {
+	t.Parallel()
+
+	runtime, err := NewDirectMessageDeliveryRuntime(&h4RecordingComposerSubmitter{})
+	if err != nil {
+		t.Fatalf("NewDirectMessageDeliveryRuntime() error = %v", err)
+	}
+	if source := runtime.StatusSource(); source != nil {
+		t.Fatalf("StatusSource() = %#v, want nil", source)
+	}
+}
+
 func TestDirectMessageDeliveryRuntimeNilReceiver(t *testing.T) {
 	t.Parallel()
 
 	var runtime *DirectMessageDeliveryRuntime
 	if runtime.Submitter() != nil {
 		t.Fatal("Submitter() != nil")
+	}
+	if runtime.StatusSource() != nil {
+		t.Fatal("StatusSource() != nil")
 	}
 	if runtime.Done() != nil {
 		t.Fatal("Done() != nil")

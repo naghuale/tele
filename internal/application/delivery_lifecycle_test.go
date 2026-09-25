@@ -69,16 +69,21 @@ func (s *h5bComposerStub) SubmitMessage(
 }
 
 type h5bRuntime struct {
-	submitter ComposerMessageSubmitter
-	done      chan struct{}
-	err       error
-	closeErr  error
-	closeOnce sync.Once
-	order     *[]string
+	submitter    ComposerMessageSubmitter
+	statusSource MessageStatusSource
+	done         chan struct{}
+	err          error
+	closeErr     error
+	closeOnce    sync.Once
+	order        *[]string
 }
 
 func (r *h5bRuntime) Submitter() ComposerMessageSubmitter {
 	return r.submitter
+}
+
+func (r *h5bRuntime) StatusSource() MessageStatusSource {
+	return r.statusSource
 }
 
 func (r *h5bRuntime) Done() <-chan struct{} {

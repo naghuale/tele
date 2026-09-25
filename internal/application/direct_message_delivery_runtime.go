@@ -27,6 +27,11 @@ func (r *DirectMessageDeliveryRuntime) StatusSource() MessageStatusSource {
 	return nil
 }
 
+// HealthSource reports that direct submission has no durable runtime health.
+func (r *DirectMessageDeliveryRuntime) HealthSource() MessageDeliveryHealthSource {
+	return nil
+}
+
 func (r *DirectMessageDeliveryRuntime) Done() <-chan struct{} {
 	return nil
 }

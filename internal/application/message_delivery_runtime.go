@@ -11,6 +11,7 @@ import (
 type MessageDeliveryRuntime interface {
 	Submitter() ComposerMessageSubmitter
 	StatusSource() MessageStatusSource
+	HealthSource() MessageDeliveryHealthSource
 	Done() <-chan struct{}
 	Err() error
 	Close() error

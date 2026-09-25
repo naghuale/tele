@@ -27,6 +27,7 @@ type DurableOutboxRuntimeDeps struct {
 type DurableOutboxRuntime struct {
 	submitter    ComposerMessageSubmitter
 	statusSource MessageStatusSource
+	healthSource MessageDeliveryHealthSource
 	opened       *outbox.Outbox
 
 	dispatcherCancel context.CancelFunc
@@ -37,6 +38,7 @@ type DurableOutboxRuntime struct {
 	mu            sync.Mutex
 	dispatcherErr error
 	closeErr      error
+	healthState   MessageDeliveryHealthState
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -152,6 +154,13 @@ func openDurableOutboxRuntime(
 		))
 	}
 
+	operationalReader, ok := opened.Store.(outbox.OperationalSnapshotReader)
+	if !ok {
+		return cleanup(errors.New(
+			"durable outbox runtime: opened store does not support operational snapshots",
+		))
+	}
+
 	queue, err := NewOutboxMessageSubmitter(
 		opened.Store,
 		deps.Clock,
@@ -169,6 +178,11 @@ func openDurableOutboxRuntime(
 		dispatcherDone: make(chan struct{}),
 		closed:         make(chan struct{}),
 		closeOutbox:    factory.closeOutbox,
+		healthState:    MessageDeliveryHealthStarting,
+	}
+	runtime.healthSource = &durableMessageDeliveryHealthSource{
+		runtime: runtime,
+		reader:  operationalReader,
 	}
 
 	composer, err := NewDurableComposerSubmitter(queue, &runtime.available)
@@ -180,6 +194,7 @@ func openDurableOutboxRuntime(
 	dispatcherCtx, cancel := context.WithCancel(ctx)
 	runtime.dispatcherCancel = cancel
 	runtime.available.Store(true)
+	runtime.transitionMessageDeliveryHealth(MessageDeliveryHealthRunning)
 	go runtime.runDispatcher(
 		dispatcherCtx,
 		factory.runDispatcher,
@@ -214,14 +229,20 @@ func (r *DurableOutboxRuntime) runDispatcher(
 	}()
 
 	err := run(ctx, dispatcher)
-	if errors.Is(err, context.Canceled) &&
-		errors.Is(ctx.Err(), context.Canceled) {
+	canceled := errors.Is(ctx.Err(), context.Canceled)
+	if errors.Is(err, context.Canceled) && canceled {
 		err = nil
 	}
 
 	r.mu.Lock()
 	r.dispatcherErr = err
 	r.mu.Unlock()
+
+	// A dispatcher that returns without an expected cancellation is a
+	// terminal failure even when it reports no error.
+	if !canceled {
+		r.transitionMessageDeliveryHealth(MessageDeliveryHealthFailed)
+	}
 }
 
 func (r *DurableOutboxRuntime) Done() <-chan struct{} {
@@ -261,6 +282,44 @@ func (r *DurableOutboxRuntime) StatusSource() MessageStatusSource {
 	return r.statusSource
 }
 
+func (r *DurableOutboxRuntime) HealthSource() MessageDeliveryHealthSource {
+	if r == nil {
+		return nil
+	}
+	return r.healthSource
+}
+
+func (r *DurableOutboxRuntime) messageDeliveryHealthState() MessageDeliveryHealthState {
+	if r == nil {
+		return ""
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.healthState
+}
+
+// transitionMessageDeliveryHealth applies a lifecycle transition.
+//
+// A rejected transition reports false instead of panicking: an internal
+// invariant violation must not shadow the original runtime error.
+func (r *DurableOutboxRuntime) transitionMessageDeliveryHealth(
+	next MessageDeliveryHealthState,
+) bool {
+	if r == nil {
+		return false
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !validMessageDeliveryHealthTransition(r.healthState, next) {
+		return false
+	}
+	r.healthState = next
+	return true
+}
+
 func (r *DurableOutboxRuntime) Close() error {
 	if r == nil {
 		return nil
@@ -271,6 +330,7 @@ func (r *DurableOutboxRuntime) Close() error {
 
 	r.closeOnce.Do(func() {
 		r.available.Store(false)
+		r.transitionMessageDeliveryHealth(MessageDeliveryHealthStopping)
 		if r.dispatcherCancel != nil {
 			r.dispatcherCancel()
 		}
@@ -289,6 +349,14 @@ func (r *DurableOutboxRuntime) Close() error {
 			wrapRuntimeError("close durable outbox", openedCloseErr),
 		)
 		r.mu.Unlock()
+
+		// A runtime that already failed stays failed: a clean cleanup does
+		// not rewrite the original cause.
+		if r.closeErr != nil {
+			r.transitionMessageDeliveryHealth(MessageDeliveryHealthFailed)
+		} else {
+			r.transitionMessageDeliveryHealth(MessageDeliveryHealthStopped)
+		}
 		close(r.closed)
 	})
 

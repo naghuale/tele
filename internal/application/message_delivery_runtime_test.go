@@ -30,6 +30,7 @@ func (s *h4RecordingComposerSubmitter) SubmitMessage(
 type h4StubRuntime struct {
 	submitter    ComposerMessageSubmitter
 	statusSource MessageStatusSource
+	healthSource MessageDeliveryHealthSource
 	done         <-chan struct{}
 	err          error
 	closeErr     error
@@ -41,6 +42,10 @@ func (r *h4StubRuntime) Submitter() ComposerMessageSubmitter {
 
 func (r *h4StubRuntime) StatusSource() MessageStatusSource {
 	return r.statusSource
+}
+
+func (r *h4StubRuntime) HealthSource() MessageDeliveryHealthSource {
+	return r.healthSource
 }
 
 func (r *h4StubRuntime) Done() <-chan struct{} {

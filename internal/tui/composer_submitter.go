@@ -30,6 +30,12 @@ type ComposerSubmitter interface {
 type Dependencies struct {
 	Source           ChatSource
 	MessageSubmitter ComposerSubmitter
+
+	// MessageStatuses is optional.
+	//
+	// A nil source is the direct delivery mode and disables durable status
+	// polling; a non-nil source enables it.
+	MessageStatuses MessageStatusSource
 }
 
 type composerSubmissionMsg struct {
@@ -56,6 +62,7 @@ func NewModelWithDependencies(
 	}
 	model.ctx = ctx
 	model.submitter = deps.MessageSubmitter
+	model.messageStatuses = deps.MessageStatuses
 	return model, nil
 }
 

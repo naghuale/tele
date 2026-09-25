@@ -44,6 +44,9 @@ type Model struct {
 	ctx       context.Context
 	submitter ComposerSubmitter
 
+	// messageStatuses is nil in direct delivery mode.
+	messageStatuses MessageStatusSource
+
 	chats        []Chat
 	selectedChat int
 	selectedMsg  int

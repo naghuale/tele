@@ -37,6 +37,16 @@ func (m Model) viewConversation() string {
 		}
 	}
 
+	// Durable delivery statuses of the open chat, between history and
+	// composer. The block is empty in direct mode and reads snapshot state
+	// only.
+	if statuses := m.viewMessageStatuses(); statuses != "" {
+		b.WriteString(statuses)
+		b.WriteString("\n")
+		b.WriteString(strings.Repeat("-", minInt(maxInt(m.width, minWidth), 60)))
+		b.WriteString("\n")
+	}
+
 	b.WriteString(strings.Repeat("-", minInt(maxInt(m.width, minWidth), 60)))
 	b.WriteString("\n")
 	b.WriteString(m.viewComposer())
@@ -46,14 +56,6 @@ func (m Model) viewConversation() string {
 		b.WriteString("Sending...\n")
 	case sendStateError:
 		fmt.Fprintf(&b, "Failed to send: %v\n", m.sendErr)
-	}
-
-	// Durable delivery statuses. The block is empty in direct mode and reads
-	// snapshot state only.
-	if statuses := m.viewMessageStatuses(); statuses != "" {
-		b.WriteString("\n")
-		b.WriteString(statuses)
-		b.WriteString("\n")
 	}
 
 	b.WriteString(strings.Repeat("-", minInt(maxInt(m.width, minWidth), 60)))

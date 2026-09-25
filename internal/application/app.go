@@ -41,7 +41,12 @@ type RuntimeFactory func(
 type AuthRunResult struct {
 	Source    tui.ChatSource
 	Submitter tui.ComposerSubmitter
-	Close     func(context.Context) error
+
+	// MessageStatuses is nil in direct delivery mode and non-nil when the
+	// runtime can report durable delivery status metadata.
+	MessageStatuses tui.MessageStatusSource
+
+	Close func(context.Context) error
 }
 
 // Environment is the injection point for tests.
@@ -162,6 +167,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 					tui.Dependencies{
 						Source:           authResult.Source,
 						MessageSubmitter: authResult.Submitter,
+						MessageStatuses:  authResult.MessageStatuses,
 					},
 				)
 			}

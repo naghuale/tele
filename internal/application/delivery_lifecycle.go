@@ -167,8 +167,9 @@ func prepareDeliveryAuthResult(
 	}
 
 	return AuthRunResult{
-		Source:    NewTelegramChatService(session),
-		Submitter: tuiSubmitter,
+		Source:          NewTelegramChatService(session),
+		Submitter:       tuiSubmitter,
+		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)
 			if shutdownCtx == nil {

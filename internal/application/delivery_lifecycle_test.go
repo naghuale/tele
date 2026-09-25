@@ -164,6 +164,9 @@ func TestRunApplicationWiresDirectSubmitterInDirectMode(t *testing.T) {
 	if gotDeps.Durable.KeyProvider != nil {
 		t.Fatal("direct mode supplied durable key provider")
 	}
+	if result.MessageStatuses != nil {
+		t.Fatal("direct mode supplied a message status source")
+	}
 	if err := result.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
@@ -175,7 +178,19 @@ func TestRunApplicationWiresDurableSubmitterInDurableMode(t *testing.T) {
 	cfg := h5bConfig(t)
 	cfg.MessageDelivery.Mode = config.MessageSendModeDurable
 	session := &h5bSession{}
-	runtime := &h5bRuntime{submitter: &h5bComposerStub{}}
+	statusSource := &h6c2aStubStatusSource{
+		listMessageStatuses: func(
+			context.Context,
+			string,
+			int64,
+		) ([]MessageStatus, error) {
+			return nil, nil
+		},
+	}
+	runtime := &h5bRuntime{
+		submitter:    &h5bComposerStub{},
+		statusSource: statusSource,
+	}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 
@@ -208,6 +223,20 @@ func TestRunApplicationWiresDurableSubmitterInDurableMode(t *testing.T) {
 	}
 	if result.Submitter == nil {
 		t.Fatal("AuthRunResult.Submitter = nil")
+	}
+	if result.MessageStatuses == nil {
+		t.Fatal("AuthRunResult.MessageStatuses = nil in durable mode")
+	}
+	statuses, err := result.MessageStatuses.ListMessageStatuses(
+		context.Background(),
+		"account-1",
+		42,
+	)
+	if err != nil {
+		t.Fatalf("ListMessageStatuses() error = %v", err)
+	}
+	if statuses == nil {
+		t.Fatal("ListMessageStatuses() = nil, want non-nil empty slice")
 	}
 	if err := result.Close(context.Background()); err != nil {
 		t.Fatalf("Close() error = %v", err)

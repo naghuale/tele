@@ -39,13 +39,55 @@ check_linker_variable() {
   local variable="$1"
   local file
   local found=""
+  local const_file=""
 
   while IFS= read -r file; do
-    if grep -Eq "^[[:space:]]*var[[:space:]]+${variable}([[:space:]]+string)?[[:space:]]*=" "$file"; then
+    # A const declaration can never be set through -ldflags -X.
+    if grep -Eq \
+      "^[[:space:]]*const[[:space:]]+${variable}([[:space:]]+string)?[[:space:]]*=" \
+      "$file"
+    then
+      const_file="$file"
+      break
+    fi
+
+    # Single declaration: var Name = "default"
+    if grep -Eq \
+      "^[[:space:]]*var[[:space:]]+${variable}([[:space:]]+string)?[[:space:]]*=" \
+      "$file"
+    then
       found="$file"
       break
     fi
+
+    # Grouped declaration inside a var ( ... ) or const ( ... ) block.
+    if awk -v name="$variable" '
+        /^[[:space:]]*var[[:space:]]*\(/ { inblock = "var"; next }
+        /^[[:space:]]*const[[:space:]]*\(/ { inblock = "const"; next }
+        inblock != "" && /^[[:space:]]*\)/ { inblock = ""; next }
+        inblock == "const" && $1 == name { found = "const" }
+        inblock == "var" && $1 == name { found = "var" }
+        END { exit found == "var" ? 0 : 1 }
+      ' "$file"
+    then
+      found="$file"
+      break
+    fi
+
+    if awk -v name="$variable" '
+        /^[[:space:]]*const[[:space:]]*\(/ { inblock = 1; next }
+        inblock && /^[[:space:]]*\)/ { inblock = 0; next }
+        inblock && $1 == name { found = 1 }
+        END { exit found ? 0 : 1 }
+      ' "$file"
+    then
+      const_file="$file"
+      break
+    fi
   done < <(find internal/buildinfo -type f -name '*.go' | sort)
+
+  test -z "$const_file" || \
+    fail "internal/buildinfo.${variable} is declared as const in ${const_file}"
 
   test -n "$found" || \
     fail "linker variable internal/buildinfo.${variable} is not an assignable package variable"
@@ -270,6 +312,7 @@ main() {
   require_command find
   require_command file
   require_command shasum
+  require_command awk
 
   log "Repository"
   require_clean_repository

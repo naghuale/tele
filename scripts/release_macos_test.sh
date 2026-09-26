@@ -91,11 +91,14 @@ load_functions() {
   log() { :; }
   DIST_DIR="$DIST"
   BINARY_NAME="telecli"
+  RELEASE_VERSION="v0.1.0-rc1"
 
   # shellcheck disable=SC1090
   eval "$(extract_function fail)"
   # shellcheck disable=SC1090
   eval "$(extract_function validate_dist_dir)"
+  # shellcheck disable=SC1090
+  eval "$(extract_function package_basename)"
   # shellcheck disable=SC1090
   eval "$(extract_function generated_dist_files)"
   # shellcheck disable=SC1090
@@ -151,13 +154,35 @@ load_functions
 expected='telecli
 telecli.sha256
 telecli.metadata
-RELEASE_NOTES.md'
+RELEASE_NOTES.md
+telecli_0.1.0-rc1_darwin_arm64.tar.gz
+telecli_0.1.0-rc1_darwin_arm64.tar.gz.sha256
+telecli_0.1.0-rc1_darwin_arm64.manifest.json'
 actual="$(generated_dist_files | while IFS= read -r f; do
   printf '%s\n' "$(basename "$f")"
 done)"
 test "$actual" = "$expected" && r=yes || r=no
-check "generated list is exactly the four artifacts" "$r"
+check "generated list covers the binary, notes and package archives" "$r"
 drop_fixture
+
+start "package assets are named from the release version"
+for version in v0.1.0-rc1 v0.2.0; do
+  RELEASE_VERSION="$version"
+  got="$(package_basename)"
+  want="telecli_${version#v}_darwin_arm64"
+  test "$got" = "$want" && r=yes || r=no
+  check "package_basename for $version is $want" "$r"
+done
+RELEASE_VERSION="v0.1.0-rc1"
+
+start "generated list excludes the package directory"
+# rm -f on a directory would fail under set -euo pipefail, and the
+# packager removes the directory itself.
+if generated_dist_files | grep -q "_darwin_arm64$"; then
+  fail "generated list must not contain the package directory"
+else
+  pass "generated list contains no directory entry"
+fi
 
 start "release script no longer removes the whole dist tree"
 if grep -qE 'rm -rf +"?\$?\{?DIST_DIR' "$RELEASE_SCRIPT"; then

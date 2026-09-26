@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/naghuale/tele/schemas/telecli-package-manifest-v1.schema.json",
+  "title": "telecli macOS package manifest",
+  "description": "Manifest of a relocatable telecli macOS package. Schema version 1 pins the TDLib runtime contract that the release gate enforces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "package",
+    "build",
+    "tdlib",
+    "signing",
+    "entrypoints",
+    "components",
+    "files"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "channel", "target"],
+      "properties": {
+        "name": {
+          "const": "telecli"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+        },
+        "channel": {
+          "enum": ["development", "prerelease", "stable"]
+        },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os", "arch"],
+          "properties": {
+            "os": { "const": "darwin" },
+            "arch": { "const": "arm64" }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "commit",
+        "timestamp",
+        "go_version",
+        "cgo_enabled",
+        "trimpath",
+        "vcs_modified"
+      ],
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "go_version": {
+          "type": "string",
+          "pattern": "^go1\\.[0-9]+"
+        },
+        "cgo_enabled": { "const": true },
+        "trimpath": { "const": true },
+        "vcs_modified": { "const": false }
+      }
+    },
+    "tdlib": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "commit",
+        "compatibility",
+        "library",
+        "loader_alias",
+        "source"
+      ],
+      "properties": {
+        "version": { "const": "1.8.67" },
+        "commit": {
+          "const": "ea97bcdd3a15523c58ddfe772b4547187cf5bbeb"
+        },
+        "compatibility": { "const": "verified" },
+        "library": {
+          "type": "string",
+          "pattern": "^lib/libtdjson\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.dylib$"
+        },
+        "loader_alias": {
+          "const": "lib/libtdjson.dylib"
+        },
+        "source": { "const": "packaged" }
+      }
+    },
+    "signing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "package_status",
+        "mach_o_status",
+        "hardened_runtime",
+        "notarized"
+      ],
+      "properties": {
+        "package_status": { "enum": ["unsigned", "developer-id"] },
+        "mach_o_status": { "enum": ["adhoc", "signed"] },
+        "hardened_runtime": { "type": "boolean" },
+        "notarized": { "type": "boolean" }
+      }
+    },
+    "entrypoints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binary"],
+      "properties": {
+        "binary": { "const": "bin/telecli" }
+      }
+    },
+    "components": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/fileEntry" }
+    }
+  },
+  "$defs": {
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "not": { "enum": [""] },
+      "pattern": "^(?!/)(?!.*//)(?!.*\\\\)(?!.*\\x00)(?!.*(^|/)\\.\\.(/|$))[^\\u0000]+$"
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "license", "license_files", "libraries"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "license": { "type": "string", "minLength": 1 },
+        "license_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/relativePath" }
+        },
+        "libraries": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/relativePath" }
+        }
+      }
+    },
+    "fileEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "type"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relativePath" },
+        "type": { "enum": ["file", "symlink"] },
+        "mode": {
+          "type": "string",
+          "pattern": "^0[0-7]{3}$"
+        },
+        "size": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "target": { "$ref": "#/$defs/relativePath" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "file" } } },
+          "then": { "required": ["mode", "size", "sha256"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "symlink" } } },
+          "then": { "required": ["target"] }
+        }
+      ]
+    }
+  }
+}

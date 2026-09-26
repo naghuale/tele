@@ -8,6 +8,12 @@ readonly BUILDINFO_COMMIT_VAR="${BUILDINFO_COMMIT_VAR:-Commit}"
 readonly BUILDINFO_BUILT_VAR="${BUILDINFO_BUILT_VAR:-Date}"
 readonly DIST_DIR="${DIST_DIR:-dist}"
 readonly BINARY_NAME="${BINARY_NAME:-telecli}"
+readonly PACKAGE_SCRIPT="scripts/package_macos.sh"
+readonly PACKAGE_VERIFY_SCRIPT="scripts/verify_package.sh"
+
+# DIST_DIR reaches the packaging scripts as an environment variable, and
+# the default above is only a shell variable until it is exported.
+export DIST_DIR
 
 log() {
   printf '\n===== %s =====\n' "$1"
@@ -55,16 +61,33 @@ validate_dist_dir() {
   printf 'dist dir: %s\n' "$absolute"
 }
 
+# package_basename is the single source of truth for every package asset
+# name, so cleanup and reporting cannot drift apart.
+package_basename() {
+  printf 'telecli_%s_darwin_arm64\n' "${RELEASE_VERSION#v}"
+}
+
 # generated_dist_files lists the files this script owns and may replace.
 #
 # Anything else in DIST_DIR belongs to the operator: release evidence,
 # captured smoke output, local notes. Those files are never removed.
 generated_dist_files() {
+  local package
+  package="$(package_basename)"
+
+  # Only regular files are listed, and every package asset is named from
+  # the current version. A wildcard such as *.manifest.json would let a
+  # release delete the manifest of a different one. The package directory
+  # is removed by the packager itself with rm -rf, and a plain rm -f on a
+  # directory would fail under set -euo pipefail.
   printf '%s\n' \
     "${DIST_DIR}/${BINARY_NAME}" \
     "${DIST_DIR}/${BINARY_NAME}.sha256" \
     "${DIST_DIR}/${BINARY_NAME}.metadata" \
-    "${DIST_DIR}/RELEASE_NOTES.md"
+    "${DIST_DIR}/RELEASE_NOTES.md" \
+    "${DIST_DIR}/${package}.tar.gz" \
+    "${DIST_DIR}/${package}.tar.gz.sha256" \
+    "${DIST_DIR}/${package}.manifest.json"
 }
 
 # preserve_release_evidence records the checksum of a manual smoke report
@@ -431,6 +454,105 @@ verify_dist_ignored() {
   }
 }
 
+# resolve_package_inputs fills in the packager inputs.
+#
+# The TDLib version and commit are read from the Go source of truth rather
+# than repeated here, so the manifest can never disagree with the runtime
+# the binary verifies against. Every value stays overridable for a local
+# probe or a different build machine.
+resolve_package_inputs() {
+  local manifest_source="internal/telegram/manifest.go"
+
+  test -f "$manifest_source" || \
+    fail "TDLib manifest source is missing: $manifest_source"
+
+  # gofmt aligns the assignment, so the spacing before = is not fixed.
+  TDLIB_VERSION="$(
+    awk '/expectedTDLibVersion *= "/ {gsub(/"/, "", $3); print $3}' \
+      "$manifest_source"
+  )"
+  TDLIB_COMMIT="$(
+    awk '/expectedTDLibCommit *= "/ {gsub(/"/, "", $3); print $3}' \
+      "$manifest_source"
+  )"
+
+  test -n "$TDLIB_VERSION" || fail "could not read the pinned TDLib version"
+  test -n "$TDLIB_COMMIT" || fail "could not read the pinned TDLib commit"
+
+  TDLIB_LIBRARY="${TDLIB_LIBRARY:-${TELECLI_TDLIB_LIBRARY:-}}"
+  test -n "$TDLIB_LIBRARY" || \
+    fail "TDLIB_LIBRARY (or TELECLI_TDLIB_LIBRARY) is required"
+  test -f "$TDLIB_LIBRARY" || \
+    fail "TDLib library does not exist: $TDLIB_LIBRARY"
+
+  # The TDLib checkout is inferred from the library location unless it is
+  # given, because the licence notice has to come from the real source.
+  # The library normally sits in <checkout>/build, so the checkout is the
+  # parent of its own directory.
+  if test -z "${TDLIB_SOURCE_DIR:-}"; then
+    TDLIB_SOURCE_DIR="$(cd "$(dirname "$TDLIB_LIBRARY")/.." \
+      2>/dev/null && pwd -P || printf '')"
+  fi
+  test -n "${TDLIB_SOURCE_DIR:-}" || \
+    fail "TDLIB_SOURCE_DIR could not be inferred; set it explicitly"
+  test -f "${TDLIB_SOURCE_DIR}/LICENSE_1_0.txt" || \
+    fail "TDLib licence is missing from ${TDLIB_SOURCE_DIR}; set TDLIB_SOURCE_DIR to the checkout root"
+
+  require_command brew
+  OPENSSL_PREFIX="${OPENSSL_PREFIX:-$(brew --prefix openssl@3)}"
+  ZLIB_PREFIX="${ZLIB_PREFIX:-$(brew --prefix zlib)}"
+
+  # The version comes from the installed formula, not from the ABI name
+  # in libssl.3.dylib, which says nothing about the release.
+  OPENSSL_VERSION="${OPENSSL_VERSION:-$(brew list --versions openssl@3 | awk '{print $2}')}"
+  ZLIB_VERSION="${ZLIB_VERSION:-$(brew list --versions zlib | awk '{print $2}')}"
+
+  test -n "$OPENSSL_VERSION" || fail "could not resolve the OpenSSL version"
+  test -n "$ZLIB_VERSION" || fail "could not resolve the zlib version"
+
+  export TDLIB_VERSION TDLIB_COMMIT TDLIB_LIBRARY TDLIB_SOURCE_DIR
+  export OPENSSL_PREFIX OPENSSL_VERSION ZLIB_PREFIX ZLIB_VERSION
+
+  printf 'tdlib:    %s (%s)\n' "$TDLIB_VERSION" "$TDLIB_COMMIT"
+  printf 'tdlib src: %s\n' "$TDLIB_SOURCE_DIR"
+  printf 'openssl:  %s (%s)\n' "$OPENSSL_VERSION" "$OPENSSL_PREFIX"
+  printf 'zlib:     %s (%s)\n' "$ZLIB_VERSION" "$ZLIB_PREFIX"
+}
+
+# build_relocatable_package produces the self-contained package and
+# verifies it independently.
+#
+# The single-binary artifact stays in DIST_DIR for the existing checks; the
+# package is the redistributable unit and carries its own TDLib runtime.
+build_relocatable_package() {
+  local package
+  local root
+
+  package="$(package_basename)"
+  root="${DIST_DIR}/${package}"
+
+  test -x "$PACKAGE_SCRIPT" || fail "packager is not executable: $PACKAGE_SCRIPT"
+  test -x "$PACKAGE_VERIFY_SCRIPT" || \
+    fail "package verifier is not executable: $PACKAGE_VERIFY_SCRIPT"
+
+  PACKAGE_VERSION="$RELEASE_VERSION" \
+  PACKAGE_CHANNEL="${PACKAGE_CHANNEL:-prerelease}" \
+    ./"$PACKAGE_SCRIPT" || fail "package build failed"
+
+  test -d "$root" || fail "package root was not created: $root"
+  test -f "${DIST_DIR}/${package}.tar.gz" || \
+    fail "package archive was not created"
+
+  # The external manifest, the archive and the archive checksum are part
+  # of the release contract, so they are verified alongside the unpacked
+  # package rather than only after publication.
+  ./"$PACKAGE_VERIFY_SCRIPT" "$root" --dist "$DIST_DIR" || \
+    fail "package verification failed"
+
+  printf 'package: %s\n' "$root"
+  printf 'archive: %s/%s.tar.gz\n' "$DIST_DIR" "$package"
+}
+
 render_release_notes() {
   local template="RELEASE_NOTES_TEMPLATE.md"
   local output="${DIST_DIR}/RELEASE_NOTES.md"
@@ -506,10 +628,22 @@ main() {
   log "Render release notes"
   render_release_notes
 
+  log "Resolve package inputs"
+  resolve_package_inputs
+
+  log "Build relocatable package"
+  build_relocatable_package
+
+  log "Verify preserved release evidence"
+  verify_release_evidence_unchanged
+
   log "Release result"
   printf '%s\n' 'PASS: automated release gate is green'
   printf 'artifact: %s/%s\n' "$DIST_DIR" "$BINARY_NAME"
   printf 'checksum: %s/%s.sha256\n' "$DIST_DIR" "$BINARY_NAME"
+  printf 'package:  %s/%s\n' "$DIST_DIR" "$(package_basename)"
+  printf 'archive:  %s/%s.tar.gz\n' "$DIST_DIR" "$(package_basename)"
+  printf '%s\n' 'NOTE: the package is unsigned; Mach-O files are ad-hoc sealed'
   printf '%s\n' 'MANUAL: direct interactive smoke remains required'
   printf '%s\n' 'MANUAL: durable and fail-closed macOS smoke remain required'
 }

@@ -10,3 +10,7 @@ pr04_tdlib_lifecycle_v3.zip
 
 # Local build output
 dist/
+
+# Python bytecode from the release tooling
+__pycache__/
+*.pyc

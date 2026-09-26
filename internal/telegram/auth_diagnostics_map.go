@@ -48,6 +48,9 @@ func authDiagnosticStateKnown(
 type authDiagnosticEnvelopeHeader struct {
 	Type string `json:"@type"`
 	Code int    `json:"code"`
+	// Message is read only to be compared against the allowlist below.
+	// It is never formatted, logged or returned, and no type carries it.
+	Message string `json:"message"`
 }
 
 // classifyAuthDiagnosticEnvelope names an incoming message and, for an
@@ -84,6 +87,17 @@ func classifyAuthDiagnosticEnvelope(
 	default:
 		return AuthDiagnosticEnvelopeOther, 0
 	}
+}
+
+// authErrorNameOf classifies a refusal carried by an incoming message.
+func authErrorNameOf(message RawMessage) AuthErrorName {
+	var header authDiagnosticEnvelopeHeader
+
+	if err := json.Unmarshal(message, &header); err != nil {
+		return AuthErrorNameUnknown
+	}
+
+	return classifyAuthError(header.Code, header.Message)
 }
 
 // authDiagnosticEnvelopeReportable reports whether an envelope says
@@ -162,6 +176,40 @@ func noRequestResult(state AuthState) AuthDiagnosticResult {
 	}
 
 	return AuthDiagnosticResultNoRequest
+}
+
+// authErrorAllowlist maps a response onto a recognised failure.
+//
+// Both parts must match exactly. The numeric code is included in the
+// comparison on purpose: a code such as 400 covers a class of rejections,
+// and matching on the message alone would claim a specific meaning for
+// every response that happens to carry the same number.
+//
+// The list has a single entry. Every addition is a claim about what a
+// response means and needs its own justification.
+var authErrorAllowlist = map[int]string{
+	400: "PHONE_NUMBER_INVALID",
+}
+
+// classifyAuthError names a refusal, or reports that it is not
+// recognised.
+//
+// The message is compared and discarded. The result is an enum, so
+// nothing that came off the wire can travel with it.
+func classifyAuthError(
+	code int,
+	message string,
+) AuthErrorName {
+	expected, listed := authErrorAllowlist[code]
+	if !listed {
+		return AuthErrorNameUnknown
+	}
+
+	if message != expected {
+		return AuthErrorNameUnknown
+	}
+
+	return AuthErrorNamePhoneNumberInvalid
 }
 
 // answerResult names the outcome of a direct answer.

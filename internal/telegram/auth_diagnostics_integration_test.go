@@ -637,3 +637,196 @@ func TestAuthDiagnosticsDoesNotAttributeUnmatchedIDToPhoneRequest(
 		t.Fatalf("the refusal code was lost:\n%s", got)
 	}
 }
+
+// TestAuthCoordinatorNamesACorrelatedRefusal walks the exact case the
+// investigation needs: a refusal tied to the phone request is named, and
+// the name comes from the response rather than from the code alone.
+func TestAuthCoordinatorNamesACorrelatedRefusal(t *testing.T) {
+	t.Parallel()
+
+	var trace bytes.Buffer
+
+	client := newTestClient(t)
+	sender := &answerSender{
+		client: client,
+		reply: func(id QueryID) RawMessage {
+			return RawMessage(
+				`{"@type":"error","code":400,` +
+					`"message":"PHONE_NUMBER_INVALID",` +
+					`"@extra":"` + string(id) + `"}`,
+			)
+		},
+	}
+
+	feedAuth(t, client, "authorizationStateWaitPhoneNumber")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	_, _ = RunAuthWithClientDiagnostics(
+		ctx,
+		sender,
+		client,
+		traceAuthParams(),
+		&fakeProvider{phone: tracePhone},
+		NewWriterAuthDiagnostics(&trace),
+	)
+
+	got := trace.String()
+
+	want := "request_id=1 request=set_authentication_phone_number " +
+		"result=error code=400 name=phone_number_invalid"
+
+	if !strings.Contains(got, want) {
+		t.Fatalf("trace = %q, want substring %q", got, want)
+	}
+}
+
+// TestAuthCoordinatorLeavesAnUnlistedRefusalUnnamed is the counterpart: a
+// code the allowlist does not list, and a listed code carrying some other
+// message, both stay unknown.
+func TestAuthCoordinatorLeavesAnUnlistedRefusalUnnamed(t *testing.T) {
+	t.Parallel()
+
+	for name, reply := range map[string]func(QueryID) RawMessage{
+		"other message under 400": func(id QueryID) RawMessage {
+			return RawMessage(
+				`{"@type":"error","code":400,` +
+					`"message":"Wrong phone number specified",` +
+					`"@extra":"` + string(id) + `"}`,
+			)
+		},
+		"listed message under another code": func(id QueryID) RawMessage {
+			return RawMessage(
+				`{"@type":"error","code":420,` +
+					`"message":"PHONE_NUMBER_INVALID",` +
+					`"@extra":"` + string(id) + `"}`,
+			)
+		},
+	} {
+		var trace bytes.Buffer
+
+		client := newTestClient(t)
+		sender := &answerSender{client: client, reply: reply}
+
+		feedAuth(t, client, "authorizationStateWaitPhoneNumber")
+
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			300*time.Millisecond,
+		)
+
+		_, _ = RunAuthWithClientDiagnostics(
+			ctx,
+			sender,
+			client,
+			traceAuthParams(),
+			&fakeProvider{phone: tracePhone},
+			NewWriterAuthDiagnostics(&trace),
+		)
+
+		cancel()
+
+		got := trace.String()
+
+		if !strings.Contains(got, "result=error") {
+			t.Fatalf("%s: the refusal was not reported:\n%s", name, got)
+		}
+
+		if strings.Contains(got, "name=phone_number_invalid") {
+			t.Fatalf("%s: an unlisted refusal was named:\n%s", name, got)
+		}
+
+		if !strings.Contains(got, "name=unknown") {
+			t.Fatalf("%s: the refusal was not marked unknown:\n%s", name, got)
+		}
+	}
+}
+
+// TestAuthCoordinatorNamesNothingWithoutAnOwner proves the classification
+// does not appear on an answer that could not be tied to a request.
+func TestAuthCoordinatorNamesNothingWithoutAnOwner(t *testing.T) {
+	t.Parallel()
+
+	var trace bytes.Buffer
+
+	client := newTestClient(t)
+	sender := &answerSender{client: client}
+
+	feedAuth(t, client, "authorizationStateWaitPhoneNumber")
+	feedRaw(t, client,
+		`{"@type":"error","code":400,`+
+			`"message":"PHONE_NUMBER_INVALID",`+
+			`"@extra":"telecli:1:999"}`,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	_, _ = RunAuthWithClientDiagnostics(
+		ctx,
+		sender,
+		client,
+		traceAuthParams(),
+		&fakeProvider{phone: tracePhone},
+		NewWriterAuthDiagnostics(&trace),
+	)
+
+	got := trace.String()
+
+	if !strings.Contains(got, "request_id=0 request=other result=error") {
+		t.Fatalf("the ownerless refusal was not reported:\n%s", got)
+	}
+
+	if strings.Contains(got, "name=") {
+		t.Fatalf("an ownerless refusal was given a name:\n%s", got)
+	}
+}
+
+// TestAuthCoordinatorNeverEmitsTheResponseMessage sweeps the values a real
+// refusal message is likely to contain.
+func TestAuthCoordinatorNeverEmitsTheResponseMessage(t *testing.T) {
+	t.Parallel()
+
+	const refusal = "PHONE_NUMBER_INVALID " + tracePhone
+
+	var trace bytes.Buffer
+
+	client := newTestClient(t)
+	sender := &answerSender{
+		client: client,
+		reply: func(id QueryID) RawMessage {
+			return RawMessage(
+				`{"@type":"error","code":400,"message":"` + refusal +
+					`","@extra":"` + string(id) + `"}`,
+			)
+		},
+	}
+
+	feedAuth(t, client, "authorizationStateWaitPhoneNumber")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	_, _ = RunAuthWithClientDiagnostics(
+		ctx,
+		sender,
+		client,
+		traceAuthParams(),
+		&fakeProvider{phone: tracePhone},
+		NewWriterAuthDiagnostics(&trace),
+	)
+
+	got := trace.String()
+
+	// The message does not match the allowlist, so it must not be named.
+	if strings.Contains(got, "name=phone_number_invalid") {
+		t.Fatalf("a message that does not match was named:\n%s", got)
+	}
+
+	for _, secret := range []string{tracePhone, traceAPIHash, refusal} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("the trace exposed %q:\n%s", secret, got)
+		}
+	}
+}

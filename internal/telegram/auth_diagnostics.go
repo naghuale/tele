@@ -43,6 +43,34 @@ const (
 	AuthDiagnosticStateClosed AuthDiagnosticState = "closed"
 )
 
+// AuthErrorName is a closed set of recognised authorization failures.
+//
+// The value is produced by comparing a response against a narrow
+// allowlist. It is never derived from a numeric error code on its own: a
+// code such as 400 covers a whole class of rejections, so mapping the
+// number would state something the response never said.
+//
+// The type carries no message and has no Error or String method, so a
+// recognised failure cannot be formatted back into anything that came off
+// the wire.
+type AuthErrorName string
+
+const (
+	// AuthErrorNameUnset means no classification applies, which is the
+	// case for an answer that could not be tied to a request.
+	AuthErrorNameUnset AuthErrorName = ""
+
+	// AuthErrorNameUnknown means the response was examined and not
+	// recognised. It is a real answer, not a gap.
+	AuthErrorNameUnknown AuthErrorName = "unknown"
+
+	// AuthErrorNamePhoneNumberInvalid is the single recognised failure.
+	// The allowlist holds one entry on purpose: widening it needs its
+	// own justification, because each entry is a claim about what a
+	// response means.
+	AuthErrorNamePhoneNumberInvalid AuthErrorName = "phone_number_invalid"
+)
+
 // AuthDiagnosticRequest is a closed set of request labels.
 type AuthDiagnosticRequest string
 
@@ -121,14 +149,15 @@ type AuthDiagnostics interface {
 	// Request reports the kind of request the session produced and the
 	// identifier a later answer will be matched against.
 	Request(id AuthDiagnosticRequestID, request AuthDiagnosticRequest)
-	// Result reports the outcome of a request, with a numeric error code
-	// when the answer was a refusal. The error message is never
-	// available here.
+	// Result reports the outcome of a request. A refusal carries its
+	// numeric code and the name of the recognised failure, if any. The
+	// message behind the code is never available here.
 	Result(
 		id AuthDiagnosticRequestID,
 		request AuthDiagnosticRequest,
 		result AuthDiagnosticResult,
 		errorCode int,
+		errorName AuthErrorName,
 	)
 	// Envelope reports an incoming message that carried no correlation
 	// identifier, so it cannot be attributed to a request.
@@ -153,6 +182,7 @@ func (discardAuthDiagnostics) Result(
 	AuthDiagnosticRequest,
 	AuthDiagnosticResult,
 	int,
+	AuthErrorName,
 ) {
 }
 
@@ -224,6 +254,7 @@ func (d *writerAuthDiagnostics) Result(
 	request AuthDiagnosticRequest,
 	result AuthDiagnosticResult,
 	errorCode int,
+	errorName AuthErrorName,
 ) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -237,6 +268,18 @@ func (d *writerAuthDiagnostics) Result(
 
 	if sanitizeAuthDiagnosticResult(result) == AuthDiagnosticResultError {
 		line += fmt.Sprintf(" code=%d", sanitizeAuthDiagnosticErrorCode(errorCode))
+
+		// A name belongs to a request, so it is printed only for an
+		// answer this run can tie to one. A zero identifier means the
+		// request was never recognised, and the refusal of a newer
+		// call site is enforced here rather than left to the caller.
+		if sanitizeAuthDiagnosticRequestID(id) != 0 {
+			if name := sanitizeAuthErrorName(
+				errorName,
+			); name != AuthErrorNameUnset {
+				line += fmt.Sprintf(" name=%s", name)
+			}
+		}
 	}
 
 	_, _ = fmt.Fprintln(d.writer, line)
@@ -326,6 +369,21 @@ func sanitizeAuthDiagnosticEnvelope(
 		return envelope
 	default:
 		return AuthDiagnosticEnvelopeOther
+	}
+}
+
+// sanitizeAuthErrorName collapses anything outside the closed set, so a
+// future caller cannot smuggle a value through the name type.
+func sanitizeAuthErrorName(name AuthErrorName) AuthErrorName {
+	switch name {
+	case AuthErrorNamePhoneNumberInvalid:
+		return AuthErrorNamePhoneNumberInvalid
+	case AuthErrorNameUnknown:
+		return AuthErrorNameUnknown
+	case AuthErrorNameUnset:
+		return AuthErrorNameUnset
+	default:
+		return AuthErrorNameUnknown
 	}
 }
 

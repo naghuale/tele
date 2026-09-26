@@ -224,6 +224,11 @@ func RunAuthWithClientDiagnostics(
 				request, known := pending[queryID]
 				id := diagnosticIDFor(queryID)
 
+				// Classification belongs to a request. An answer with
+				// no owner gets no name, because there is nothing the
+				// name would be about.
+				errorName := AuthErrorNameUnset
+
 				if !known {
 					// The identifier is in our namespace but no
 					// request is pending under it, so the answer has
@@ -231,6 +236,8 @@ func RunAuthWithClientDiagnostics(
 					// owner: this run never sent it.
 					request = AuthDiagnosticRequestOther
 					id = 0
+				} else {
+					errorName = authErrorNameOf(update.Raw)
 				}
 				delete(pending, queryID)
 
@@ -243,6 +250,7 @@ func RunAuthWithClientDiagnostics(
 					request,
 					answerResult(update.Raw, errorCode),
 					errorCode,
+					errorName,
 				)
 			} else if envelope, errorCode := classifyAuthDiagnosticEnvelope(
 				update.Raw,
@@ -349,6 +357,7 @@ func RunAuthWithClientDiagnostics(
 					diagnosticRequestForState(state),
 					noRequestResult(state),
 					0,
+					AuthErrorNameUnset,
 				)
 			} else {
 				requestType := authDiagnosticRequest(request)
@@ -385,6 +394,7 @@ func RunAuthWithClientDiagnostics(
 						requestType,
 						AuthDiagnosticResultError,
 						0,
+						AuthErrorNameUnset,
 					)
 
 					return AuthResult{
@@ -398,6 +408,7 @@ func RunAuthWithClientDiagnostics(
 					requestType,
 					AuthDiagnosticResultSubmitted,
 					0,
+					AuthErrorNameUnset,
 				)
 			}
 			if session.Done() {

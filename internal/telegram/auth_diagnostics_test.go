@@ -47,6 +47,7 @@ func TestAuthDiagnosticsReportsRequestTypeWithoutPayload(t *testing.T) {
 		AuthDiagnosticRequestSetPhoneNumber,
 		AuthDiagnosticResultSubmitted,
 		0,
+		AuthErrorNameUnset,
 	)
 
 	got := output.String()
@@ -84,6 +85,7 @@ func TestAuthDiagnosticsSanitizesUnknownLabels(t *testing.T) {
 		AuthDiagnosticRequest("unsafe-request"),
 		AuthDiagnosticResult("unsafe-result\npassword=secret"),
 		0,
+		AuthErrorNameUnset,
 	)
 
 	got := output.String()
@@ -587,5 +589,227 @@ func TestAuthDiagnosticEnvelopeIgnoresExtraOnAnOK(t *testing.T) {
 
 	if want := "telecli auth trace: envelope=ok\n"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+// ---- error classification -----------------------------------------------
+
+// TestClassifyAuthErrorRecognisesOnlyTheListedResponse is the core
+// property: a response is named only when both its code and its message
+// match the allowlist exactly.
+func TestClassifyAuthErrorRecognisesOnlyTheListedResponse(t *testing.T) {
+	t.Parallel()
+
+	if got := classifyAuthError(400, "PHONE_NUMBER_INVALID"); got !=
+		AuthErrorNamePhoneNumberInvalid {
+		t.Fatalf(
+			"classifyAuthError(400, PHONE_NUMBER_INVALID) = %q, want %q",
+			got,
+			AuthErrorNamePhoneNumberInvalid,
+		)
+	}
+}
+
+// TestClassifyAuthErrorDoesNotTrustTheCodeAlone is the correction that
+// matters: 400 covers a class of rejections, so a different message under
+// the same number must not be named.
+func TestClassifyAuthErrorDoesNotTrustTheCodeAlone(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []string{
+		"",
+		"PHONE_CODE_INVALID",
+		"PHONE_NUMBER_INVALID ",
+		" phone_number_invalid",
+		"phone_number_invalid",
+		"Wrong phone number specified",
+		"PHONE_NUMBER_INVALID\nPHONE_CODE_INVALID",
+		"PHONE_NUMBER_INVALIDX",
+	} {
+		if got := classifyAuthError(400, message); got !=
+			AuthErrorNameUnknown {
+			t.Fatalf(
+				"classifyAuthError(400, %q) = %q, want unknown",
+				message,
+				got,
+			)
+		}
+	}
+}
+
+func TestClassifyAuthErrorDoesNotTrustTheMessageAlone(t *testing.T) {
+	t.Parallel()
+
+	for _, code := range []int{0, 1, 399, 401, 402, 420, 429, -400, 99999} {
+		if got := classifyAuthError(code, "PHONE_NUMBER_INVALID"); got !=
+			AuthErrorNameUnknown {
+			t.Fatalf(
+				"classifyAuthError(%d, PHONE_NUMBER_INVALID) = %q, want unknown",
+				code,
+				got,
+			)
+		}
+	}
+}
+
+func TestClassifyAuthErrorCollapsesUnlistedCodes(t *testing.T) {
+	t.Parallel()
+
+	if got := classifyAuthError(1<<20, "anything"); got !=
+		AuthErrorNameUnknown {
+		t.Fatalf("classifyAuthError() = %q, want unknown", got)
+	}
+}
+
+// TestAuthErrorNameIsAClosedEnum proves a caller cannot smuggle a value
+// through the name type.
+func TestAuthErrorNameIsAClosedEnum(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+
+	diagnostics := NewWriterAuthDiagnostics(&output)
+
+	diagnostics.Result(
+		1,
+		AuthDiagnosticRequestSetPhoneNumber,
+		AuthDiagnosticResultError,
+		400,
+		AuthErrorName("PHONE_NUMBER_INVALID +15550009999"),
+	)
+
+	got := output.String()
+
+	if strings.Contains(got, "15550009999") {
+		t.Fatalf("an untrusted name was formatted: %q", got)
+	}
+
+	if want := "name=unknown\n"; !strings.Contains(got, want) {
+		t.Fatalf("output = %q, want it to end in %q", got, want)
+	}
+}
+
+// TestAuthDiagnosticsPrintsNoNameWithoutARequest proves the
+// classification is not attached to an answer that has no owner.
+func TestAuthDiagnosticsPrintsNoNameWithoutARequest(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+
+	NewWriterAuthDiagnostics(&output).Result(
+		0,
+		AuthDiagnosticRequestOther,
+		AuthDiagnosticResultError,
+		400,
+		AuthErrorNamePhoneNumberInvalid,
+	)
+
+	got := output.String()
+
+	if strings.Contains(got, "name=") {
+		t.Fatalf("an ownerless answer was given a name: %q", got)
+	}
+
+	if !strings.Contains(got, "code=400") {
+		t.Fatalf("the code was lost: %q", got)
+	}
+}
+
+func TestAuthDiagnosticsPrintsNameOnlyForErrors(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+
+	diagnostics := NewWriterAuthDiagnostics(&output)
+
+	diagnostics.Result(
+		1,
+		AuthDiagnosticRequestCheckCode,
+		AuthDiagnosticResultAnswered,
+		0,
+		AuthErrorNameUnset,
+	)
+
+	if got := output.String(); strings.Contains(got, "name=") {
+		t.Fatalf("a success carried a name: %q", got)
+	}
+}
+
+// TestAuthErrorNameHasNoStringer is a structural guarantee, expressed as a
+// test: the classification is an enum, so there is nothing that could
+// format a response message back out.
+func TestAuthErrorNameHasNoStringer(t *testing.T) {
+	t.Parallel()
+
+	var name any = AuthErrorNamePhoneNumberInvalid
+
+	if _, ok := name.(interface{ String() string }); ok {
+		t.Fatal("AuthErrorName must not implement String")
+	}
+
+	if _, ok := name.(error); ok {
+		t.Fatal("AuthErrorName must not implement error")
+	}
+}
+
+// TestAuthDiagnosticsNeverEmitsTheResponseMessage sweeps the values a
+// caller might realistically have in hand.
+func TestAuthDiagnosticsNeverEmitsTheResponseMessage(t *testing.T) {
+	t.Parallel()
+
+	const (
+		apiHash  = "h7-classify-secret"
+		phone    = "+15550009999"
+		code     = "123456"
+		password = "classify-password"
+		note     = "human readable refusal"
+	)
+
+	var output bytes.Buffer
+
+	diagnostics := NewWriterAuthDiagnostics(&output)
+
+	for _, message := range []RawMessage{
+		RawMessage(`{"@type":"error","code":400,"message":"` + note + `"}`),
+		RawMessage(
+			`{"@type":"error","code":400,"message":"PHONE_NUMBER_INVALID",` +
+				`"phone_number":"` + phone + `"}`,
+		),
+		RawMessage(
+			`{"@type":"error","code":400,"api_hash":"` + apiHash + `",` +
+				`"code_value":"` + code + `",` +
+				`"password":"` + password + `"}`,
+		),
+	} {
+		envelope, errorCode := classifyAuthDiagnosticEnvelope(message)
+
+		diagnostics.Result(
+			1,
+			AuthDiagnosticRequestSetPhoneNumber,
+			answerResult(message, errorCode),
+			errorCode,
+			authErrorNameOf(message),
+		)
+
+		if envelope != AuthDiagnosticEnvelopeError {
+			t.Fatalf("fixture was not an error: %s", message)
+		}
+	}
+
+	got := output.String()
+
+	for _, secret := range []string{apiHash, phone, code, password, note} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("the trace exposed %q:\n%s", secret, got)
+		}
+	}
+
+	// The recognised entry is named, the others are not.
+	if strings.Count(got, "name=phone_number_invalid") != 1 {
+		t.Fatalf("the listed response was not named exactly once:\n%s", got)
+	}
+
+	if strings.Count(got, "name=unknown") != 2 {
+		t.Fatalf("the unlisted responses were not marked unknown:\n%s", got)
 	}
 }

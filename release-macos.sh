@@ -22,6 +22,95 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "required command is missing: $1"
 }
 
+# validate_dist_dir refuses a distribution directory that a targeted
+# cleanup could damage.
+#
+# The script deletes named files inside DIST_DIR rather than the whole
+# tree, so a mistyped or empty value would still be able to remove
+# something outside the project. The guard makes the safe set explicit.
+validate_dist_dir() {
+  test -n "$DIST_DIR" || fail "DIST_DIR is empty"
+
+  case "$DIST_DIR" in
+    /|"$HOME"|"."|..|/*/../*)
+      fail "unsafe DIST_DIR: $DIST_DIR"
+      ;;
+  esac
+
+  local absolute
+  absolute="$(cd "$DIST_DIR" 2>/dev/null && pwd -P || printf '%s' "$DIST_DIR")"
+
+  case "$absolute" in
+    /|"$HOME")
+      fail "unsafe DIST_DIR: $absolute"
+      ;;
+  esac
+
+  local repo_root
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
+  if test -n "$repo_root" && test "$absolute" = "$repo_root"; then
+    fail "DIST_DIR must not be the repository root"
+  fi
+
+  printf 'dist dir: %s\n' "$absolute"
+}
+
+# generated_dist_files lists the files this script owns and may replace.
+#
+# Anything else in DIST_DIR belongs to the operator: release evidence,
+# captured smoke output, local notes. Those files are never removed.
+generated_dist_files() {
+  printf '%s\n' \
+    "${DIST_DIR}/${BINARY_NAME}" \
+    "${DIST_DIR}/${BINARY_NAME}.sha256" \
+    "${DIST_DIR}/${BINARY_NAME}.metadata" \
+    "${DIST_DIR}/RELEASE_NOTES.md"
+}
+
+# preserve_release_evidence records the checksum of a manual smoke report
+# so the build can prove it did not touch it.
+preserve_release_evidence() {
+  manual_report="$(
+    find "$DIST_DIR" \
+      -maxdepth 1 \
+      -type f \
+      -name 'MANUAL_SMOKE_REPORT_*.md' \
+      -print \
+      -quit 2>/dev/null || true
+  )"
+
+  if test -z "$manual_report"; then
+    printf 'manual smoke report: none found\n'
+    return 0
+  fi
+
+  evidence_checksum="$(
+    shasum -a 256 "$manual_report" | awk '{print $1}'
+  )"
+
+  printf 'manual smoke report: %s\n' "$manual_report"
+  printf 'evidence checksum:    %s\n' "$evidence_checksum"
+}
+
+# verify_release_evidence_unchanged fails when a manual smoke report was
+# modified during the build.
+verify_release_evidence_unchanged() {
+  if test -z "${manual_report:-}"; then
+    return 0
+  fi
+
+  test -f "$manual_report" || \
+    fail "manual smoke report disappeared: $manual_report"
+
+  local after
+  after="$(shasum -a 256 "$manual_report" | awk '{print $1}')"
+
+  test "$after" = "$evidence_checksum" || \
+    fail "manual smoke report changed during release build"
+
+  printf 'PASS: manual smoke report is unchanged\n'
+}
+
 require_clean_repository() {
   local branch
   branch="$(git branch --show-current)"
@@ -192,8 +281,12 @@ build_artifact() {
   ldflags+=" -X ${buildinfo_path}.${BUILDINFO_COMMIT_VAR}=${commit}"
   ldflags+=" -X ${buildinfo_path}.${BUILDINFO_BUILT_VAR}=${built}"
 
-  rm -rf "$DIST_DIR"
+  # Only the files this script generates are removed. Release evidence
+  # and operator files in DIST_DIR survive every build.
   mkdir -p "$DIST_DIR"
+  generated_dist_files | while IFS= read -r generated; do
+    rm -f -- "$generated"
+  done
 
   CGO_ENABLED=1 go build \
     -trimpath \
@@ -285,6 +378,27 @@ verify_checksum() {
   printf 'PASS: checksum verified: %s\n' "$actual"
 }
 
+# verify_configure_commands checks that the shipped artifact exposes the
+# setup workflow.
+#
+# Only the help output is inspected. An interactive configure, a real
+# credential prompt and configure reset against a live profile are never
+# run from a release script.
+verify_configure_commands() {
+  local binary="${DIST_DIR}/${BINARY_NAME}"
+
+  "$binary" configure --help >/dev/null || \
+    fail "configure --help failed"
+
+  "$binary" configure status --help >/dev/null || \
+    fail "configure status --help failed"
+
+  "$binary" configure reset --help >/dev/null || \
+    fail "configure reset --help failed"
+
+  printf 'PASS: configure, configure status and configure reset respond\n'
+}
+
 verify_dist_ignored() {
   git check-ignore -q "${DIST_DIR}/${BINARY_NAME}" || \
     fail "release binary is not ignored"
@@ -337,6 +451,7 @@ main() {
   require_command awk
 
   log "Repository"
+  validate_dist_dir
   require_clean_repository
   printf 'branch:  %s\n' "$(git branch --show-current)"
   printf 'HEAD:    %s\n' "$(git rev-parse --short=12 HEAD)"
@@ -351,6 +466,9 @@ main() {
   log "macOS Keychain C3b gate"
   run_macos_c3b_gate
 
+  log "Preserve release evidence"
+  preserve_release_evidence
+
   log "Build release artifact"
   build_artifact
 
@@ -362,6 +480,12 @@ main() {
 
   log "Verify ignored artifacts"
   verify_dist_ignored
+
+  log "Verify preserved release evidence"
+  verify_release_evidence_unchanged
+
+  log "Verify configure subcommands"
+  verify_configure_commands
 
   log "Render release notes"
   render_release_notes

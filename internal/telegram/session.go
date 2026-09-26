@@ -82,6 +82,15 @@ func Authorize(
 		return nil, err
 	}
 
+	// Safe logging must be installed before any credential-bearing
+	// request. TDLib defaults to verbosity level 5 and dumps every
+	// incoming request, including the api_hash inside
+	// setTdlibParameters. Startup fails closed when the verbosity
+	// cannot be lowered.
+	if err := rt.ConfigureSafeLogging(); err != nil {
+		return nil, err
+	}
+
 	client, err := rt.NewClient()
 	if err != nil {
 		return nil, fmt.Errorf("session: create client: %w", err)

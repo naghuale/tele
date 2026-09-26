@@ -74,6 +74,14 @@ func RunAuth(
 		return AuthResult{}, err
 	}
 
+	// Safe logging must be installed before any credential-bearing
+	// request, including the setTdlibParameters built by the
+	// coordinator. Startup fails closed when the verbosity cannot be
+	// lowered.
+	if err := rt.ConfigureSafeLogging(); err != nil {
+		return AuthResult{}, err
+	}
+
 	client, err := rt.NewClient()
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("auth: create client: %w", err)

@@ -400,14 +400,30 @@ verify_configure_commands() {
 }
 
 verify_dist_ignored() {
-  git check-ignore -q "${DIST_DIR}/${BINARY_NAME}" || \
-    fail "release binary is not ignored"
+  local repo_root
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
 
-  git check-ignore -q "${DIST_DIR}/${BINARY_NAME}.sha256" || \
-    fail "checksum file is not ignored"
+  # The ignore rules only describe paths inside the repository. When
+  # DIST_DIR points elsewhere the check has nothing to say, so it is
+  # skipped instead of failing a legitimate out-of-tree build.
+  if test -n "$repo_root"; then
+    case "$(cd "$DIST_DIR" 2>/dev/null && pwd -P || printf '%s' "$DIST_DIR")" in
+      "$repo_root"|"$repo_root"/*)
+        git check-ignore -q "${DIST_DIR}/${BINARY_NAME}" || \
+          fail "release binary is not ignored"
 
-  git check-ignore -q "${DIST_DIR}/${BINARY_NAME}.metadata" || \
-    fail "metadata file is not ignored"
+        git check-ignore -q "${DIST_DIR}/${BINARY_NAME}.sha256" || \
+          fail "checksum file is not ignored"
+
+        git check-ignore -q "${DIST_DIR}/${BINARY_NAME}.metadata" || \
+          fail "metadata file is not ignored"
+        ;;
+      *)
+        printf 'dist dir is outside the repository; ' \
+          'ignore rules do not apply\n'
+        ;;
+    esac
+  fi
 
   test -z "$(git status --porcelain)" || {
     git status --short

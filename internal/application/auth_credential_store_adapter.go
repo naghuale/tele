@@ -69,8 +69,8 @@ func projectCredentialError(operation string, err error) error {
 
 	case errors.Is(err, authstore.ErrStoreUnavailable):
 		return fmt.Errorf(
-			"%w: %s profile: platform store unavailable",
-			ErrTelegramCredentialProfileUnavailable,
+			"%w: %s profile",
+			ErrTelegramCredentialStoreUnavailable,
 			operation,
 		)
 

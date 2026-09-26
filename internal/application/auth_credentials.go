@@ -124,10 +124,21 @@ var (
 	ErrTelegramCredentialsInvalid = errors.New(
 		"Telegram credentials invalid",
 	)
-	// ErrTelegramCredentialProfileUnavailable reports that a profile was
-	// configured but no credential store can serve it yet.
+	// ErrTelegramCredentialProfileUnavailable reports that the
+	// configured profile cannot be served, for example because no such
+	// profile exists.
 	ErrTelegramCredentialProfileUnavailable = errors.New(
 		"Telegram credential profile unavailable",
+	)
+	// ErrTelegramCredentialStoreUnavailable reports that the platform
+	// has no credential store at all.
+	//
+	// It is deliberately distinct from
+	// ErrTelegramCredentialProfileUnavailable: a missing profile is a
+	// user-fixable setup problem, while a missing backend is a build or
+	// platform problem, and the two need different guidance.
+	ErrTelegramCredentialStoreUnavailable = errors.New(
+		"Telegram credential store unavailable",
 	)
 )
 
@@ -277,28 +288,11 @@ func (r TelegramCredentialResolver) resolveFromProfile(
 		profile,
 	)
 	if err != nil {
-		if errors.Is(err, ErrTelegramCredentialProfileUnavailable) {
-			return ResolvedTelegramCredentials{
-				Availability: AuthAvailabilityInvalid,
-				Source:       AuthCredentialSourceProfile,
-				Reason:       "credential profile store unavailable",
-			}, fmt.Errorf(
-				"%w: profile %q: %w",
-				ErrTelegramCredentialProfileUnavailable,
-				profile,
-				err,
-			)
-		}
-
 		return ResolvedTelegramCredentials{
 			Availability: AuthAvailabilityInvalid,
 			Source:       AuthCredentialSourceProfile,
-			Reason:       "credential profile could not be loaded",
-		}, fmt.Errorf(
-			"%w: profile %q could not be loaded",
-			ErrTelegramCredentialsInvalid,
-			profile,
-		)
+			Reason:       credentialFailureReason(err),
+		}, credentialFailureError(profile, err)
 	}
 
 	if strings.TrimSpace(secrets.APIHash) == "" {
@@ -322,6 +316,44 @@ func (r TelegramCredentialResolver) resolveFromProfile(
 			Phone:   strings.TrimSpace(secrets.Phone),
 		},
 	}, nil
+}
+
+// credentialFailureReason describes why a profile could not be served
+// without repeating any backend text.
+func credentialFailureReason(err error) string {
+	switch {
+	case errors.Is(err, ErrTelegramCredentialStoreUnavailable):
+		return "no platform credential store"
+	case errors.Is(err, ErrTelegramCredentialProfileUnavailable):
+		return "credential profile is not stored"
+	default:
+		return "credential profile could not be loaded"
+	}
+}
+
+// credentialFailureError keeps the application sentinel and drops the
+// backend message.
+func credentialFailureError(profile string, err error) error {
+	switch {
+	case errors.Is(err, ErrTelegramCredentialStoreUnavailable):
+		return fmt.Errorf(
+			"%w: profile %q",
+			ErrTelegramCredentialStoreUnavailable,
+			profile,
+		)
+	case errors.Is(err, ErrTelegramCredentialProfileUnavailable):
+		return fmt.Errorf(
+			"%w: profile %q",
+			ErrTelegramCredentialProfileUnavailable,
+			profile,
+		)
+	default:
+		return fmt.Errorf(
+			"%w: profile %q could not be loaded",
+			ErrTelegramCredentialsInvalid,
+			profile,
+		)
+	}
 }
 
 func invalidCredentials(reason string) (
@@ -349,6 +381,6 @@ func (unavailableTelegramCredentialStore) LoadTelegramCredentials(
 ) (TelegramProfileCredentials, error) {
 	return TelegramProfileCredentials{}, fmt.Errorf(
 		"%w: no platform credential store is available yet",
-		ErrTelegramCredentialProfileUnavailable,
+		ErrTelegramCredentialStoreUnavailable,
 	)
 }

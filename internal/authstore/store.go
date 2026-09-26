@@ -71,6 +71,14 @@ var credentialProfilePattern = regexp.MustCompile(
 	`^[A-Za-z0-9._-]{1,64}$`,
 )
 
+// ValidateProfileName rejects unusable profile names.
+//
+// It is exported so the setup flow can validate an answer before any
+// platform call happens.
+func ValidateProfileName(profile string) error {
+	return validateProfileName(profile)
+}
+
 // validateProfileName rejects unusable profile names before any platform
 // call happens.
 func validateProfileName(profile string) error {

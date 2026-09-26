@@ -58,6 +58,10 @@ type Environment struct {
 	Stdout io.Writer
 	Stderr io.Writer
 
+	// Stdin supplies answers for interactive setup. A nil value uses
+	// os.Stdin, which is what the real CLI does; tests inject a buffer.
+	Stdin io.Reader
+
 	RunTUI              func(tui.ChatSource) error
 	RunTUIWithSubmitter func(context.Context, tui.Dependencies) error
 
@@ -223,6 +227,9 @@ func Main(args []string, env Environment) int {
 	if env.Stdout == nil {
 		env.Stdout = os.Stdout
 	}
+	if env.Stdin == nil {
+		env.Stdin = os.Stdin
+	}
 	if env.Stderr == nil {
 		env.Stderr = os.Stderr
 	}
@@ -258,6 +265,8 @@ func Main(args []string, env Environment) int {
 		return 0
 	case "doctor":
 		return runDoctor(args[2:], env)
+	case "configure":
+		return runConfigure(args[2:], env)
 	case "tui":
 		return runTUI(args[2:], env)
 	default:
@@ -273,6 +282,9 @@ func printHelp(w io.Writer) {
 Usage:
   telecli --help
   telecli version
+  telecli configure [--config path] [--mode direct|durable]
+  telecli configure status
+  telecli configure reset
   telecli doctor [--config path]
   telecli tui    [--config path]
 

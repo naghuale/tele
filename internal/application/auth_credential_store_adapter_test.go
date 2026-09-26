@@ -150,7 +150,7 @@ func TestCredentialStoreAdapterMapsBackendSentinels(t *testing.T) {
 		{
 			name:    "store unavailable",
 			backend: authstore.ErrStoreUnavailable,
-			want:    ErrTelegramCredentialProfileUnavailable,
+			want:    ErrTelegramCredentialStoreUnavailable,
 		},
 		{
 			name:    "invalid profile",

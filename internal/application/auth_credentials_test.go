@@ -437,8 +437,8 @@ func TestTelegramCredentialResolverRejectsConfiguredProfileWithoutStore(
 		context.Background(),
 		completeAuthConfig(),
 	)
-	if !errors.Is(err, ErrTelegramCredentialProfileUnavailable) {
-		t.Fatalf("error = %v, want ErrTelegramCredentialProfileUnavailable", err)
+	if !errors.Is(err, ErrTelegramCredentialStoreUnavailable) {
+		t.Fatalf("error = %v, want ErrTelegramCredentialStoreUnavailable", err)
 	}
 	if resolved.Availability != AuthAvailabilityInvalid {
 		t.Fatalf("availability = %v, want invalid", resolved.Availability)

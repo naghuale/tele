@@ -411,3 +411,102 @@ func countEvent(events []string, want string) int {
 	}
 	return count
 }
+
+// TestAuthSessionDeduplicatesPushThenDirectWaitTdlibParameters proves the
+// observation order does not matter: a pushed update followed by the
+// direct response still yields exactly one request.
+func TestAuthSessionDeduplicatesPushThenDirectWaitTdlibParameters(
+	t *testing.T,
+) {
+	session := NewAuthSession(validAuthParams())
+
+	push, err := ParseAuthUpdate(
+		[]byte(
+			`{"@type":"updateAuthorizationState",` +
+				`"authorization_state":` +
+				`{"@type":"authorizationStateWaitTdlibParameters"}}`,
+		),
+	)
+	if err != nil {
+		t.Fatalf("parse push state: %v", err)
+	}
+
+	direct, err := ParseAuthUpdate(
+		[]byte(`{"@type":"authorizationStateWaitTdlibParameters"}`),
+	)
+	if err != nil {
+		t.Fatalf("parse direct state: %v", err)
+	}
+
+	requests := 0
+	for i, state := range []AuthState{push, direct} {
+		request, err := session.Step(state, AuthInput{})
+		if err != nil {
+			t.Fatalf("Step %d: %v", i, err)
+		}
+		if request == nil {
+			continue
+		}
+		if got := requestType(request); got != "setTdlibParameters" {
+			t.Fatalf("Step %d request type = %q", i, got)
+		}
+		requests++
+	}
+
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1", requests)
+	}
+}
+
+// TestAuthorizationClientSendsTdlibParametersOnceForDirectAndPushState
+// is the end-to-end contract: exactly one verbosity request, exactly one
+// parameters request, and the logging configuration strictly before the
+// credential-bearing request.
+func TestAuthorizationClientSendsTdlibParametersOnceForDirectAndPushState(
+	t *testing.T,
+) {
+	native := newRecordingNative()
+	scriptHappyPath(native, true)
+	runtime := newStartedRecordingRuntime(t, native)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		5*time.Second,
+	)
+	defer cancel()
+
+	if _, err := Authorize(
+		ctx,
+		runtime,
+		validAuthParams(),
+		&fakeProvider{
+			phone:    "+10000000000",
+			code:     "12345",
+			password: "pw",
+		},
+	); err != nil {
+		t.Fatalf(
+			"Authorize: %v; events = %v",
+			err,
+			native.recordedEvents(),
+		)
+	}
+
+	events := native.recordedEvents()
+
+	if got := countEvent(events, "execute:setLogVerbosityLevel"); got != 1 {
+		t.Fatalf("setLogVerbosityLevel calls = %d, want 1", got)
+	}
+	if got := countEvent(events, "send:setTdlibParameters"); got != 1 {
+		t.Fatalf("setTdlibParameters calls = %d, want 1", got)
+	}
+
+	verbosityAt := indexOfEvent(events, "execute:setLogVerbosityLevel")
+	parametersAt := indexOfEvent(events, "send:setTdlibParameters")
+	if verbosityAt >= parametersAt {
+		t.Fatalf(
+			"TDLib logging configured after the parameters request; events = %v",
+			events,
+		)
+	}
+}

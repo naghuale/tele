@@ -15,14 +15,15 @@ import (
 // recordingNative records the exact order of every TDLib interaction so
 // ordering invariants can be asserted.
 type recordingNative struct {
-	mu         sync.Mutex
-	events     []string
-	requests   [][]byte
-	responses  [][]byte
-	executeErr error
-	receive    chan []byte
-	onSend     func(kind string, raw []byte)
-	clientID   int
+	mu            sync.Mutex
+	events        []string
+	requests      [][]byte
+	responses     [][]byte
+	executeErr    error
+	emptyResponse bool
+	receive       chan []byte
+	onSend        func(kind string, raw []byte)
+	clientID      int
 }
 
 func newRecordingNative() *recordingNative {
@@ -70,6 +71,9 @@ func (n *recordingNative) Execute(request []byte) ([]byte, error) {
 	n.record("execute:"+requestType(request), request)
 	if n.executeErr != nil {
 		return nil, n.executeErr
+	}
+	if n.emptyResponse {
+		return nil, nil
 	}
 	n.mu.Lock()
 	n.responses = append(n.responses, append([]byte(nil), request...))
@@ -596,6 +600,56 @@ func assertSecretAbsent(
 	for _, event := range native.recordedEvents() {
 		if strings.Contains(event, secret) {
 			t.Fatalf("secret leaked into an event name: %s", event)
+		}
+	}
+}
+
+// TestProductionSessionRejectsEmptyLogConfigurationResponse pins the
+// fail-closed contract for an empty synchronous response. A native layer
+// that returns no payload is misbehaving, and continuing would leave
+// TDLib at its default verbosity.
+func TestProductionSessionRejectsEmptyLogConfigurationResponse(t *testing.T) {
+	native := newRecordingNative()
+	native.emptyResponse = true
+	runtime := newStartedRecordingRuntime(t, native)
+
+	err := runtime.ConfigureSafeLogging()
+	if err == nil {
+		t.Fatal("ConfigureSafeLogging() error = nil, want non-nil")
+	}
+	if !errors.Is(err, ErrTDLibLogConfiguration) {
+		t.Fatalf("error = %v, want ErrTDLibLogConfiguration", err)
+	}
+}
+
+// TestProductionLoggingFailureDoesNotExposeAuthCredentials proves the
+// startup error text never carries credential values.
+//
+// The secrets are deliberately not included in failure messages.
+func TestProductionLoggingFailureDoesNotExposeAuthCredentials(t *testing.T) {
+	const secretHash = "h7-security-test-api-hash"
+	const secretPhone = "+15550009999"
+
+	params := validAuthParams()
+	params.APIHash = secretHash
+
+	native := newRecordingNative()
+	native.executeErr = errors.New("native execute failed")
+	runtime := newStartedRecordingRuntime(t, native)
+
+	_, err := Authorize(
+		context.Background(),
+		runtime,
+		params,
+		&fakeProvider{phone: secretPhone},
+	)
+	if err == nil {
+		t.Fatal("Authorize() error = nil, want non-nil")
+	}
+
+	for _, secret := range []string{secretHash, secretPhone} {
+		if strings.Contains(err.Error(), secret) {
+			t.Fatal("startup error contains a credential value")
 		}
 	}
 }

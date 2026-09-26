@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/BurntSushi/toml"
 )
 
 // TDLib holds runtime library discovery and lifecycle timeouts.
@@ -24,11 +22,29 @@ type MessageDeliveryConfig struct {
 	InstanceID string          `toml:"instance_id"`
 }
 
+// AuthConfig holds the non-secret part of the Telegram application
+// configuration.
+//
+// Secrets are never stored in the config file: APIHash and Phone are
+// resolved from a credential store under CredentialProfile. Only the
+// non-secret API ID and the profile selector live here.
+type AuthConfig struct {
+	APIID             int    `toml:"api_id"`
+	CredentialProfile string `toml:"credential_profile"`
+}
+
+// Configured reports whether the config selects a Telegram application
+// at all. A zero value means the user never ran the setup flow.
+func (a AuthConfig) Configured() bool {
+	return a.APIID != 0 || a.CredentialProfile != ""
+}
+
 // Config is the validated telecli configuration.
 type Config struct {
 	LogLevel        string                `toml:"log_level"`
 	DataDir         string                `toml:"data_dir"`
 	TDLib           TDLib                 `toml:"tdlib"`
+	Auth            AuthConfig            `toml:"auth"`
 	MessageDelivery MessageDeliveryConfig `toml:"message_delivery"`
 }
 
@@ -49,44 +65,6 @@ func Default() Config {
 			Mode: DefaultMessageSendMode,
 		},
 	}
-}
-
-// Load returns a validated configuration.
-func Load(path string) (Config, error) {
-	cfg := Default()
-
-	if path == "" {
-		if err := cfg.Validate(); err != nil {
-			return Config{}, err
-		}
-		return cfg, nil
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("read config: %w", err)
-	}
-
-	md, err := toml.Decode(string(data), &cfg)
-	if err != nil {
-		return Config{}, fmt.Errorf("parse config: %w", err)
-	}
-
-	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		return Config{}, fmt.Errorf("unknown config keys: %v", undecoded)
-	}
-
-	mode, err := ParseMessageSendMode(string(cfg.MessageDelivery.Mode))
-	if err != nil {
-		return Config{}, fmt.Errorf("parse message delivery mode: %w", err)
-	}
-	cfg.MessageDelivery.Mode = mode
-
-	if err := cfg.Validate(); err != nil {
-		return Config{}, err
-	}
-
-	return cfg, nil
 }
 
 // Validate checks the configuration.

@@ -261,7 +261,26 @@ Usage:
   telecli version
   telecli doctor [--config path]
   telecli tui    [--config path]
+
+Configuration is read from --config, then TELECLI_CONFIG, then
+`+"`$XDG_CONFIG_HOME/telecli/config.toml`"+` (or the platform equivalent),
+then built-in defaults.
 `)
+}
+
+// loadCommandConfig resolves and loads the configuration for a
+// subcommand.
+//
+// Precedence is --config, then TELECLI_CONFIG, then the per-user config
+// file, then the built-in defaults. An explicit or environment path that
+// does not exist is an error rather than a silent fallback.
+func loadCommandConfig(explicitPath string) (config.Config, error) {
+	resolved, err := config.ResolvePath(explicitPath)
+	if err != nil {
+		return config.Config{}, err
+	}
+
+	return config.LoadResolved(resolved)
 }
 
 func runDoctor(args []string, env Environment) int {
@@ -272,7 +291,7 @@ func runDoctor(args []string, env Environment) int {
 		return 2
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := loadCommandConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -306,7 +325,7 @@ func runTUI(args []string, env Environment) int {
 		return 2
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	cfg, err := loadCommandConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1

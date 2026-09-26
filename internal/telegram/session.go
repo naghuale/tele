@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -104,7 +105,18 @@ func Authorize(
 		)
 	}
 
-	result, err := RunAuthWithClient(ctx, rt, client, params, provider)
+	// The diagnostics write to stderr and stay completely silent unless
+	// TELECLI_AUTH_TRACE is set, so a normal session is unchanged. They
+	// are attached here because this is the only production path that
+	// runs the authorization handshake.
+	result, err := RunAuthWithClientDiagnostics(
+		ctx,
+		rt,
+		client,
+		params,
+		provider,
+		NewEnvironmentAuthDiagnostics(os.Stderr),
+	)
 	if err != nil {
 		return nil, closeFailedAuthorization(rt, client, err)
 	}

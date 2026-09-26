@@ -128,6 +128,31 @@ func RunAuthWithClient(
 	params TdlibParameters,
 	provider AuthProvider,
 ) (AuthResult, error) {
+	return RunAuthWithClientDiagnostics(
+		ctx,
+		sender,
+		client,
+		params,
+		provider,
+		DiscardAuthDiagnostics(),
+	)
+}
+
+// RunAuthWithClientDiagnostics is RunAuthWithClient with metadata-only
+// authorization diagnostics.
+//
+// The diagnostics receive closed labels only: an observed state, the kind
+// of request the session produced and the local outcome of handing it to
+// the native bridge. No payload, credential or provider answer is ever
+// passed in, so enabling them cannot widen what the process writes.
+func RunAuthWithClientDiagnostics(
+	ctx context.Context,
+	sender AuthSender,
+	client *Client,
+	params TdlibParameters,
+	provider AuthProvider,
+	diagnostics AuthDiagnostics,
+) (AuthResult, error) {
 	if sender == nil {
 		return AuthResult{}, ErrNilRuntime
 	}
@@ -138,10 +163,23 @@ func RunAuthWithClient(
 		return AuthResult{}, ErrNilProvider
 	}
 
+	if diagnostics == nil {
+		diagnostics = DiscardAuthDiagnostics()
+	}
+
 	session := NewAuthSession(params)
 	start := time.Now()
 	updates := client.Updates()
 	runtimeErrors := client.Errors()
+
+	// pending correlates an answer with the request that caused it.
+	//
+	// A request carries a generated identifier in its @extra field, and
+	// TDLib copies it into the answer. Without that, an error arriving
+	// after a phone request could only be guessed onto it, and a guess
+	// is exactly what this trace exists to avoid.
+	var diagnosticSequence AuthDiagnosticRequestID
+	pending := make(map[QueryID]AuthDiagnosticRequest)
 
 	for {
 		select {
@@ -176,6 +214,42 @@ func RunAuthWithClient(
 				}, ErrUpdateChannelGone
 			}
 
+			// An answer that carries one of our identifiers belongs to a
+			// request this run sent, so it is reported against that
+			// request. Anything else is reported as unattributed, and is
+			// never guessed onto the most recent request.
+			if queryID, matched, idErr := responseQueryID(
+				update.Raw,
+			); idErr == nil && matched {
+				request, known := pending[queryID]
+				id := diagnosticIDFor(queryID)
+
+				if !known {
+					// The identifier is in our namespace but no
+					// request is pending under it, so the answer has
+					// no owner. Its own number is not echoed as an
+					// owner: this run never sent it.
+					request = AuthDiagnosticRequestOther
+					id = 0
+				}
+				delete(pending, queryID)
+
+				_, errorCode := classifyAuthDiagnosticEnvelope(
+					update.Raw,
+				)
+
+				diagnostics.Result(
+					id,
+					request,
+					answerResult(update.Raw, errorCode),
+					errorCode,
+				)
+			} else if envelope, errorCode := classifyAuthDiagnosticEnvelope(
+				update.Raw,
+			); authDiagnosticEnvelopeReportable(envelope) {
+				diagnostics.Envelope(envelope, errorCode)
+			}
+
 			state, err := ParseAuthUpdate(update.Raw)
 			if err != nil {
 				return AuthResult{
@@ -183,6 +257,13 @@ func RunAuthWithClient(
 					Elapsed: time.Since(start),
 				}, fmt.Errorf("auth: parse update: %w", err)
 			}
+
+			// Only a state the product acts on is worth a line; the wire
+			// carries many objects that are not authorization states.
+			if label, ok := authDiagnosticStateKnown(state); ok {
+				diagnostics.State(label)
+			}
+
 			if state == AuthStateUnknown {
 				// Non-authorization update.
 				continue
@@ -262,13 +343,62 @@ func RunAuthWithClient(
 					Elapsed: time.Since(start),
 				}, err
 			}
-			if request != nil {
-				if err := sender.Send(client.ID(), request); err != nil {
+			if request == nil {
+				diagnostics.Result(
+					0,
+					diagnosticRequestForState(state),
+					noRequestResult(state),
+					0,
+				)
+			} else {
+				requestType := authDiagnosticRequest(request)
+
+				// The request is tagged so its answer can be matched.
+				// A tagging failure is not fatal: the trace degrades to an
+				// unattributed answer instead of losing the handshake.
+				diagnosticSequence++
+				id := diagnosticSequence
+
+				tagged := request
+				queryID := QueryID(fmt.Sprintf(
+					"%s%d:%d",
+					queryNamespace,
+					client.ID(),
+					id,
+				))
+
+				withID, tagErr := withQueryID(request, queryID)
+				if tagErr == nil {
+					tagged = withID
+					pending[queryID] = requestType
+				} else {
+					id = 0
+				}
+
+				diagnostics.Request(id, requestType)
+
+				if err := sender.Send(client.ID(), tagged); err != nil {
+					delete(pending, queryID)
+
+					diagnostics.Result(
+						id,
+						requestType,
+						AuthDiagnosticResultError,
+						0,
+					)
+
 					return AuthResult{
 						State:   state,
 						Elapsed: time.Since(start),
 					}, fmt.Errorf("auth: send request: %w", err)
 				}
+
+				diagnostics.Result(
+					id,
+					requestType,
+					AuthDiagnosticResultSubmitted,
+					0,
+				)
 			}
 			if session.Done() {
 				return AuthResult{

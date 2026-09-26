@@ -67,6 +67,20 @@ type Environment struct {
 
 	ReportTDLib        TDLibReporter
 	NewTelegramRuntime RuntimeFactory
+
+	// NewTelegramCredentialStore builds the platform credential store.
+	// A nil value uses the production store. Tests inject a fake so no
+	// real Keychain item is read or written.
+	NewTelegramCredentialStore func() TelegramCredentialStore
+}
+
+// telegramCredentialStore returns the credential store for this run.
+func (e Environment) telegramCredentialStore() TelegramCredentialStore {
+	if e.NewTelegramCredentialStore != nil {
+		return e.NewTelegramCredentialStore()
+	}
+
+	return NewTelegramCredentialStore()
 }
 
 var errMissingTUIRunner = errors.New("TUI runner is not configured")
@@ -337,7 +351,7 @@ func runDoctor(args []string, env Environment) int {
 	fmt.Fprintf(env.Stdout, "Config: OK (data_dir=%s, log_level=%s)\n",
 		cfg.DataDir, cfg.LogLevel)
 
-	resolver := NewTelegramCredentialResolver(nil)
+	resolver := NewTelegramCredentialResolver(env.telegramCredentialStore())
 	resolved, resolveErr := resolver.ResolveTelegramCredentials(
 		context.Background(),
 		cfg.Auth,
@@ -377,7 +391,7 @@ func runTUI(args []string, env Environment) int {
 	// Tri-state credential gate. Only a complete absence of
 	// authentication configuration may use the mock-only UI; a partial
 	// or broken configuration fails closed.
-	resolver := NewTelegramCredentialResolver(nil)
+	resolver := NewTelegramCredentialResolver(env.telegramCredentialStore())
 	resolved, err := resolver.ResolveTelegramCredentials(
 		context.Background(),
 		cfg.Auth,

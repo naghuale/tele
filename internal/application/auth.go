@@ -3,13 +3,21 @@ package application
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"strings"
 
 	"telecli/internal/config"
 	"telecli/internal/telegram"
 	"telecli/internal/tui"
+)
+
+// Environment variables that carry a complete Telegram credential set.
+//
+// They are used for CI and developer setups. They are never combined with
+// a credential profile.
+const (
+	telegramAPIIDEnvironment   = "TELECLI_TDLIB_API_ID"
+	telegramAPIHashEnvironment = "TELECLI_TDLIB_API_HASH"
+	telegramPhoneEnvironment   = "TELECLI_TDLIB_PHONE"
 )
 
 // TUIAuthProvider implements telegram.AuthProvider using the TUI auth
@@ -34,72 +42,39 @@ func (TUIAuthProvider) ProvidePassword(_ context.Context) (string, error) {
 	return tui.RunAuth(tui.AuthPromptPassword)
 }
 
-// TDLibCredentialsPresent reports whether at least one of the
-// TELECLI_TDLIB_* authentication variables is set.
+// TdlibParametersFromEnv builds TDLib parameters from a resolved
+// credential set and the configuration.
 //
-// It is used to distinguish three cases:
-//
-//   - none set:        mock-only TUI, runtime is not created
-//   - all required set: production authorization
-//   - some set:         configuration error, never silent mock
-//
-// Empty and whitespace-only values are treated as unset. Full
-// validation of the credential set is performed by
-// TdlibParametersFromEnv.
-func TDLibCredentialsPresent() bool {
-	for _, name := range []string{
-		"TELECLI_TDLIB_API_ID",
-		"TELECLI_TDLIB_API_HASH",
-		"TELECLI_TDLIB_PHONE",
-	} {
-		if strings.TrimSpace(os.Getenv(name)) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-// TdlibParametersFromEnv builds TDLib parameters from environment
-// variables and config.
-func TdlibParametersFromEnv(cfg config.Config) (telegram.TdlibParameters, error) {
-	apiIDValue := os.Getenv("TELECLI_TDLIB_API_ID")
-	if apiIDValue == "" {
+// The credentials must come from a single source. Validation of that
+// source is the resolver's job, not this function's.
+func TdlibParametersFromEnv(
+	cfg config.Config,
+	credentials TelegramCredentials,
+) (telegram.TdlibParameters, error) {
+	if credentials.APIID <= 0 {
 		return telegram.TdlibParameters{}, fmt.Errorf(
-			"TELECLI_TDLIB_API_ID is not set",
+			"%w: Telegram API ID must be positive",
+			ErrTelegramCredentialsInvalid,
 		)
 	}
 
-	apiID, err := strconv.Atoi(apiIDValue)
-	if err != nil {
+	if credentials.APIHash == "" {
 		return telegram.TdlibParameters{}, fmt.Errorf(
-			"TELECLI_TDLIB_API_ID: %w",
-			err,
+			"%w: Telegram API hash is empty",
+			ErrTelegramCredentialsInvalid,
 		)
 	}
 
-	if apiID <= 0 {
+	if strings.TrimSpace(credentials.Phone) == "" {
 		return telegram.TdlibParameters{}, fmt.Errorf(
-			"TELECLI_TDLIB_API_ID must be positive",
-		)
-	}
-
-	apiHash := os.Getenv("TELECLI_TDLIB_API_HASH")
-	if apiHash == "" {
-		return telegram.TdlibParameters{}, fmt.Errorf(
-			"TELECLI_TDLIB_API_HASH is not set",
-		)
-	}
-
-	phone := os.Getenv("TELECLI_TDLIB_PHONE")
-	if strings.TrimSpace(phone) == "" {
-		return telegram.TdlibParameters{}, fmt.Errorf(
-			"TELECLI_TDLIB_PHONE is not set",
+			"%w: Telegram phone is empty",
+			ErrTelegramCredentialsInvalid,
 		)
 	}
 
 	return telegram.TdlibParameters{
-		APIID:              apiID,
-		APIHash:            apiHash,
+		APIID:              credentials.APIID,
+		APIHash:            credentials.APIHash,
 		DatabaseDirectory:  cfg.TDLib.DatabaseDir,
 		FilesDirectory:     cfg.TDLib.FilesDir,
 		SystemLanguageCode: "en",

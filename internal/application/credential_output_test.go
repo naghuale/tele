@@ -229,8 +229,11 @@ func TestTUIUsesDiscoveredConfig(t *testing.T) {
 // unrelated failure.
 func TestTUIUsesValidDiscoveredConfig(t *testing.T) {
 	clearCredentials(t)
+	// No [auth] section: the discovery test is about reading the file,
+	// not about authentication. A partial [auth] would now be an
+	// invalid credential configuration, which is covered separately.
 	path := filepath.Join(t.TempDir(), "discovered.toml")
-	body := "log_level = \"info\"\n[auth]\napi_id = 99\n"
+	body := "log_level = \"info\"\n[tdlib]\nshutdown_timeout_ms = 7000\n"
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}

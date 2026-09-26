@@ -8,111 +8,97 @@ import (
 	"telecli/internal/telegram"
 )
 
-func TestTdlibParametersFromEnvRequiresAPIID(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "+15551234567")
+// The environment parsing and validation that used to live in
+// TdlibParametersFromEnv now belongs to TelegramCredentialResolver; see
+// auth_credentials_test.go. These tests cover only the mapping from an
+// already resolved credential set to TDLib parameters.
 
-	if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-		t.Fatal("expected error for missing API ID")
-	}
-}
-
-func TestTdlibParametersFromEnvRequiresAPIHash(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "12345")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "")
-	t.Setenv("TELECLI_TDLIB_PHONE", "+15551234567")
-
-	if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-		t.Fatal("expected error for missing API hash")
-	}
-}
-
-func TestTdlibParametersFromEnvRequiresPhone(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "12345")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "")
-
-	if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-		t.Fatal("expected error for missing phone")
-	}
-}
-
-func TestTdlibParametersFromEnvRejectsMissingPhone(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "12345")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "")
-
-	_, err := TdlibParametersFromEnv(config.Default())
-	if err == nil {
-		t.Fatal("expected error for missing phone")
-	}
-	if !strings.Contains(err.Error(), "TELECLI_TDLIB_PHONE") {
-		t.Fatalf("error = %v, want phone variable", err)
-	}
-}
-
-func TestTdlibParametersFromEnvRejectsWhitespacePhone(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "12345")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "   ")
-
-	if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-		t.Fatal("expected error for whitespace-only phone")
-	}
-}
-
-func TestTdlibParametersFromEnvRejectsNonNumericAPIID(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "not-a-number")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "+15551234567")
-
-	if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-		t.Fatal("expected error for non-numeric API ID")
+func completeCredentials() TelegramCredentials {
+	return TelegramCredentials{
+		APIID:   12345,
+		APIHash: "test-hash",
+		Phone:   "+15551234567",
 	}
 }
 
 func TestTdlibParametersFromEnvRejectsNonPositiveAPIID(t *testing.T) {
-	for _, value := range []string{"0", "-1"} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("TELECLI_TDLIB_API_ID", value)
-			t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-			t.Setenv("TELECLI_TDLIB_PHONE", "+15551234567")
+	for _, apiID := range []int{0, -1} {
+		credentials := completeCredentials()
+		credentials.APIID = apiID
 
-			if _, err := TdlibParametersFromEnv(config.Default()); err == nil {
-				t.Fatalf("API ID %s: expected error", value)
-			}
-		})
+		_, err := TdlibParametersFromEnv(
+			config.Default(),
+			credentials,
+		)
+		if err == nil {
+			t.Fatalf("expected error for API ID %d", apiID)
+		}
+		if !strings.Contains(err.Error(), "API ID") {
+			t.Fatalf("error = %v, want an API ID message", err)
+		}
+	}
+}
+
+func TestTdlibParametersFromEnvRejectsEmptyAPIHash(t *testing.T) {
+	credentials := completeCredentials()
+	credentials.APIHash = ""
+
+	if _, err := TdlibParametersFromEnv(
+		config.Default(),
+		credentials,
+	); err == nil {
+		t.Fatal("expected error for empty API hash")
+	}
+}
+
+func TestTdlibParametersFromEnvRejectsEmptyPhone(t *testing.T) {
+	for _, phone := range []string{"", "   "} {
+		credentials := completeCredentials()
+		credentials.Phone = phone
+
+		if _, err := TdlibParametersFromEnv(
+			config.Default(),
+			credentials,
+		); err == nil {
+			t.Fatalf("expected error for phone %q", phone)
+		}
 	}
 }
 
 func TestTdlibParametersFromEnvHappyPath(t *testing.T) {
-	t.Setenv("TELECLI_TDLIB_API_ID", "12345")
-	t.Setenv("TELECLI_TDLIB_API_HASH", "test-hash")
-	t.Setenv("TELECLI_TDLIB_PHONE", "+15551234567")
+	credentials := completeCredentials()
 
 	cfg := config.Default()
-	params, err := TdlibParametersFromEnv(cfg)
+	params, err := TdlibParametersFromEnv(cfg, credentials)
 	if err != nil {
 		t.Fatalf("TdlibParametersFromEnv: %v", err)
 	}
 
-	if params.APIID != 12345 {
-		t.Fatalf("APIID = %d, want 12345", params.APIID)
+	if params.APIID != credentials.APIID {
+		t.Fatalf("APIID = %d, want %d", params.APIID, credentials.APIID)
 	}
-	if params.APIHash != "test-hash" {
-		t.Fatalf("APIHash = %q, want test-hash", params.APIHash)
+	if params.APIHash != credentials.APIHash {
+		t.Fatalf(
+			"APIHash = %q, want %q",
+			params.APIHash,
+			credentials.APIHash,
+		)
 	}
+	// The phone number is validated here but is not part of
+	// TdlibParameters: TDLib receives it later through
+	// AuthInput.PhoneNumber at the authorization prompt.
 	if params.DatabaseDirectory != cfg.TDLib.DatabaseDir {
 		t.Fatalf(
 			"DatabaseDirectory = %q, want %q",
-			params.DatabaseDirectory, cfg.TDLib.DatabaseDir,
+			params.DatabaseDirectory,
+			cfg.TDLib.DatabaseDir,
 		)
 	}
 	if params.FilesDirectory != cfg.TDLib.FilesDir {
 		t.Fatalf(
 			"FilesDirectory = %q, want %q",
-			params.FilesDirectory, cfg.TDLib.FilesDir,
+			params.FilesDirectory,
+			cfg.TDLib.FilesDir,
 		)
 	}
 	if params.SystemLanguageCode == "" ||
@@ -122,30 +108,50 @@ func TestTdlibParametersFromEnvHappyPath(t *testing.T) {
 	}
 }
 
-func TestTdlibCredentialsPresent(t *testing.T) {
+func TestTdlibParametersErrorsDoNotLeakCredentials(t *testing.T) {
+	const secretHash = "resolver-secret-hash-value"
+	const secretPhone = "+15550009999"
+
 	cases := []struct {
-		name  string
-		id    string
-		hash  string
-		phone string
-		want  bool
+		name        string
+		credentials TelegramCredentials
 	}{
-		{"none", "", "", "", false},
-		{"only id", "1", "", "", true},
-		{"only hash", "", "h", "", true},
-		{"only phone", "", "", "+1", true},
-		{"id with whitespace", "  ", "", "", false},
-		{"phone with whitespace", "", "", "  ", false},
-		{"complete", "1", "h", "+1", true},
+		{
+			name: "empty hash",
+			credentials: TelegramCredentials{
+				APIID: 1,
+				Phone: secretPhone,
+			},
+		},
+		{
+			name: "non positive id",
+			credentials: TelegramCredentials{
+				APIHash: secretHash,
+				Phone:   secretPhone,
+			},
+		},
+		{
+			name: "empty phone",
+			credentials: TelegramCredentials{
+				APIID:   1,
+				APIHash: secretHash,
+			},
+		},
 	}
+
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("TELECLI_TDLIB_API_ID", c.id)
-			t.Setenv("TELECLI_TDLIB_API_HASH", c.hash)
-			t.Setenv("TELECLI_TDLIB_PHONE", c.phone)
-
-			if got := TDLibCredentialsPresent(); got != c.want {
-				t.Fatalf("TDLibCredentialsPresent() = %t, want %t", got, c.want)
+			_, err := TdlibParametersFromEnv(
+				config.Default(),
+				c.credentials,
+			)
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+			for _, secret := range []string{secretHash, secretPhone} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatal("the error leaked a credential value")
+				}
 			}
 		})
 	}

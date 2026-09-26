@@ -283,6 +283,39 @@ func loadCommandConfig(explicitPath string) (config.Config, error) {
 	return config.LoadResolved(resolved)
 }
 
+// writeAuthStatus prints the authentication readiness of the current
+// configuration.
+//
+// It reports the state and the source name only. Credential values, the
+// profile contents and variable values are never printed; variable names
+// are not needed here because the state already says what is wrong.
+func writeAuthStatus(
+	w io.Writer,
+	resolved ResolvedTelegramCredentials,
+	resolveErr error,
+) {
+	switch resolved.Availability {
+	case AuthAvailabilityReady:
+		fmt.Fprintf(w, "Auth configuration: ready\n")
+		fmt.Fprintf(w, "Auth source: %s\n", resolved.Source)
+
+	case AuthAvailabilityAbsent:
+		fmt.Fprintf(w, "Auth configuration: absent\n")
+		fmt.Fprintf(w, "Mode: mock-only\n")
+
+	case AuthAvailabilityInvalid:
+		fmt.Fprintf(w, "Auth configuration: invalid\n")
+		if resolved.Reason != "" {
+			fmt.Fprintf(w, "Reason: %s\n", resolved.Reason)
+		} else if resolveErr != nil {
+			fmt.Fprintf(w, "Reason: %s\n", resolveErr)
+		}
+
+	default:
+		fmt.Fprintf(w, "Auth configuration: unknown\n")
+	}
+}
+
 func runDoctor(args []string, env Environment) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
@@ -303,6 +336,14 @@ func runDoctor(args []string, env Environment) int {
 		runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(env.Stdout, "Config: OK (data_dir=%s, log_level=%s)\n",
 		cfg.DataDir, cfg.LogLevel)
+
+	resolver := NewTelegramCredentialResolver(nil)
+	resolved, resolveErr := resolver.ResolveTelegramCredentials(
+		context.Background(),
+		cfg.Auth,
+	)
+	writeAuthStatus(env.Stdout, resolved, resolveErr)
+
 	fmt.Fprintln(env.Stdout, "TDLib interface: modern JSON C API")
 
 	return env.ReportTDLib(context.Background(), cfg, env.Stdout)
@@ -333,9 +374,21 @@ func runTUI(args []string, env Environment) int {
 
 	rec := recorder.NewNoop()
 
-	// No credentials: explicit mock-only mode. Do not create or load
-	// the native TDLib runtime in this branch.
-	if !TDLibCredentialsPresent() {
+	// Tri-state credential gate. Only a complete absence of
+	// authentication configuration may use the mock-only UI; a partial
+	// or broken configuration fails closed.
+	resolver := NewTelegramCredentialResolver(nil)
+	resolved, err := resolver.ResolveTelegramCredentials(
+		context.Background(),
+		cfg.Auth,
+	)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "credentials error: %v\n", err)
+		return 1
+	}
+
+	switch resolved.Availability {
+	case AuthAvailabilityAbsent:
 		fmt.Fprintln(env.Stderr,
 			"warning: Telegram credentials are not set; "+
 				"starting mock-only TUI")
@@ -346,12 +399,24 @@ func runTUI(args []string, env Environment) int {
 			return 1
 		}
 		return 0
+
+	case AuthAvailabilityReady:
+		// Continue below with a complete credential set.
+
+	case AuthAvailabilityInvalid:
+		fmt.Fprintf(env.Stderr,
+			"credentials error: %s\n",
+			resolved.Reason,
+		)
+		return 1
+
+	default:
+		fmt.Fprintln(env.Stderr,
+			"credentials error: unknown availability state")
+		return 1
 	}
 
-	// At least one credential variable is set. The complete set is
-	// now required; partial configuration is an error and must not
-	// silently fall back to mock mode.
-	params, err := TdlibParametersFromEnv(cfg)
+	params, err := TdlibParametersFromEnv(cfg, resolved.Credentials)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "credentials error: %v\n", err)
 		return 1

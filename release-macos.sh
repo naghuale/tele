@@ -182,6 +182,7 @@ build_artifact() {
   buildinfo_path="$(go list -f '{{.ImportPath}}' ./internal/buildinfo)"
   commit="$(git rev-parse --short=12 HEAD)"
   built="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  doctor_output=""
 
   check_linker_variable "$BUILDINFO_VERSION_VAR"
   check_linker_variable "$BUILDINFO_COMMIT_VAR"
@@ -194,7 +195,7 @@ build_artifact() {
   rm -rf "$DIST_DIR"
   mkdir -p "$DIST_DIR"
 
-  CGO_ENABLED=0 go build \
+  CGO_ENABLED=1 go build \
     -trimpath \
     -ldflags "$ldflags" \
     -o "${DIST_DIR}/${BINARY_NAME}" \
@@ -208,6 +209,27 @@ build_artifact() {
     "$commit" \
     "$built" \
     > "${DIST_DIR}/${BINARY_NAME}.metadata"
+
+  test -n "${TELECLI_TDLIB_LIBRARY:-}" || \
+    fail "TELECLI_TDLIB_LIBRARY is required for macOS release artifact"
+
+  test -f "$TELECLI_TDLIB_LIBRARY" || \
+    fail "TDLib library does not exist: $TELECLI_TDLIB_LIBRARY"
+
+  doctor_output="$(
+    TELECLI_TDLIB_LIBRARY="$TELECLI_TDLIB_LIBRARY" \
+      "${DIST_DIR}/${BINARY_NAME}" doctor
+  )" || fail "release artifact doctor command failed"
+
+  printf '%s\n' "$doctor_output"
+
+  printf '%s\n' "$doctor_output" |
+    grep -F 'TDLib runtime: available' >/dev/null || \
+    fail "release artifact cannot load TDLib"
+
+  printf '%s\n' "$doctor_output" |
+    grep -F 'TDLib compatibility: verified' >/dev/null || \
+    fail "release artifact rejected TDLib compatibility"
 
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "${DIST_DIR}/${BINARY_NAME}" \

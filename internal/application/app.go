@@ -347,6 +347,10 @@ func runDoctor(args []string, env Environment) int {
 	fs.SetOutput(env.Stderr)
 	cfgPath := fs.String("config", "", "path to config file")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+
 		return 2
 	}
 
@@ -389,6 +393,10 @@ func runTUI(args []string, env Environment) int {
 	fs.SetOutput(env.Stderr)
 	cfgPath := fs.String("config", "", "path to config file")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+
 		return 2
 	}
 

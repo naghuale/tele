@@ -53,6 +53,10 @@ func runConfigure(args []string, env Environment) int {
 	)
 
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+
 		return 2
 	}
 
@@ -110,6 +114,10 @@ func runConfigureStatus(args []string, env Environment) int {
 	)
 
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+
 		return 2
 	}
 
@@ -226,6 +234,10 @@ func runConfigureReset(args []string, env Environment) int {
 	)
 
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+
 		return 2
 	}
 

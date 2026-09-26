@@ -184,6 +184,37 @@ else
   pass "generated list contains no directory entry"
 fi
 
+start "TestGeneratedDistFilesIncludeExternalManifest"
+if generated_dist_files | while IFS= read -r f; do
+     printf '%s\n' "$(basename "$f")"
+   done | grep -qxF "telecli_0.1.0-rc1_darwin_arm64.manifest.json"; then
+  pass "the external manifest is a generated dist file"
+else
+  fail "the external manifest is a generated dist file"
+fi
+
+start "generated list uses no wildcard for package assets"
+# A glob such as *.manifest.json would let one release delete the
+# manifest of another version.
+if generated_dist_files | grep -q '\*'; then
+  fail "the generated list must not contain a wildcard"
+else
+  pass "the generated list contains no wildcard"
+fi
+
+start "generated list names the external manifest per version"
+for version in v0.1.0-rc1 v0.2.0; do
+  RELEASE_VERSION="$version"
+  if generated_dist_files | while IFS= read -r f; do
+       printf '%s\n' "$(basename "$f")"
+     done | grep -qxF "telecli_${version#v}_darwin_arm64.manifest.json"; then
+    pass "external manifest name follows the version: $version"
+  else
+    fail "external manifest name follows the version: $version"
+  fi
+done
+RELEASE_VERSION="v0.1.0-rc1"
+
 start "release script no longer removes the whole dist tree"
 if grep -qE 'rm -rf +"?\$?\{?DIST_DIR' "$RELEASE_SCRIPT"; then
   fail "rm -rf DIST_DIR is still present"

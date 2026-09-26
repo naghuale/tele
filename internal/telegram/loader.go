@@ -7,86 +7,184 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	"strings"
 
 	"telecli/internal/telegram/tdjson"
 )
 
 const tdlibLibraryEnvironment = "TELECLI_TDLIB_LIBRARY"
 
+// LoadedNative is a native runtime together with the candidate that
+// produced it.
+type LoadedNative struct {
+	Native Native
+	Source NativeLibrarySource
+	Path   string
+}
+
 // LoadNative loads the TDLib JSON runtime.
 //
 // Discovery order:
+//
 //  1. TELECLI_TDLIB_LIBRARY
 //  2. explicit configuration path
-//  3. repository development path
-//  4. platform loader default
+//  3. packaged path next to the executable
+//  4. repository development path
+//  5. platform loader default
+//
+// An explicit candidate, whether from the environment or from the
+// configuration, is the only candidate. A path the operator chose is
+// never silently replaced by another library.
 func LoadNative(configuredPath string) (Native, error) {
-	candidates := libraryCandidates(configuredPath)
+	loaded, err := LoadNativeWithSource(configuredPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return loaded.Native, nil
+}
+
+// LoadNativeWithSource loads TDLib and reports which candidate was used.
+func LoadNativeWithSource(configuredPath string) (LoadedNative, error) {
+	executable, err := executablePath()
+	if err != nil {
+		// A missing executable path only removes the packaged
+		// candidate; the remaining candidates stay usable.
+		executable = ""
+	}
+
+	candidates := libraryCandidates(configuredPath, executable)
 
 	var openErrors []error
 
 	for _, candidate := range candidates {
-		native, err := tdjson.Open(candidate)
-		if err == nil {
-			return native, nil
-		}
-
-		displayPath := candidate
-		if displayPath == "" {
-			displayPath = defaultLibraryName()
+		native, openErr := tdjson.Open(candidate.Path)
+		if openErr == nil {
+			return LoadedNative{
+				Native: native,
+				Source: candidate.Source,
+				Path:   candidate.Path,
+			}, nil
 		}
 
 		openErrors = append(
 			openErrors,
-			fmt.Errorf("%s: %w", displayPath, err),
+			fmt.Errorf(
+				"%s: %w",
+				displayCandidatePath(candidate),
+				openErr,
+			),
 		)
+
+		if candidate.Explicit {
+			// The operator named this library. Continuing would
+			// run against something they did not ask for.
+			return LoadedNative{}, errors.Join(
+				append([]error{ErrNativeUnavailable}, openErrors...)...,
+			)
+		}
 	}
 
-	return nil, errors.Join(
+	return LoadedNative{}, errors.Join(
 		append([]error{ErrNativeUnavailable}, openErrors...)...,
 	)
 }
 
-func libraryCandidates(configuredPath string) []string {
-	var candidates []string
-
-	if environmentPath := os.Getenv(tdlibLibraryEnvironment); environmentPath != "" {
-		candidates = append(candidates, environmentPath)
+// libraryCandidates builds the ordered, de-duplicated candidate list.
+//
+// The environment and the configured path are handled structurally: when
+// either is present it becomes the only candidate, so the fail-closed
+// behaviour cannot be lost by a later edit to the ordering.
+func libraryCandidates(
+	configuredPath string,
+	executablePath string,
+) []NativeLibraryCandidate {
+	if environmentPath := strings.TrimSpace(
+		os.Getenv(tdlibLibraryEnvironment),
+	); environmentPath != "" {
+		return []NativeLibraryCandidate{
+			{
+				Path:     environmentPath,
+				Source:   NativeLibrarySourceEnvironment,
+				Explicit: true,
+			},
+		}
 	}
 
-	if configuredPath != "" {
-		candidates = append(candidates, configuredPath)
+	if configured := strings.TrimSpace(configuredPath); configured != "" {
+		return []NativeLibraryCandidate{
+			{
+				Path:     configured,
+				Source:   NativeLibrarySourceConfigured,
+				Explicit: true,
+			},
+		}
+	}
+
+	var candidates []NativeLibraryCandidate
+
+	// packagedTDLibPath is the same computation the exported
+	// PackagedNativeLibraryCandidate uses, so there is one packaged
+	// policy. The executable path stays a parameter here because it is
+	// the seam the tests drive.
+	if packaged := packagedTDLibPath(executablePath); packaged != "" {
+		candidates = append(candidates, NativeLibraryCandidate{
+			Path:   packaged,
+			Source: NativeLibrarySourcePackaged,
+		})
 	}
 
 	candidates = append(
 		candidates,
-		filepath.Join("third_party", "tdlib", "lib", defaultLibraryName()),
+		NativeLibraryCandidate{
+			Path: filepath.Join(
+				"third_party",
+				"tdlib",
+				"lib",
+				defaultLibraryName(),
+			),
+			Source: NativeLibrarySourceDevelopment,
+		},
+		NativeLibraryCandidate{
+			// An empty path asks the dynamic loader to use its
+			// own default search.
+			Path:   "",
+			Source: NativeLibrarySourcePlatform,
+		},
 	)
 
-	// Empty path tells tdjson.Open to use the platform loader default.
-	candidates = append(candidates, "")
-
-	return uniqueStrings(candidates)
+	return uniqueLibraryCandidates(candidates)
 }
 
-func defaultLibraryName() string {
-	if runtime.GOOS == "darwin" {
-		return "libtdjson.dylib"
+// packagedTDLibPath returns the library shipped next to the executable.
+//
+// displayCandidatePath renders a candidate for an error message.
+//
+// The platform default has no path of its own, so it is shown by name.
+func displayCandidatePath(candidate NativeLibraryCandidate) string {
+	if candidate.Path != "" {
+		return candidate.Path
 	}
-	return "libtdjson.so"
+
+	return defaultLibraryName()
 }
 
-func uniqueStrings(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{})
+// uniqueLibraryCandidates removes duplicates while keeping the first
+// occurrence, so the highest-priority source for a path is preserved.
+func uniqueLibraryCandidates(
+	candidates []NativeLibraryCandidate,
+) []NativeLibraryCandidate {
+	result := make([]NativeLibraryCandidate, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
 
-	for _, value := range values {
-		if _, exists := seen[value]; exists {
+	for _, candidate := range candidates {
+		key := string(candidate.Source) + "\x00" + candidate.Path
+		if _, exists := seen[key]; exists {
 			continue
 		}
-		seen[value] = struct{}{}
-		result = append(result, value)
+
+		seen[key] = struct{}{}
+		result = append(result, candidate)
 	}
 
 	return result

@@ -488,11 +488,24 @@ func TestConfigureWritesExpectedConfigShape(t *testing.T) {
 		t.Fatalf("api id = %d", loaded.Auth.APIID)
 	}
 	if loaded.TDLib.LibraryPath != result.TDLib.Path {
-		t.Fatalf(
-			"library_path = %q, want %q",
-			loaded.TDLib.LibraryPath,
-			result.TDLib.Path,
-		)
+		// A packaged runtime is the first candidate for a test binary
+		// and must never be written to the configuration, so an empty
+		// value is the expected result here. The persisting sources
+		// have their own test.
+		if result.TDLib.Source != telegram.NativeLibrarySourcePackaged {
+			t.Fatalf(
+				"library_path = %q, want %q",
+				loaded.TDLib.LibraryPath,
+				result.TDLib.Path,
+			)
+		}
+
+		if loaded.TDLib.LibraryPath != "" {
+			t.Fatalf(
+				"library_path = %q, want empty for a packaged runtime",
+				loaded.TDLib.LibraryPath,
+			)
+		}
 	}
 }
 
@@ -925,7 +938,7 @@ func TestTDLibLibraryCandidatesIncludeHomebrew(t *testing.T) {
 	} {
 		found := false
 		for _, candidate := range candidates {
-			if candidate == want {
+			if candidate.Path == want {
 				found = true
 				break
 			}
@@ -942,11 +955,40 @@ func TestTDLibLibraryCandidatesPreferEnvironment(t *testing.T) {
 		[]string{"TELECLI_TDLIB_LIBRARY=/from/env.dylib"},
 	)
 
-	if candidates[0] != "/from/env.dylib" {
-		t.Fatalf("first candidate = %q", candidates[0])
+	// An explicit override is the only candidate, so nothing else may be
+	// probed behind it. This mirrors the runtime loader.
+	if len(candidates) != 1 {
+		t.Fatalf(
+			"candidates = %v, want only the environment library",
+			candidates,
+		)
 	}
-	if candidates[1] != "/configured/path.dylib" {
-		t.Fatalf("second candidate = %q", candidates[1])
+
+	if candidates[0].Path != "/from/env.dylib" {
+		t.Fatalf("first candidate = %q", candidates[0].Path)
+	}
+
+	if candidates[0].Persist {
+		t.Fatal("an environment library must not be persisted")
+	}
+}
+
+func TestTDLibLibraryCandidatesPreferConfiguredPath(t *testing.T) {
+	candidates := TDLibLibraryCandidates("/configured/path.dylib", nil)
+
+	if len(candidates) != 1 {
+		t.Fatalf(
+			"candidates = %v, want only the configured library",
+			candidates,
+		)
+	}
+
+	if candidates[0].Path != "/configured/path.dylib" {
+		t.Fatalf("first candidate = %q", candidates[0].Path)
+	}
+
+	if !candidates[0].Persist {
+		t.Fatal("a configured library must be persisted")
 	}
 }
 

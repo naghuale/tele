@@ -17,8 +17,20 @@ func reportTDLib(
 	cfg config.Config,
 	stdout io.Writer,
 ) int {
-	rt, err := newTelegramLifecycle(cfg, recorder.NewNoop())
+	loaded, err := telegram.LoadNativeWithSource(cfg.TDLib.LibraryPath)
 	if err != nil {
+		fmt.Fprintln(stdout, "TDLib runtime: unavailable")
+		fmt.Fprintf(stdout, "Reason: %v\n", err)
+		return 1
+	}
+
+	rt, err := newRuntimeFromNative(
+		cfg,
+		loaded.Native,
+		recorder.NewNoop(),
+	)
+	if err != nil {
+		_ = loaded.Native.Close()
 		fmt.Fprintln(stdout, "TDLib runtime: unavailable")
 		fmt.Fprintf(stdout, "Reason: %v\n", err)
 		return 1
@@ -42,6 +54,12 @@ func reportTDLib(
 	}
 
 	fmt.Fprintln(stdout, "TDLib runtime: available")
+
+	// The source tells a packaged runtime apart from a development
+	// checkout. Only the source name is printed: the library path is a
+	// local absolute path and must never reach the output or a log.
+	fmt.Fprintf(stdout, "TDLib source: %s\n", loaded.Source)
+
 	fmt.Fprintf(stdout, "TDLib version: %s\n", info.Version)
 	fmt.Fprintf(stdout, "TDLib commit: %s\n", info.Commit)
 	fmt.Fprintf(stdout, "TDLib compatibility: %s\n", info.Mode)
@@ -56,22 +74,13 @@ func reportTDLib(
 	return 0
 }
 
-// newTelegramLifecycle constructs the concrete runtime used by both
-// doctor and the production TUI.
-//
-// It returns *telegram.Runtime, not the TelegramLifecycle interface,
-// so callers that need concrete methods (Inspect, and later the
-// runtime passed to telegram.Authorize) do not rely on type
-// assertions.
-func newTelegramLifecycle(
+// newRuntimeFromNative builds a runtime around an already opened native
+// library.
+func newRuntimeFromNative(
 	cfg config.Config,
+	native telegram.Native,
 	rec recorder.ComponentRecorder,
 ) (*telegram.Runtime, error) {
-	native, err := telegram.LoadNative(cfg.TDLib.LibraryPath)
-	if err != nil {
-		return nil, fmt.Errorf("load native TDLib: %w", err)
-	}
-
 	runtimeConfig := telegram.DefaultConfig()
 	runtimeConfig.ReceiveTimeout =
 		time.Duration(cfg.TDLib.ReceiveTimeoutMS) * time.Millisecond
@@ -81,6 +90,34 @@ func newTelegramLifecycle(
 	rt, err := telegram.NewRuntime(runtimeConfig, native, rec)
 	if err != nil {
 		_ = native.Close()
+		return nil, err
+	}
+
+	return rt, nil
+}
+
+// newTelegramLifecycle constructs the concrete runtime used by both
+// doctor and the production TUI.
+//
+// It returns *telegram.Runtime, not the TelegramLifecycle interface,
+// so callers that need concrete methods (Inspect, and later the
+// runtime passed to telegram.Authorize) do not rely on type
+// assertions.
+//
+// The signature matches RuntimeFactory, so the source of the library is
+// deliberately not threaded through here: it is a diagnostic, and only
+// doctor needs it.
+func newTelegramLifecycle(
+	cfg config.Config,
+	rec recorder.ComponentRecorder,
+) (*telegram.Runtime, error) {
+	native, err := telegram.LoadNative(cfg.TDLib.LibraryPath)
+	if err != nil {
+		return nil, fmt.Errorf("load native TDLib: %w", err)
+	}
+
+	rt, err := newRuntimeFromNative(cfg, native, rec)
+	if err != nil {
 		return nil, err
 	}
 

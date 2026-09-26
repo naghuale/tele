@@ -12,6 +12,7 @@ import (
 	"telecli/internal/authstore"
 	"telecli/internal/config"
 	"telecli/internal/secretinput"
+	"telecli/internal/telegram"
 )
 
 // ConfigurePrompter asks the operator for the setup answers.
@@ -305,20 +306,24 @@ func probeTDLib(
 	tried := make([]string, 0, len(candidates))
 
 	for _, candidate := range candidates {
-		// A relative candidate is resolved so the stored
-		// library_path is absolute and keeps working from any
-		// working directory.
-		absolute, absErr := filepath.Abs(candidate)
-		if absErr == nil {
-			candidate = absolute
-		}
-
-		tried = append(tried, candidate)
-
 		result, err := probeCandidate(ctx, req, candidate)
-		if err == nil {
-			return result, nil
+		if err != nil {
+			tried = append(tried, candidate.Path)
+			continue
 		}
+
+		return result, nil
+	}
+
+	// An operator named path is the only candidate, so its failure is
+	// final. Offering a manual path here would quietly replace what was
+	// asked for, which is exactly what the loader refuses to do.
+	if tdlibCandidatesAreExplicit(candidates) {
+		return TDLibProbeResult{}, fmt.Errorf(
+			"%w: no usable TDLib library; tried %s",
+			ErrConfigureTDLib,
+			strings.Join(tried, ", "),
+		)
 	}
 
 	// Nothing conventional worked. Offer a manual path before giving up,
@@ -329,7 +334,17 @@ func probeTDLib(
 			return TDLibProbeResult{}, err
 		}
 		if ok {
-			result, err := probeCandidate(ctx, req, manual)
+			// A path the operator typed is an explicit choice, so it is
+			// verified and remembered like a configured one.
+			result, err := probeCandidate(
+				ctx,
+				req,
+				TDLibLibraryCandidate{
+					Path:    manual,
+					Source:  telegram.NativeLibrarySourceConfigured,
+					Persist: true,
+				},
+			)
 			if err == nil {
 				return result, nil
 			}
@@ -349,9 +364,16 @@ func probeTDLib(
 func probeCandidate(
 	ctx context.Context,
 	req ConfigureRequest,
-	candidate string,
+	candidate TDLibLibraryCandidate,
 ) (TDLibProbeResult, error) {
-	result, err := req.Probe.Probe(ctx, candidate)
+	// A relative candidate is resolved so a persisted library_path is
+	// absolute and keeps working from any working directory.
+	path := candidate.Path
+	if absolute, err := filepath.Abs(path); err == nil {
+		path = absolute
+	}
+
+	result, err := req.Probe.Probe(ctx, path)
 	if err != nil {
 		return TDLibProbeResult{}, err
 	}
@@ -359,6 +381,12 @@ func probeCandidate(
 	if err := validateProbe(result); err != nil {
 		return TDLibProbeResult{}, err
 	}
+
+	// The probe reports what it loaded; the candidate reports why it was
+	// offered and whether it may be written to the configuration.
+	result.Path = path
+	result.Source = candidate.Source
+	result.Persist = candidate.Persist
 
 	return result, nil
 }
@@ -576,7 +604,17 @@ func buildConfiguredConfig(
 	}
 
 	next.DataDir = dataDir
-	next.TDLib.LibraryPath = probe.Path
+
+	// A packaged library is discovered again on every start, so its
+	// absolute path is never written: recording it would break the
+	// package the moment it moves, and an explicit configured path would
+	// then outrank the packaged discovery.
+	if probe.Persist {
+		next.TDLib.LibraryPath = probe.Path
+	} else {
+		next.TDLib.LibraryPath = ""
+	}
+
 	next.Auth.APIID = apiID
 	next.Auth.CredentialProfile = profile
 	next.MessageDelivery.Mode = mode

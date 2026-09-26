@@ -37,42 +37,114 @@ type TDLibProbe interface {
 // TDLibProbeResult describes a probed TDLib runtime.
 type TDLibProbeResult struct {
 	Path          string
+	Source        telegram.NativeLibrarySource
+	Persist       bool
 	Version       string
 	Commit        string
 	Compatibility telegram.CompatibilityMode
 }
 
-// TDLibLibraryCandidates returns the paths configure probes, in order.
+// TDLibLibraryCandidate is a location configure may probe.
+type TDLibLibraryCandidate struct {
+	Path   string
+	Source telegram.NativeLibrarySource
+	// Persist reports whether a successful probe of this candidate may
+	// be written to tdlib.library_path.
+	//
+	// A packaged library must never be persisted: the path is absolute
+	// and tied to one directory, so recording it would break the package
+	// as soon as it is moved, and an explicit configured path would then
+	// outrank the packaged discovery.
+	Persist bool
+}
+
+// TDLibLibraryCandidates returns the locations configure probes, in order.
 //
-// The order reuses the production discovery order and adds the Homebrew
-// locations, which the loader does not search implicitly. A discovered
-// library is written to tdlib.library_path, so the runtime still loads it
-// through the explicit configuration path.
+// Explicit override semantics are preserved: an operator named path stays
+// the only candidate, so a packaged fallback can never quietly replace
+// what was asked for. The packaged location itself comes from the
+// production loader, so the wizard and the runtime cannot drift apart.
+//
+// The order is not identical to the runtime order, and does not claim to
+// be: configure additionally probes Homebrew and /usr/local, which the
+// loader does not search implicitly, and it can ask for a manual path.
 func TDLibLibraryCandidates(
 	configuredPath string,
 	environ []string,
-) []string {
-	var candidates []string
+) []TDLibLibraryCandidate {
+	var candidates []TDLibLibraryCandidate
 
 	fromEnv := envValue(environ, "TELECLI_TDLIB_LIBRARY")
 	if fromEnv != "" {
-		candidates = append(candidates, fromEnv)
+		// An explicit override is the only candidate, exactly as in the
+		// runtime loader. Continuing to the packaged library here would
+		// silently replace what the operator asked for.
+		return []TDLibLibraryCandidate{
+			{
+				Path:   fromEnv,
+				Source: telegram.NativeLibrarySourceEnvironment,
+			},
+		}
 	}
 
 	if configuredPath != "" {
-		candidates = append(candidates, configuredPath)
+		candidates = append(candidates, TDLibLibraryCandidate{
+			Path:    configuredPath,
+			Source:  telegram.NativeLibrarySourceConfigured,
+			Persist: true,
+		})
+
+		// An operator named path is the only candidate, so a failure is
+		// fatal for the wizard exactly as it is for the loader.
+		return uniqueTDLibCandidates(candidates)
+	}
+
+	if packaged, err := telegram.PackagedNativeLibraryCandidate(); err == nil {
+		if packaged.Path != "" {
+			candidates = append(candidates, TDLibLibraryCandidate{
+				Path:   packaged.Path,
+				Source: packaged.Source,
+			})
+		}
 	}
 
 	candidates = append(
 		candidates,
-		thirdPartyTDLibPath,
-		"/opt/homebrew/lib/libtdjson.dylib",
-		"/usr/local/lib/libtdjson.dylib",
-		"/opt/homebrew/lib/libtdjson.so",
-		"/usr/local/lib/libtdjson.so",
+		TDLibLibraryCandidate{
+			Path:   thirdPartyTDLibPath,
+			Source: telegram.NativeLibrarySourceDevelopment,
+			// A development checkout is worth remembering, because the
+			// relative path only resolves from the source tree.
+			Persist: true,
+		},
+		// The Homebrew and /usr/local locations hold a system-wide
+		// installation at a stable absolute path, so they are reported
+		// as the platform source and may be remembered. That is the
+		// opposite of a packaged library, whose path belongs to one
+		// directory and must never be written down.
+		TDLibLibraryCandidate{
+			Path:    "/opt/homebrew/lib/libtdjson.dylib",
+			Source:  telegram.NativeLibrarySourcePlatform,
+			Persist: true,
+		},
+		TDLibLibraryCandidate{
+			Path:    "/usr/local/lib/libtdjson.dylib",
+			Source:  telegram.NativeLibrarySourcePlatform,
+			Persist: true,
+		},
+		TDLibLibraryCandidate{
+			Path:    "/opt/homebrew/lib/libtdjson.so",
+			Source:  telegram.NativeLibrarySourcePlatform,
+			Persist: true,
+		},
+		TDLibLibraryCandidate{
+			Path:    "/usr/local/lib/libtdjson.so",
+			Source:  telegram.NativeLibrarySourcePlatform,
+			Persist: true,
+		},
 	)
 
-	return uniqueNonEmpty(candidates)
+	return uniqueTDLibCandidates(candidates)
 }
 
 const thirdPartyTDLibPath = "third_party/tdlib/lib/libtdjson.dylib"
@@ -290,18 +362,43 @@ func envValue(environ []string, name string) string {
 	return ""
 }
 
-func uniqueNonEmpty(values []string) []string {
+// tdlibCandidatesAreExplicit reports whether the operator named the
+// library.
+//
+// An explicit choice is the only candidate, exactly as in the runtime
+// loader, so a failure must not be softened by offering another path.
+func tdlibCandidatesAreExplicit(
+	candidates []TDLibLibraryCandidate,
+) bool {
+	if len(candidates) == 0 {
+		return false
+	}
+
+	switch candidates[0].Source {
+	case telegram.NativeLibrarySourceEnvironment,
+		telegram.NativeLibrarySourceConfigured:
+		return true
+	default:
+		return false
+	}
+}
+
+func uniqueTDLibCandidates(
+	values []TDLibLibraryCandidate,
+) []TDLibLibraryCandidate {
 	seen := make(map[string]struct{}, len(values))
-	result := make([]string, 0, len(values))
+	result := make([]TDLibLibraryCandidate, 0, len(values))
 
 	for _, value := range values {
-		if value == "" {
+		if value.Path == "" {
 			continue
 		}
-		if _, exists := seen[value]; exists {
+
+		if _, exists := seen[value.Path]; exists {
 			continue
 		}
-		seen[value] = struct{}{}
+
+		seen[value.Path] = struct{}{}
 		result = append(result, value)
 	}
 

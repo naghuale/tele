@@ -161,6 +161,21 @@ type AuthSession struct {
 	mu     sync.Mutex
 	state  AuthState
 	params TdlibParameters
+
+	// tdlibParametersRequested records that this authorization
+	// lifecycle has already produced a setTdlibParameters request.
+	//
+	// TDLib reports the same authorization state twice: once as the
+	// direct response to getAuthorizationState and once as a pushed
+	// updateAuthorizationState. Both observations are valid, but the
+	// side effect must happen only once, because TDLib rejects a
+	// repeated setTdlibParameters with "Unexpected setTdlibParameters".
+	//
+	// The flag means "this state machine has already emitted the
+	// request", not "TDLib accepted it". It is set only after a valid
+	// request has been built, and it is never reset: a new
+	// authorization lifecycle must use a new AuthSession.
+	tdlibParametersRequested bool
 }
 
 // NewAuthSession returns a session in AuthStateUnknown.
@@ -185,7 +200,21 @@ func (s *AuthSession) Step(next AuthState, input AuthInput) ([]byte, error) {
 
 	switch next {
 	case AuthStateWaitTdlibParameters:
-		return buildSetTdlibParameters(s.params)
+		// Idempotent: the same state is observed twice (direct
+		// response plus pushed update). Emit setTdlibParameters at
+		// most once per authorization lifecycle.
+		if s.tdlibParametersRequested {
+			return nil, nil
+		}
+
+		request, err := buildSetTdlibParameters(s.params)
+		if err != nil {
+			return nil, err
+		}
+
+		s.tdlibParametersRequested = true
+
+		return request, nil
 
 	case AuthStateWaitPhoneNumber:
 		if input.PhoneNumber == "" {

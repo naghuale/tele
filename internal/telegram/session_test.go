@@ -212,7 +212,11 @@ func (n *sessionNative) Receive(
 func (n *sessionNative) Execute(
 	[]byte,
 ) ([]byte, error) {
-	return nil, nil
+	// TDLib answers every synchronous request with a JSON object.
+	// Production startup issues setLogVerbosityLevel through this path
+	// and fails closed on an empty response, so the fake must behave
+	// like the real native layer.
+	return []byte(`{"@type":"ok"}`), nil
 }
 
 func (n *sessionNative) Close() error {

@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
-	"fmt"
 
 	"github.com/godbus/dbus/v5"
 )

@@ -942,12 +942,34 @@ func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 	}
 
 	// A successful reopen must not expose the payload through metadata.
-	second := fixture.mustOpen(context.Background(), newH7dSession(nil))
+	//
+	// The reopened runtime starts a live dispatcher, and a session that
+	// answers immediately lets it drain the recovered entry before the
+	// health snapshot below is read. Holding the send keeps the entry
+	// observably queued, so the assertion tests the state it names
+	// instead of racing the dispatcher.
+	release := make(chan struct{})
+	held := newH7dSession(func(
+		context.Context,
+		telegram.ChatID,
+		string,
+	) (telegram.Message, error) {
+		<-release
+		return telegram.Message{
+			ID:     telegram.MessageID(1),
+			ChatID: telegram.ChatID(42),
+		}, nil
+	})
+
+	second := fixture.mustOpen(context.Background(), held)
 	t.Cleanup(func() {
 		if err := second.Close(); err != nil {
 			t.Errorf("Close() error = %v", err)
 		}
 	})
+	// Cleanups run last-in-first-out, so this releases the send before the
+	// Close above and the dispatcher can finish.
+	t.Cleanup(func() { close(release) })
 
 	statuses, err := second.StatusSource().ListMessageStatuses(
 		context.Background(),

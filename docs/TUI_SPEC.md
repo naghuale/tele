@@ -12,14 +12,41 @@
 
 1. **Прямой отправки нет.** §7.2 действует: если durable outbox
    недоступен, сообщение не отправляется, черновик остаётся, в статусе —
-   `Durable outbox unavailable`. Это заменяет строку ADR-0002 о том, что
+   `Sending paused` (тексты — решение 3). Это заменяет строку ADR-0002 о том, что
    путь прямой отправки PR-07 остаётся активным. Режим `direct` убирается
    из production-пути, `durable` — единственный режим. Ошибка открытия
-   outbox не роняет запуск: TUI открывается в состоянии «outbox
-   unavailable».
+   outbox не роняет запуск: TUI открывается с приостановленной отправкой.
 2. **Порядок работ.** Шаги 1–2 ADR-0003 (только `internal/telegram`) идут
    параллельно. Затем PR-10A. Шаги 3–4 ADR-0003 (живой список чатов и
    живые сообщения в TUI) делаются после PR-10A, уже в новом интерфейсе.
+3. **Понятные тексты вместо «Durable outbox unavailable».** Там, где в
+   основном тексте стоит `Durable outbox unavailable` (§4.3, §7.2, §11.2,
+   §12.2, §17), интерфейс показывает:
+   - строка статуса: `Sending paused`;
+   - под полем ввода, при попытке отправить и в пустом чате:
+     ```
+     Sending is paused. Your message was not sent and is still here.
+     telecli could not open its secure message queue, which keeps unsent
+     messages safe if the app closes.
+     ```
+   - третья строка — подсказка по причине:
+
+     | Причина | Подсказка |
+     |---|---|
+     | Keychain заблокирован или доступ запрещён | `Unlock your Keychain or allow telecli access, then restart telecli.` |
+     | Ключа очереди нет в Keychain | `The key for your message queue is missing. Run telecli doctor for details.` |
+     | Нет хранилища секретов (Linux без Secret Service) | `This system has no secure key storage, so messages cannot be queued safely.` |
+     | У папки данных есть права group/other | `The telecli data folder is accessible to other users. Run telecli doctor to fix it.` |
+     | Любая другая | `Run telecli doctor to see what went wrong.` |
+
+   - последняя строка: `Details: https://github.com/naghuale/tele/blob/main/docs/help/sending-paused.md`.
+     В режиме Narrow и Short (§3.3, §3.4) её можно скрыть; подсказка по
+     причине остаётся.
+
+   Подробные объяснения для пользователя —
+   [docs/help/sending-paused.md](help/sending-paused.md). Экранные тексты
+   и эта страница меняются вместе. Полная причина ошибки уходит только в
+   лог и в `telecli doctor`, на экран — никогда.
 
 ### Что уже сделано
 

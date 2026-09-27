@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -267,11 +266,7 @@ func (m Model) copySelectedText() (tea.Model, tea.Cmd) {
 	text := m.actionSheet.text
 	m.closeActionSheet()
 
-	if m.clipboard == nil {
-		return m.withNoticeCleared(noticeCopyFailed)
-	}
-
-	if _, err := io.WriteString(m.clipboard, osc52Sequence(text)); err != nil {
+	if err := m.clipboard.copyText(text); err != nil {
 		m.reportDiagnostic("copy message text: %v\n", err)
 
 		return m.withNoticeCleared(noticeCopyFailed)

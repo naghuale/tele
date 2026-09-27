@@ -82,13 +82,22 @@ func (m Model) conversationRegion(
 
 	lines = append(lines, pending...)
 
+	// §5: exactly one region carries the accent. While a popup is open it
+	// is the popup, so the timeline gives its focus line up - two regions
+	// marked at once is a screen where the user cannot tell which one has
+	// the keys.
 	return m.renderRegion(
 		styles.conversation,
-		m.focus == FocusHistory,
+		m.focus == FocusHistory && !m.popupOpen(),
 		width,
 		lines,
 		height,
 	)
+}
+
+// popupOpen reports whether a sheet or a question is on the screen.
+func (m Model) popupOpen() bool {
+	return m.actionSheet.open || m.modal.open
 }
 
 // olderPageLines returns the line that says an older page is on its way,

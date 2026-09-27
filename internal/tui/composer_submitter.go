@@ -82,6 +82,11 @@ type Dependencies struct {
 	// message goes to the terminal and to no log and to no file (§19). A
 	// nil writer means there is nowhere to send a copy, and the interface
 	// says the copy did not happen rather than claiming it did.
+	//
+	// RunWithDependencies fills it in with the program's own output, so a
+	// caller that starts the program does not have to know about it; a
+	// caller that drives the model itself (a test, another front end) can
+	// set it.
 	Clipboard io.Writer
 
 	// PresenceOpener is optional.
@@ -147,7 +152,9 @@ func NewModelWithDependencies(
 	model.pendingMessages = deps.PendingMessages
 	model.statusSummaries = deps.StatusSummaries
 	model.canceller = deps.MessageCanceller
-	model.clipboard = deps.Clipboard
+	if deps.Clipboard != nil {
+		model.clipboard = newTerminalOutput(deps.Clipboard, true)
+	}
 	model.presenceOpener = deps.PresenceOpener
 	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme

@@ -1,7 +1,6 @@
 package application
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -163,7 +162,6 @@ func TestTheCancellerReachesTheTUIDependencies(t *testing.T) {
 	}
 
 	var captured tui.Dependencies
-	terminal := &bytes.Buffer{}
 	app := NewWithAuthAndSubmitter(
 		config.Default(),
 		nil,
@@ -179,16 +177,13 @@ func TestTheCancellerReachesTheTUIDependencies(t *testing.T) {
 			captured = deps
 			return nil
 		},
-	).WithTerminal(terminal)
+	)
 
 	if err := app.RunTUI(context.Background()); err != nil {
 		t.Fatalf("RunTUI: %v", err)
 	}
 	if captured.MessageCanceller == nil {
 		t.Fatal("the canceller did not reach the interface")
-	}
-	if captured.Clipboard != terminal {
-		t.Fatal("the terminal stream did not reach the interface")
 	}
 }
 

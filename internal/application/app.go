@@ -162,12 +162,6 @@ type App struct {
 	// rather than os.Stderr so tests can read it.
 	diagnostics io.Writer
 
-	// terminal is where escape sequences go: the OSC 52 of a copied
-	// message, and nothing else this program writes outside its regions.
-	// It is a field rather than os.Stdout so that a test can read what
-	// would have gone to the terminal.
-	terminal io.Writer
-
 	// theme and colorProfile are the interface theme resolved by the
 	// composition root and the profile it was built for.
 	theme        theme.Theme
@@ -192,22 +186,6 @@ func (a *App) WithInterface(
 	copied := *a
 	copied.theme = resolved
 	copied.colorProfile = profile
-
-	return &copied
-}
-
-// WithTerminal returns a copy of the app that writes escape sequences to a
-// stream.
-//
-// The composition root resolves it from the program's output, and it is a
-// field rather than os.Stdout so that a test can read what a copy would
-// have sent to the terminal.
-func (a *App) WithTerminal(w io.Writer) *App {
-	if a == nil {
-		return a
-	}
-	copied := *a
-	copied.terminal = w
 
 	return &copied
 }
@@ -239,19 +217,6 @@ func (a *App) interfaceTheme() theme.Theme {
 	}
 
 	return a.theme
-}
-
-// terminalWriter returns the stream escape sequences go to, or nil.
-//
-// A nil stream means the interface cannot copy a message, and it says so
-// rather than claiming that it did: a "Copied" nobody can paste from is
-// worse than a refusal.
-func (a *App) terminalWriter() io.Writer {
-	if a == nil {
-		return nil
-	}
-
-	return a.terminal
 }
 
 // diagnosticsWriter returns the configured stream or os.Stderr.
@@ -371,7 +336,6 @@ func (a *App) RunTUI(ctx context.Context) error {
 						StatusSummaries:  authResult.StatusSummaries,
 						PresenceOpener:   authResult.PresenceOpener,
 						MessageCanceller: authResult.MessageCanceller,
-						Clipboard:        a.terminalWriter(),
 						SendError:        sendError,
 						// The causes the screen must not show go here:
 						// why a message could not be queued and why the

@@ -68,14 +68,14 @@ type Model struct {
 	openedChat     int64
 
 	// canceller cancels a queued message by the version the screen read,
-	// and clipboard is where an OSC 52 copy goes.
+	// and clipboard is the program's terminal: the frames and the copies
+	// both go through it, under one lock.
 	//
-	// Both are optional: a program without them can still show the sheet,
-	// and the items that need them are the ones it cannot perform. A nil
-	// clipboard is a terminal that gets no escape sequence, and a nil
-	// canceller is a queue this program does not own.
+	// A nil canceller is a queue this program does not own, and the items
+	// that need it are the ones it cannot perform. A nil clipboard is a
+	// program with nowhere to send a copy.
 	canceller MessageCanceller
-	clipboard io.Writer
+	clipboard *terminalOutput
 
 	// actionSheet is the menu of §13 and modal the question of §12.3.
 	// Both are values on the model rather than screens: a popup is drawn

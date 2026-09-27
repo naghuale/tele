@@ -86,7 +86,24 @@ func (m Model) withPopup(view string, layout Layout) string {
 		return view
 	}
 
-	return m.fitHeight(m.overlayPopup(view, rows, firstRow), layout)
+	return m.fitHeight(
+		m.overlayPopup(view, rows, firstRow, m.popupFirstColumn(layout)),
+		layout,
+	)
+}
+
+// popupFirstColumn returns the column the popup starts in.
+//
+// It is the conversation's first column and not the screen's: a menu drawn
+// over the chat list would cover the chats a user reaches for next, and a
+// menu that is not next to the message it acts on is a menu about nothing.
+// A single-pane screen has one column and this is it.
+func (m Model) popupFirstColumn(layout Layout) int {
+	if !layout.TwoPane() {
+		return 0
+	}
+
+	return layout.SidebarWidth() + paneGapWidth
 }
 
 // popupRowsAndRow returns the rows of the open popup and the screen row it

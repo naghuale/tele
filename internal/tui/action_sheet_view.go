@@ -66,7 +66,7 @@ func (m Model) actionSheetRows() []string {
 		)
 	}
 
-	return m.indentPopupRows(rows)
+	return m.popupRows(rows)
 }
 
 // confirmModalRows returns the rows of the question of §12.3.
@@ -100,14 +100,18 @@ func (m Model) confirmModalRows() []string {
 		)
 	}
 
-	return m.indentPopupRows(rows)
+	return m.popupRows(rows)
 }
 
-// indentPopupRows sets the popup off the surface behind it and gives it a
-// shadow, so that it reads as above the conversation in every profile.
-func (m Model) indentPopupRows(rows []string) []string {
+// popupRows sets the popup off the surface behind it and gives every row the
+// width of the widest one, so that the raised surface is a block and not a
+// staircase of lines of different lengths.
+//
+// The padding goes after the text and never before it: a row padded on the
+// left is right-aligned, and a menu whose items step to the right as they
+// get shorter is a menu nobody can scan.
+func (m Model) popupRows(rows []string) []string {
 	styles := m.styles()
-	indent := spaces(popupInsetColumns)
 	shadow := styles.popupShadow(m.tokens(), popupShadowColumns)
 	width := 0
 
@@ -115,24 +119,34 @@ func (m Model) indentPopupRows(rows []string) []string {
 		width = maxInt(width, cellWidth(row))
 	}
 
+	bar := styles.popupFocusBar(m.tokens())
+
 	out := make([]string, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, indent+spaces(maxInt(width-cellWidth(row), 0))+row+shadow)
+		out = append(
+			out,
+			spaces(popupInsetColumns)+bar+row+
+				spaces(maxInt(width-cellWidth(row), 0))+shadow,
+		)
 	}
 
 	return out
 }
 
-// overlayPopup draws a popup over the rendered screen.
+// overlayPopup draws a popup over the rendered screen, from the column the
+// conversation starts in.
 //
 // The rows replace the rows of the conversation under them, which is what a
 // modal is: the rest of the screen is still there and is not drawn over,
 // because a user who cannot see the message the question is about cannot
-// answer the question.
+// answer the question. The popup is not drawn over the chat list either: it
+// is about one message, and a menu over the list would cover the chats the
+// user might want next.
 func (m Model) overlayPopup(
 	screen string,
 	rows []string,
 	firstRow int,
+	firstColumn int,
 ) string {
 	if len(rows) == 0 {
 		return screen
@@ -144,27 +158,30 @@ func (m Model) overlayPopup(
 		if line < 0 || line >= len(lines) {
 			continue
 		}
-		lines[line] = m.overlayRow(lines[line], row)
+		lines[line] = m.overlayRow(lines[line], row, firstColumn)
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// overlayRow draws one popup row over one screen row.
+// overlayRow draws one popup row over one screen row, starting at a column.
 //
-// The popup is written over the row from its first column to its own width,
-// and what is behind it is cut: a row that is longer than the popup keeps
-// its tail, so the right-hand side of the conversation is still readable
-// next to the menu.
+// The row behind the popup keeps its head before the column the popup starts
+// at, and its tail after the popup ends, so the parts of the conversation
+// that are not covered stay readable beside the menu.
 //
 // The cut is by column and not by byte. A row behind the popup is a styled
 // row, and a byte cut through it would print half an escape sequence as
 // text: the user would see `;24;36m` in the middle of a conversation.
-func (m Model) overlayRow(behind, popup string) string {
-	gap := cellWidth(behind) - cellWidth(popup)
-	if gap <= 0 {
-		return popup + spaces(-gap)
+func (m Model) overlayRow(behind, popup string, firstColumn int) string {
+	behindWidth := cellWidth(behind)
+	head := ansi.Truncate(behind, maxInt(firstColumn, 0), "")
+	head += spaces(maxInt(firstColumn-behindWidth, 0))
+
+	popupEnd := maxInt(firstColumn, 0) + cellWidth(popup)
+	if behindWidth <= popupEnd {
+		return head + popup + spaces(behindWidth-popupEnd)
 	}
 
-	return popup + spaces(gap) + ansi.TruncateLeft(behind, gap, "")
+	return head + popup + ansi.TruncateLeft(behind, behindWidth-popupEnd, "")
 }

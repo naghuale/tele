@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 
 	"telecli/internal/tui/theme"
 )
@@ -492,13 +493,13 @@ func TestEscInTheModalDoesNothing(t *testing.T) {
 // the copy that works over ssh and in a browser tab. The text goes to the
 // terminal and nowhere else: never to a log, never to a file.
 func TestCopyWritesTheTextToTheTerminalAndSaysSo(t *testing.T) {
-	clipboard := &recordingWriter{}
+	terminal := &recordingWriter{}
 	model, _ := actionModel(t, MessageDeliveryQueued, false)
-	model.clipboard = clipboard
+	model.clipboard = newTerminalOutput(terminal, true)
 
 	model = act(t, model, "Copy text")
 
-	written := clipboard.String()
+	written := terminal.String()
 	encoded := base64.StdEncoding.EncodeToString([]byte(actionFixtureText))
 	if !strings.Contains(written, encoded) {
 		t.Fatalf("the terminal got %q, want the base64 of the text", written)
@@ -968,4 +969,279 @@ func TestAPopupNamesItsOwnKeys(t *testing.T) {
 	if hint := model.hintText(layout); !strings.Contains(hint, "a actions") {
 		t.Fatalf("the timeline hint did not come back: %q", hint)
 	}
+}
+
+// ---- the production path ----
+
+// The copy has to work in the program and not only in a test that injects
+// a writer: the program builds its own output, hands it to the model and
+// writes its frames through the same one, so a copy cannot land in the
+// middle of a frame. A test that sets model.clipboard itself proves nothing
+// about that wiring, so this one goes through the program.
+func TestCopyOnTheProgramPathReachesTheProgramsWriter(t *testing.T) {
+	terminal := &recordingWriter{}
+	model := programModelWithOutput(t, terminal, true)
+
+	model = openedConversationWith(t, model, MessageDeliveryQueued)
+	model = act(t, model, "Copy text")
+
+	written := terminal.String()
+	if !isOSC52(written) {
+		t.Fatalf("the program's writer got %q, want an OSC 52 sequence", written)
+	}
+	if !strings.Contains(written, base64.StdEncoding.EncodeToString([]byte(actionFixtureText))) {
+		t.Fatalf("the program's writer got %q, want the text of the message", written)
+	}
+	if !strings.Contains(plain(model.View()), noticeCopied) {
+		t.Fatalf(
+			"the screen does not say it was copied: %q",
+			viewLines(plain(model.View())),
+		)
+	}
+}
+
+// A pipe is not a terminal: OSC 52 asks a program on the other end of the
+// connection, and there is nobody to ask. The interface says the copy did
+// not happen instead of writing a sequence into a log file.
+func TestCopyIntoSomethingThatIsNotATerminalRefuses(t *testing.T) {
+	terminal := &recordingWriter{}
+	model := programModelWithOutput(t, terminal, false)
+
+	model = openedConversationWith(t, model, MessageDeliveryQueued)
+	model = act(t, model, "Copy text")
+
+	if written := terminal.String(); written != "" {
+		t.Fatalf("a non-terminal was sent %q", written)
+	}
+	if !strings.Contains(plain(model.View()), "Could not copy") {
+		t.Fatalf(
+			"the screen does not say the copy failed: %q",
+			viewLines(plain(model.View())),
+		)
+	}
+}
+
+// ---- the shape of the block ----
+
+// A menu whose items step to the right as they get shorter is a menu
+// nobody can scan: every row of the block starts its text in the same
+// column, and the block is that wide.
+func TestEveryPopupRowStartsItsTextInTheSameColumn(t *testing.T) {
+	for name, profile := range map[string]theme.Profile{
+		"true color": theme.ProfileTrueColor,
+		"no color":   theme.ProfileNoColor,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, open := range []string{"sheet", "modal"} {
+				model, _ := actionModel(t, MessageDeliveryUncertain, false)
+				model = withProfile(model, profile)
+				model, _ = updateModel(t, model, pressRunes("a"))
+				if open == "modal" {
+					for _, key := range actionSheetItemTo(
+						model,
+						"Create a new message",
+					) {
+						model, _ = updateModel(t, model, key)
+					}
+				}
+
+				rows := popupRowsOf(t, model)
+				column := -1
+				for _, row := range rows {
+					text := strings.TrimLeft(plain(row), " ")
+					at := len(plain(row)) - len(text)
+					if column < 0 {
+						column = at
+						continue
+					}
+					if at != column {
+						t.Fatalf(
+							"%s row %q starts its text at %d, the others at %d",
+							open,
+							plain(row),
+							at,
+							column,
+						)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The popup belongs to the conversation: a menu drawn over the chat list
+// would cover the chats a user reaches for next, and a menu that is not
+// next to the message it acts on is a menu about nothing.
+func TestThePopupIsDrawnOverTheConversation(t *testing.T) {
+	model, _ := actionModel(t, MessageDeliveryQueued, false)
+	model = withProfile(model, theme.ProfileTrueColor)
+	model, _ = updateModel(t, model, pressRunes("a"))
+
+	layout := LayoutFor(model.width, model.height)
+	rows, firstRow := m_popupRowsAndRowFor(model, layout)
+	if len(rows) == 0 {
+		t.Fatal("the sheet drew nothing")
+	}
+
+	want := model.popupFirstColumn(layout)
+	got := firstTextColumn(plain(m_popupRowAt(model.View(), firstRow)))
+	if got < want {
+		t.Fatalf(
+			"the sheet starts at column %d, the conversation at %d: it is over the chat list",
+			got,
+			want,
+		)
+	}
+}
+
+// §5: one focused region at a time. While a popup is open it is the popup,
+// and the timeline gives its accent line up: two regions marked at once is a
+// screen where the user cannot tell which one has the keys.
+func TestThePopupTakesTheFocusLineFromTheTimeline(t *testing.T) {
+	model, _ := actionModel(t, MessageDeliveryQueued, false)
+	model = withProfile(model, theme.ProfileTrueColor)
+	model.focus = FocusHistory
+	model, _ = updateModel(t, model, pressRunes("a"))
+
+	view := model.View()
+	bar := firstRune(theme.FocusBar)
+	inConversation := 0
+	for _, line := range viewLines(ansi.Strip(view)) {
+		if !strings.ContainsRune(line, bar) {
+			continue
+		}
+		inConversation++
+	}
+
+	// The popup has one focus line per row and the timeline has none, so
+	// the rows that carry a bar are the rows of the popup: its own width,
+	// indented from the conversation's column.
+	popupRows, _ := m_popupRowsAndRowFor(model, LayoutFor(model.width, model.height))
+	if inConversation > len(popupRows) {
+		t.Fatalf(
+			"%d rows carry a focus line and the popup has %d: the timeline is marked too",
+			inConversation,
+			len(popupRows),
+		)
+	}
+	if inConversation == 0 {
+		t.Fatal("the popup has no focus line of its own")
+	}
+
+	// The timeline alone is the opposite.
+	closed, _ := actionModel(t, MessageDeliveryQueued, false)
+	closed = withProfile(closed, theme.ProfileTrueColor)
+	closed.focus = FocusHistory
+	marked := 0
+	for _, line := range viewLines(ansi.Strip(closed.View())) {
+		if strings.ContainsRune(line, bar) {
+			marked++
+		}
+	}
+	if marked == 0 {
+		t.Fatal("the timeline has no focus line while it is the focused region")
+	}
+}
+
+// ---- helpers ----
+
+// programModelWithOutput is a model built the way the program builds one,
+// with the program's own output in it.
+//
+// It is the composition root of the program: the theme is resolved for the
+// profile, the model is built from the dependencies, and the output the
+// program writes its frames through is the one the model copies into.
+func programModelWithOutput(
+	t *testing.T,
+	terminal *recordingWriter,
+	isTerminal bool,
+) Model {
+	t.Helper()
+
+	model, err := NewModelWithDependencies(context.Background(), Dependencies{
+		MessageSubmitter: &recordingSubmitter{},
+		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
+		ColorProfile:     theme.ProfileNoColor,
+	})
+	if err != nil {
+		t.Fatalf("NewModelWithDependencies: %v", err)
+	}
+
+	model = uncolored(model)
+	model.clipboard = terminalOutputOf(terminal, isTerminal)
+	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: 100, Height: 24})
+
+	return model
+}
+
+// terminalOutputOf builds the program's output over a writer.
+func terminalOutputOf(terminal *recordingWriter, isTTY bool) *terminalOutput {
+	return newTerminalOutput(terminal, isTTY)
+}
+
+// openedConversationWith opens a chat with one pending message in a state.
+func openedConversationWith(
+	t *testing.T,
+	model Model,
+	state MessageDeliveryState,
+) Model {
+	t.Helper()
+
+	created := actionFixtureMoment
+	pending := &pendingSource{messages: []PendingMessage{{
+		EntryID:   "entry-1",
+		ChatID:    7,
+		Text:      actionFixtureText,
+		State:     state,
+		Version:   7,
+		CreatedAt: created,
+	}}}
+	model.pendingMessages = pending
+
+	model, _ = updateModel(t, model, chatsLoadedMsg{
+		chats: []Chat{{ID: 7, Title: "A"}},
+	})
+	model, _ = updateModel(t, model, press(tea.KeyEnter))
+	model, _ = updateModel(t, model, deliveryRefresh(t, model, pending))
+	model = model.scrollToNewest()
+	model.focus = FocusHistory
+
+	return model
+}
+
+// popupRowsOf returns the rows of the open popup, whichever it is.
+func popupRowsOf(t *testing.T, model Model) []string {
+	t.Helper()
+
+	if model.modal.open {
+		return model.confirmModalRows()
+	}
+
+	return model.actionSheetRows()
+}
+
+// m_popupRowsAndRowFor is the placement of the open popup.
+func m_popupRowsAndRowFor(
+	model Model,
+	layout Layout,
+) ([]string, int) {
+	rows, firstRow := model.popupRowsAndRow(layout)
+
+	return rows, firstRow
+}
+
+// m_popupRowAt returns one screen row of a rendered screen.
+func m_popupRowAt(view string, row int) string {
+	lines := strings.Split(view, "\n")
+	if row < 0 || row >= len(lines) {
+		return ""
+	}
+
+	return lines[row]
+}
+
+// firstTextColumn returns the column the first visible character of a row is
+// in.
+func firstTextColumn(row string) int {
+	return len(row) - len(strings.TrimLeft(row, " "))
 }

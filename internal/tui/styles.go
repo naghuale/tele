@@ -342,7 +342,10 @@ func (s viewStyles) popupBody(tokens theme.Tokens) lipgloss.Style {
 
 // popupBase is the surface and the padding every popup line shares.
 func (s viewStyles) popupBase(tokens theme.Tokens) lipgloss.Style {
-	style := s.renderer.NewStyle().PaddingLeft(0)
+	// The focus line of a popup is a character and not a Lip Gloss border,
+	// so it survives the Ascii profile that strips them; see
+	// popupFocusBar, which draws it.
+	style := s.renderer.NewStyle()
 
 	if tokens.PopupBackground.Kind() != theme.ColorKindRGB {
 		return style
@@ -350,9 +353,12 @@ func (s viewStyles) popupBase(tokens theme.Tokens) lipgloss.Style {
 
 	return style.
 		Background(lipgloss.Color(tokens.PopupBackground.Hex())).
-		BorderLeft(true).
-		BorderStyle(lipgloss.Border{Left: theme.FocusBar}).
 		BorderForeground(lipgloss.Color(tokens.Focus.Hex()))
+}
+
+// popupFocusBar is the accent line of a popup, drawn as a character.
+func (s viewStyles) popupFocusBar(tokens theme.Tokens) string {
+	return s.dimmed(tokens.Focus).Render(theme.FocusBar)
 }
 
 // popupShadow is the column of the surface below the popup that makes it

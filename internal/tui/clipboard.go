@@ -2,7 +2,12 @@ package tui
 
 import (
 	"encoding/base64"
+	"io"
+	"os"
 	"strings"
+	"sync"
+
+	"github.com/charmbracelet/x/term"
 )
 
 // Copying is OSC 52: the terminal puts the text in the clipboard itself.
@@ -14,15 +19,80 @@ import (
 //
 // The sequence is written by hand rather than through a library because it is
 // one escape sequence with a base64 payload, and the writer is the one the
-// program hands the model: a test substitutes a buffer and reads what would
-// have gone to the terminal.
+// program builds: a test substitutes a buffer and reads what would have gone
+// to the terminal.
 
-// osc52Sequence returns the escape sequence that puts text in the
-// clipboard of the terminal.
+// terminalOutput is where the program's frames and its escape sequences go.
+//
+// It is one object for both on purpose. Bubble Tea writes a frame from its
+// own goroutine, and a copy written from a key press at the same moment
+// would land in the middle of that frame's escape sequence - a terminal
+// shows the rest of the sequence as text, in the middle of a conversation.
+// A mutex is the whole of the answer, and it has to be the *same* lock for
+// both writers or it is not an answer at all.
+//
+// A terminal that is not a terminal gets no copy: OSC 52 is a request to a
+// program on the other end of the connection, and a pipe or a file has
+// nobody to ask. The interface says the copy did not happen.
+type terminalOutput struct {
+	mu    sync.Mutex
+	out   io.Writer
+	isTTY bool
+}
+
+// newTerminalOutput wraps a writer for the frames and the copies of the
+// program.
+func newTerminalOutput(out io.Writer, isTTY bool) *terminalOutput {
+	return &terminalOutput{out: out, isTTY: isTTY}
+}
+
+// programOutput returns the output of the running program.
+func programOutput() *terminalOutput {
+	file := os.Stdout
+
+	return newTerminalOutput(file, term.IsTerminal(file.Fd()))
+}
+
+// Write serialises a write with the frames of the program.
+func (t *terminalOutput) Write(p []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.out.Write(p)
+}
+
+// terminal reports whether there is a terminal to ask.
+func (t *terminalOutput) terminal() bool {
+	return t != nil && t.isTTY
+}
+
+// copyText asks the terminal to put text in the clipboard.
 //
 // The payload is base64, so a message with any character in it - quotes,
 // newlines, a phone number pasted from a stranger - travels without
 // breaking the sequence.
+func (t *terminalOutput) copyText(text string) error {
+	if t == nil || t.out == nil {
+		return errNoTerminal
+	}
+	if !t.terminal() {
+		return errNoTerminal
+	}
+
+	_, err := t.Write([]byte(osc52Sequence(text)))
+
+	return err
+}
+
+// errNoTerminal says there is nowhere to put a copied message.
+var errNoTerminal = errCopyNoTerminal{}
+
+type errCopyNoTerminal struct{}
+
+func (errCopyNoTerminal) Error() string { return "no terminal to copy into" }
+
+// osc52Sequence returns the escape sequence that puts text in the clipboard
+// of the terminal.
 func osc52Sequence(text string) string {
 	return "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\x07"
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,7 +49,17 @@ type Config struct {
 	MessageDelivery MessageDeliveryConfig `toml:"message_delivery"`
 }
 
-// Default returns validated defaults.
+// ErrDataDirUnavailable reports that no data directory is configured
+// and none can be derived from the home directory.
+var ErrDataDirUnavailable = errors.New(
+	"data_dir is not set and no absolute home directory is available; " +
+		"set data_dir to an absolute path",
+)
+
+// Default returns the built-in defaults.
+//
+// Without an absolute home directory DataDir and the TDLib directories
+// stay empty, and Validate rejects the result until data_dir is set.
 func Default() Config {
 	dataDir := defaultDataDir()
 
@@ -56,8 +67,8 @@ func Default() Config {
 		LogLevel: "info",
 		DataDir:  dataDir,
 		TDLib: TDLib{
-			DatabaseDir:       filepath.Join(dataDir, "tdlib", "database"),
-			FilesDir:          filepath.Join(dataDir, "tdlib", "files"),
+			DatabaseDir:       dataSubdir(dataDir, "tdlib", "database"),
+			FilesDir:          dataSubdir(dataDir, "tdlib", "files"),
 			ReceiveTimeoutMS:  100,
 			ShutdownTimeoutMS: 5000,
 		},
@@ -77,7 +88,29 @@ func (c Config) Validate() error {
 		return fmt.Errorf("log_level must not be empty")
 	}
 	if c.DataDir == "" {
-		return fmt.Errorf("data_dir must not be empty")
+		return ErrDataDirUnavailable
+	}
+	// A relative directory would resolve from wherever telecli starts,
+	// placing the session and the outbox in an arbitrary directory.
+	for _, dir := range []struct {
+		key      string
+		path     string
+		required bool
+	}{
+		{"data_dir", c.DataDir, true},
+		{"tdlib.database_dir", c.TDLib.DatabaseDir, true},
+		{"tdlib.files_dir", c.TDLib.FilesDir, true},
+		{"message_delivery.data_dir", c.MessageDelivery.DataDir, false},
+	} {
+		if dir.path == "" {
+			if dir.required {
+				return fmt.Errorf("%s must not be empty", dir.key)
+			}
+			continue
+		}
+		if !filepath.IsAbs(dir.path) {
+			return fmt.Errorf("%s must be an absolute path", dir.key)
+		}
 	}
 	if err := c.MessageDelivery.Mode.Validate(); err != nil {
 		return fmt.Errorf("message_delivery.mode: %w", err)
@@ -91,10 +124,34 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// defaultDataDir returns the per-user data directory, or "" when no
+// absolute home directory is available. It never falls back to a
+// relative path.
 func defaultDataDir() string {
 	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".telecli"
+	if err != nil || !filepath.IsAbs(home) {
+		return ""
 	}
 	return filepath.Join(home, ".local", "share", "telecli")
+}
+
+// dataSubdir joins elem under dataDir, or returns "" for an unset
+// dataDir so no relative path is ever produced.
+func dataSubdir(dataDir string, elem ...string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{dataDir}, elem...)...)
+}
+
+// deriveUnsetDirectories fills TDLib directories that are still unset
+// from DataDir. It matters when the defaults had no home directory and
+// the file supplies only data_dir.
+func (c *Config) deriveUnsetDirectories() {
+	if c.TDLib.DatabaseDir == "" {
+		c.TDLib.DatabaseDir = dataSubdir(c.DataDir, "tdlib", "database")
+	}
+	if c.TDLib.FilesDir == "" {
+		c.TDLib.FilesDir = dataSubdir(c.DataDir, "tdlib", "files")
+	}
 }

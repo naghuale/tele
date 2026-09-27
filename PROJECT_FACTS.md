@@ -242,7 +242,10 @@
   after their last update (DispatcherConfig.Retention; negative
   disables); uncertain and permanently failed entries are kept for the
   user; SQLite runs with secure_delete so purged rows are overwritten
-- Data directory: ~/.local/share/telecli
+- Data directory: ~/.local/share/telecli by default; `telecli configure`
+  moves it to os.UserConfigDir()/telecli. Every stored directory must
+  be absolute; without an absolute home directory there is no default
+  and startup fails with ErrDataDirUnavailable until data_dir is set
 - TDLib database directory: ~/.local/share/telecli/tdlib/database
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by

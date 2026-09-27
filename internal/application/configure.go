@@ -96,13 +96,17 @@ type ConfigureResult struct {
 // It follows the same convention as config.Default: the per-user
 // application support directory on macOS and the per-user data
 // directory elsewhere.
+//
+// It returns "" when no absolute home directory is available: a relative
+// fallback would be written into the configuration file and resolved from
+// whatever directory telecli later starts in.
 func defaultDataDirectory() string {
 	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".telecli"
+	if err != nil || !filepath.IsAbs(home) {
+		return ""
 	}
 
-	if dir, err := os.UserConfigDir(); err == nil {
+	if dir, err := os.UserConfigDir(); err == nil && filepath.IsAbs(dir) {
 		// macOS reports ~/Library/Application Support here, which is
 		// also the conventional location for application data.
 		return filepath.Join(dir, "telecli")
@@ -587,11 +591,28 @@ func buildConfiguredConfig(
 	if dataDir == "" || dataDir == builtIn {
 		dataDir = defaultDataDirectory()
 	}
+	if dataDir == "" {
+		// Nothing absolute to derive from: leave the directories unset
+		// so Validate reports ErrDataDirUnavailable instead of
+		// persisting a relative layout.
+		next.DataDir = ""
+		next.TDLib.DatabaseDir = ""
+		next.TDLib.FilesDir = ""
+		next.MessageDelivery.DataDir = ""
+		return next
+	}
+
+	// underBuiltIn reports whether path still sits in the built-in
+	// layout. An unset built-in directory matches nothing: an empty
+	// prefix would match every path and overwrite the operator's choice.
+	underBuiltIn := func(path string) bool {
+		return builtIn != "" && strings.HasPrefix(path, builtIn)
+	}
 
 	// Isolate the TDLib directories under the data directory unless the
 	// operator already pointed them somewhere.
 	if next.TDLib.DatabaseDir == "" ||
-		strings.HasPrefix(next.TDLib.DatabaseDir, builtIn) {
+		underBuiltIn(next.TDLib.DatabaseDir) {
 		next.TDLib.DatabaseDir = filepath.Join(
 			dataDir,
 			"tdlib",
@@ -599,7 +620,7 @@ func buildConfiguredConfig(
 		)
 	}
 	if next.TDLib.FilesDir == "" ||
-		strings.HasPrefix(next.TDLib.FilesDir, builtIn) {
+		underBuiltIn(next.TDLib.FilesDir) {
 		next.TDLib.FilesDir = filepath.Join(dataDir, "tdlib", "files")
 	}
 
@@ -620,7 +641,7 @@ func buildConfiguredConfig(
 	next.MessageDelivery.Mode = mode
 
 	if next.MessageDelivery.DataDir == "" ||
-		strings.HasPrefix(next.MessageDelivery.DataDir, builtIn) {
+		underBuiltIn(next.MessageDelivery.DataDir) {
 		next.MessageDelivery.DataDir = filepath.Join(dataDir, "outbox")
 	}
 	if next.MessageDelivery.DatabaseID == "" {

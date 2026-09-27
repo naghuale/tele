@@ -69,6 +69,8 @@ func loadFile(path string) (Config, error) {
 	}
 	cfg.MessageDelivery.Mode = mode
 
+	cfg.deriveUnsetDirectories()
+
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}

@@ -180,18 +180,14 @@ func chatTypePatch(chatType chatTypeJSON) (kind chatKind, userID int64) {
 
 // userRecord is what the store keeps about a user.
 //
-// The name and the phone are here so that a test can prove they are not:
-// they are read by the parser and then dropped, and a field that only ever
-// holds "" is a field that documents the decision.
+// There is no field here for a name or a phone number, and that is the
+// whole design: the struct is the smallest thing that can hold a presence,
+// so a field that nobody thought of cannot be added later without someone
+// noticing that this is where a user becomes a person. The privacy test
+// reads the whole store and checks that nothing personal is in it.
 type userRecord struct {
 	status UserStatus
 	bot    bool
-
-	// name and phone are the fields of updateUser that the store
-	// deliberately does not keep. They are never written, and the test
-	// reads them to prove it.
-	name  string
-	phone string
 }
 
 // chatTypeJSON is the chatType of a chat, with the one field that says who

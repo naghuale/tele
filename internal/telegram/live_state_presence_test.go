@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -138,33 +139,130 @@ func TestAUserUpdateSetsTheStatus(t *testing.T) {
 	}
 }
 
-// The update is a whole user object, and the store keeps two fields of it.
-// The name and the phone number must not survive: they are personal data
-// that a status line does not need and that a diagnostic dump must not
-// print.
-func TestAUserUpdateKeepsNoNameAndNoPhone(t *testing.T) {
+// The update is a whole user object with a name and a phone number in it,
+// and none of that may end up in the store: a store of users is a store a
+// diagnostic dump can print, and the only reader of this store is a header
+// line.
+//
+// The check is over the whole store rather than over a field, because a
+// field that is never written proves nothing - it is empty whether the
+// parser dropped the name or kept it. This test would fail if a field for
+// a name were added, and it fails today only because the store is small
+// enough to print.
+func TestAUserUpdateKeepsNoPersonalData(t *testing.T) {
+	personal := []string{
+		"Alex",
+		"Morgan",
+		"+15550100",
+		"@alex_morgan",
+		"alex.morgan@example.com",
+	}
 	state := NewLiveState()
-	if _, err := state.apply(presenceUserUpdate); err != nil {
+	raw := RawMessage(`{"@type":"updateUser","user":{"@type":"user","id":700,` +
+		`"first_name":"Alex","last_name":"Morgan","phone_number":"+15550100",` +
+		`"usernames":{"@type":"usernames","active_usernames":[` +
+		`{"@type":"username","username":"alex_morgan","is_active":true}]},` +
+		`"status":{"@type":"userStatusOnline","expires":1800000000},` +
+		`"type":{"@type":"userTypeRegular"}}}`)
+
+	if _, err := state.apply(raw); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if _, known := state.userStatus(700); !known {
+		t.Fatal("the update was not applied at all")
+	}
+
+	dump := dumpLiveState(state)
+	for _, secret := range personal {
+		if strings.Contains(dump, secret) {
+			t.Fatalf("the store holds %q:\n%s", secret, dump)
+		}
+	}
+}
+
+// The check above is only worth something if the dump sees what the store
+// holds. A chat title is a string the store does keep, and it has to turn up
+// in the dump - otherwise "the store holds no name" is a statement about a
+// dump that prints nothing.
+func TestThePrivacyDumpSeesWhatTheStoreKeeps(t *testing.T) {
+	state := NewLiveState()
+	if _, err := state.apply(presenceChatUpdate(10, "chatTypePrivate")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.apply(RawMessage(
+		`{"@type":"updateChatTitle","chat_id":10,"title":"Alex Morgan"}`,
+	)); err != nil {
 		t.Fatal(err)
 	}
 
-	if state.mu.RLock(); len(state.users) != 1 {
-		state.mu.RUnlock()
-		t.Fatalf("the store keeps %d user records, want 1", len(state.users))
+	if !strings.Contains(dumpLiveState(state), "Alex Morgan") {
+		t.Fatalf("the dump does not see a title the store keeps:\n%s", dumpLiveState(state))
 	}
-	for id, record := range state.users {
-		if record.name != "" || record.phone != "" {
-			t.Fatalf("user %d keeps the name %q and the phone %q", id, record.name, record.phone)
-		}
-	}
-	state.mu.RUnlock()
 }
 
-func TestTheBotFlagIsKeptAndTheNameIsNot(t *testing.T) {
+// dumpLiveState prints every value the store holds.
+//
+// It names the fields instead of walking them: reading an unexported field
+// through reflection needs unsafe, and a test that needs unsafe to check a
+// privacy claim is a test nobody will keep. TestThePrivacyDumpReadsEveryField
+// below makes sure the list does not fall behind the struct.
+//
+// The records are printed one by one and dereferenced, because %#v of a map
+// of pointers prints the addresses of the records and not what is in them:
+// a dump of addresses would pass every privacy check there is.
+func dumpLiveState(state *LiveState) string {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	var out strings.Builder
+	out.WriteString(fmt.Sprintf("connection=%q\n", state.connection))
+	for id, entry := range state.chats {
+		out.WriteString(fmt.Sprintf("chat %d: %#v\n", id, *entry))
+	}
+	for id, record := range state.users {
+		out.WriteString(fmt.Sprintf("user %d: %#v\n", id, record))
+	}
+	for id, messages := range state.messages {
+		out.WriteString(fmt.Sprintf("messages %d: %#v\n", id, *messages))
+	}
+
+	return out.String()
+}
+
+// The dump above is only evidence if it reads everything. A field that the
+// dump does not name is a field a personal detail could end up in without
+// this test noticing, so a new one has to be added to the list.
+func TestThePrivacyDumpReadsEveryFieldOfTheStore(t *testing.T) {
+	read := map[string]bool{
+		"chats":      true,
+		"users":      true,
+		"messages":   true,
+		"connection": true,
+	}
+
+	store := reflect.TypeOf(*NewLiveState())
+	for index := 0; index < store.NumField(); index++ {
+		name := store.Field(index).Name
+		if name == "mu" || name == "changed" {
+			continue
+		}
+		if !read[name] {
+			t.Fatalf(
+				"the store has a field %q that the privacy dump does not read",
+				name,
+			)
+		}
+	}
+}
+
+// The type of a user is the second thing the store keeps beside a status,
+// and it is the whole of userTypeBot: which groups it can join and whether
+// it reads all messages are things a presence line has no use for.
+func TestTheBotFlagIsKept(t *testing.T) {
 	state := NewLiveState()
 	raw := RawMessage(`{"@type":"updateUser","user":{"@type":"user","id":700,` +
 		`"first_name":"Helper Bot","phone_number":"",` +
-		`"status":{"@type":"UserStatusOnline","expires":1800000000},` +
+		`"status":{"@type":"userStatusOnline","expires":1800000000},` +
 		`"type":{"@type":"userTypeBot","is_inline":false,"can_join_groups":true,` +
 		`"can_read_all_group_messages":false,"is_support":false}}}`)
 
@@ -174,11 +272,8 @@ func TestTheBotFlagIsKeptAndTheNameIsNot(t *testing.T) {
 	if !state.userIsBot(700) {
 		t.Fatal("a bot was not recognized")
 	}
-	state.mu.RLock()
-	bot := state.users[700]
-	state.mu.RUnlock()
-	if bot.name != "" {
-		t.Fatalf("the store keeps the bot name %q", bot.name)
+	if strings.Contains(dumpLiveState(state), "Helper Bot") {
+		t.Fatalf("the store keeps a bot name:\n%s", dumpLiveState(state))
 	}
 }
 

@@ -22,15 +22,20 @@ import (
 // characters it forbids, or it only forbids the ones somebody thought of.
 const boxDrawing = "─│┌┐└┘├┤┬┴┼━┃╭╮╰╯║═╔╗╚╝╠╣╦╩╬╞╡"
 
-// uncolored rebuilds the model for a terminal that shows no colour.
+// uncolored rebuilds a model for a terminal that shows no colour.
 //
-// The theme keeps its palette and the renderer loses the ability to print
-// it, which is the state a user with `color = "never"` is in: every colour
-// the theme resolved is thrown away at the last moment, and anything that
-// was carried by colour alone is gone with it.
-func (m *Model) uncolored() {
+// It is the state the program is in with NO_COLOR, --no-color, TERM=dumb
+// or `color = "never"`: the composition root degrades the theme for the
+// profile, so the tokens have no colour left in them, and the renderer
+// prints neither colour nor attributes. Anything that was carried by
+// colour alone is gone with it, which is why a test that only changes the
+// profile on a full-colour theme proves nothing about this case.
+func uncolored(m Model) Model {
 	m.colorProfile = theme.ProfileNoColor
+	m.theme = m.theme.ForProfile(theme.ProfileNoColor)
 	m.rendererForProfile = nil
+
+	return m
 }
 
 // barColumnOf returns the column the focus bar of a line is drawn in, or
@@ -74,68 +79,143 @@ func viewLines(view string) []string {
 	return strings.Split(view, "\n")
 }
 
-// accentBlocks returns the runs of lines that carry the focus bar in the
-// same column.
+// accentColumns returns the columns of the screen in which a bar is drawn.
 //
-// A run is one region: the accent is drawn on the left edge of a block of
-// lines, so a region ends where the bar stops. The bar is not always in
-// the first column of the screen, only in the first column of its pane,
-// which is what the two-pane layout puts beside a gap.
-func accentBlocks(view string) [][]string {
+// A bar in a pane's own column is the focus of that region; a bar one
+// column further in is the marker of a selected row, which is a different
+// thing and is not counted as a focus.
+func accentColumns(line string) []int {
 	var (
-		blocks [][]string
-		column = -1
+		columns []int
+		rest    = line
 	)
 
-	for _, line := range viewLines(view) {
-		index := barColumnOf(line)
+	for {
+		index := barColumnOf(rest)
 		if index < 0 {
-			column = -1
-			continue
+			return columns
 		}
 
-		if index == column && len(blocks) > 0 {
-			last := len(blocks) - 1
-			blocks[last] = append(blocks[last], line)
-			continue
-		}
+		columns = append(columns, index)
+		rest = rest[index+len(theme.FocusBar):]
+	}
+}
 
-		blocks = append(blocks, []string{line})
-		column = index
+// focusColumns returns the columns the focus of a size can be drawn in, one
+// per pane: the chat list on the left and the conversation on the right of
+// a two-pane screen, and only the first of them on a narrow one.
+//
+// It is the layout that says where a pane starts, and the accent column is
+// the first column of its pane.
+func focusColumns(layout Layout) []int {
+	if !layout.TwoPane() {
+		return []int{0}
 	}
 
-	return blocks
+	return []int{0, layout.SidebarWidth() + paneGapWidth}
+}
+
+// assertFocusColumn fails unless the bar of the screen is in the column of
+// the expected pane and in no other pane's column.
+//
+// The invariant of §5.2 is that exactly one region is focused, so the
+// check is about the panes rather than about counting bars: a selected row
+// carries a marker of its own inside its region, and a screen that drew
+// that as a second focus is what this is here to catch.
+func assertFocusColumn(t *testing.T, m Model, want int) {
+	t.Helper()
+
+	layout := LayoutFor(m.width, m.height)
+	view := m.View()
+	columns := focusColumns(layout)
+
+	for index, line := range viewLines(view) {
+		for _, column := range accentColumns(line) {
+			for _, pane := range columns {
+				if column != pane {
+					continue
+				}
+
+				if pane != want {
+					t.Fatalf(
+						"line %d draws a focus bar in the column of another pane (%d):\n%s",
+						index,
+						pane,
+						view,
+					)
+				}
+			}
+		}
+	}
+
+	// And the pane that should have it has to have it somewhere, or
+	// nothing on the screen says where the keys are.
+	found := false
+	for _, line := range viewLines(view) {
+		for _, column := range accentColumns(line) {
+			if column == want {
+				found = true
+			}
+		}
+	}
+
+	if !found {
+		t.Fatalf("no focus bar in the column of the focused pane (%d):\n%s", want, view)
+	}
 }
 
 // TestOnlyFocusedRegionHasAccentLine is the invariant the whole focus
-// design rests on (§5.2): one region is focused, so exactly one block of
+// design rests on (§5.2): one region is focused, so exactly one pane of
 // the screen carries the accent. Two would leave a user choosing between
 // two regions that both claim to have the keys.
 func TestOnlyFocusedRegionHasAccentLine(t *testing.T) {
-	cases := map[string]Model{
-		"chat list":           sizedModel(t, 120, 30),
-		"composer focused":    openedModel(t, 120, 30),
-		"timeline focused":    func() Model { m := openedModel(t, 120, 30); m.focus = FocusHistory; return m }(),
-		"list beside a chat":  func() Model { m := openedModel(t, 120, 30); m.focus = FocusChatList; return m }(),
-		"narrow conversation": openedModel(t, 60, 30),
-		"narrow list":         sizedModel(t, 60, 30),
-		"short conversation":  openedModel(t, 120, 12),
-		"composer only":       openedModel(t, 120, 5),
-		"uncoloured":          func() Model { m := openedModel(t, 120, 30); m.colorProfile = theme.ProfileNoColor; return m }(),
+	cases := map[string]struct {
+		model Model
+		want  pane
+	}{
+		"chat list":        {model: sizedModel(t, 120, 30), want: listPane},
+		"composer focused": {model: openedModel(t, 120, 30), want: conversationPane},
+		"timeline focused": {model: focusedOn(openedModel(t, 120, 30), FocusHistory), want: conversationPane},
+		"list beside a chat": {
+			model: focusedOn(openedModel(t, 120, 30), FocusChatList),
+			want:  listPane,
+		},
+		"narrow conversation": {model: openedModel(t, 60, 30), want: conversationPane},
+		"narrow list":         {model: sizedModel(t, 60, 30), want: listPane},
+		"short conversation":  {model: openedModel(t, 120, 12), want: conversationPane},
+		"composer only":       {model: openedModel(t, 120, 5), want: conversationPane},
+		"uncoloured": {
+			model: uncolored(openedModel(t, 120, 30)),
+			want:  conversationPane,
+		},
+		"uncoloured list": {
+			model: uncolored(focusedOn(sizedModel(t, 120, 30), FocusChatList)),
+			want:  listPane,
+		},
 	}
 
-	for name, model := range cases {
+	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			blocks := accentBlocks(model.View())
-			if len(blocks) != 1 {
-				t.Fatalf(
-					"accent on %d regions, want exactly 1:\n%s",
-					len(blocks),
-					model.View(),
-				)
-			}
+			assertFocusColumn(t, testCase.model, focusColumnOf(testCase.model, testCase.want))
 		})
 	}
+}
+
+// focusedOn returns a model with the focus on a region.
+func focusedOn(m Model, focus Focus) Model {
+	m.focus = focus
+
+	return m
+}
+
+// focusColumnOf returns the column the given pane draws its focus in.
+func focusColumnOf(m Model, which pane) int {
+	columns := focusColumns(LayoutFor(m.width, m.height))
+	if which == listPane {
+		return columns[0]
+	}
+
+	return columns[len(columns)-1]
 }
 
 // The focus is a bar in the first column of the region, not a border
@@ -226,22 +306,23 @@ func composerLineOf(view string) string {
 }
 
 // A terminal that shows no colour still has to say where the keys go
-// (§7.2). The accent is a bar and not a colour in the first place, so it
-// survives the profile that throws colour away, and the theme keeps its
-// colours while the renderer is told to print none: that is what
-// `color = "never"` does to a program.
+// (§2.7). The accent is a bar and not a colour in the first place, so it
+// survives the profile that throws colour away, and the theme loses its
+// colours on the way there: this is the state a user with `color =
+// "never"`, a NO_COLOR environment variable or a TERM=dumb terminal is in.
 func TestNoColorPreservesFocusIndicator(t *testing.T) {
-	m := openedModel(t, 120, 30)
-	m.uncolored()
+	conversation := uncolored(openedModel(t, 120, 30))
+	assertFocusColumn(
+		t,
+		conversation,
+		focusColumnOf(conversation, conversationPane),
+	)
 
-	blocks := accentBlocks(m.View())
-	if len(blocks) != 1 {
-		t.Fatalf(
-			"uncoloured screen has the accent on %d regions, want 1:\n%s",
-			len(blocks),
-			m.View(),
-		)
-	}
+	// The chat list is where the selection is, and a selection carried by
+	// a bold attribute alone disappears with the attributes: termenv's
+	// Ascii profile prints none of them.
+	list := uncolored(focusedOn(sizedModel(t, 120, 30), FocusChatList))
+	assertFocusColumn(t, list, focusColumnOf(list, listPane))
 }
 
 // The smallest supported screen still draws a conversation, because the

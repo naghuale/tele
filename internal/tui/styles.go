@@ -98,16 +98,20 @@ func newViewStyles(
 // its right. That is also what keeps the composer from shifting when the
 // focus moves between the chat list and the timeline.
 //
+// The bar is drawn whether or not the profile can show colour. It is a
+// character, not a colour: the accent decides how bright it is and the
+// glyph decides that it is there, and a terminal that shows no colour is
+// exactly the terminal where the glyph is all there is (§2.7). The
+// earlier version drew the bar only for an RGB accent and left a focused
+// region with no marker and no reserved column at all under the no-colour
+// profile, which is the profile of every NO_COLOR, --no-color, TERM=dumb
+// and `color = "never"` run.
+//
 // textWidth is the width of the text, and the rendered block is that plus
 // the focus column and the inset. Lip Gloss is told the width of the
 // content box, padding included, so it wraps a line at exactly the width
 // the lines were fitted to: a line that wrapped inside the style would
 // push the region's own height past what the layout budgeted for it.
-//
-// The border glyph is the theme's own focus marker, which is the `▌` of
-// §2.7 and of every mock screen in the specification. A left border drawn
-// with a different character would mean two symbols for one thing: one in
-// colour and another without it.
 func (s viewStyles) region(
 	region themeRegion,
 	focused bool,
@@ -123,15 +127,16 @@ func (s viewStyles) region(
 		)
 	}
 
-	if focused && region.accent.Kind() == theme.ColorKindRGB {
-		return style.
-			BorderLeft(true).
-			BorderStyle(lipgloss.Border{Left: theme.FocusBar}).
-			BorderForeground(lipgloss.Color(region.accent.Hex()))
+	if !focused {
+		return style.MarginLeft(focusColumnWidth)
 	}
 
-	if !focused {
-		style = style.MarginLeft(1)
+	style = style.
+		BorderLeft(true).
+		BorderStyle(lipgloss.Border{Left: theme.FocusBar})
+
+	if region.accent.Kind() == theme.ColorKindRGB {
+		style = style.BorderForeground(lipgloss.Color(region.accent.Hex()))
 	}
 
 	return style
@@ -177,4 +182,38 @@ func (s viewStyles) selected(selectedRow bool) lipgloss.Style {
 	return s.renderer.NewStyle().
 		Bold(attributes.Bold).
 		Reverse(attributes.Reverse)
+}
+
+// selectionBar is the marker in front of a selected row.
+//
+// It is the accent of the region while the region has the focus and a
+// dimmer bar of the same shape when the focus has gone to the
+// conversation, which is what keeps the chat that is open visible in the
+// list beside it (§4.1).
+//
+// The attributes come from the theme and the colour from the tokens, and
+// neither is what makes the selection visible: the glyph is. A terminal
+// that prints no attributes and no colours still shows the bar, and a
+// terminal that prints both shows it in the accent.
+func (s viewStyles) selectionBar(selected, regionFocused bool) lipgloss.Style {
+	style := s.dimmed(s.theme.Tokens.SecondaryText)
+	if !selected {
+		return style
+	}
+
+	if regionFocused {
+		style = s.text(s.theme.Tokens.Focus)
+	}
+
+	return style.Bold(true).Reverse(true)
+}
+
+// rowText is the colour of the text of a row: the selected colour for the
+// row a user is acting on, the ordinary one for the rest (§4.2).
+func (s viewStyles) rowText(selected bool) lipgloss.Style {
+	if selected {
+		return s.text(s.theme.Tokens.Selected)
+	}
+
+	return s.text(s.theme.Tokens.PrimaryText)
 }

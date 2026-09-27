@@ -29,11 +29,15 @@ func TestNewModelDefaults(t *testing.T) {
 	}
 }
 
+// The header of the list is the word §4.1 names and the chats are the rows
+// under it. The name of the program is not on the screen: the header line
+// has to survive a medium list pane, and a title long enough to be cut is
+// a title cut in the middle of a word.
 func TestInitialViewShowsChats(t *testing.T) {
 	m := NewModel()
-	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 24})
 	v := m.View()
-	for _, want := range []string{"telecli", "Chats", "Alice", "Dev Team"} {
+	for _, want := range []string{chatListTitle, "Alice", "Dev Team", "Saved Messages"} {
 		if !strings.Contains(v, want) {
 			t.Fatalf("view missing %q:\n%s", want, v)
 		}

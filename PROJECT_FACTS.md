@@ -298,10 +298,19 @@
     lines go, below 10 the hint bar is not drawn, below 6 the
     conversation is the composer alone, and below 40x5 the screen says
     it is too small instead of drawing something that does not fit
+  - Wide and Medium always have two panes: before a chat is chosen the
+    right one carries the empty state of §17 ("Select a chat", and the
+    reason when the list is loading or has failed), and the list keeps
+    the width of §3.3 either way. Narrow has one region
   - one focus at a time: the focus is a bar in the first column of a
     region, drawn with BorderLeft and the theme's FocusBar, and an
     unfocused region reserves the same column with MarginLeft, so
-    moving the focus changes no cell to its right. Styles: styles.go
+    moving the focus changes no cell to its right. The bar is a glyph
+    and not a colour, so it is drawn under every profile: the no-
+    colour profile clears the tokens of the theme on the way in and
+    termenv prints neither colour nor attributes there. The selected
+    chat carries a bar of its own next to its name (§4.1) and keeps it
+    while the focus is on the conversation. Styles: styles.go
   - Esc hierarchy (§8.5): composer to timeline, timeline to the chat
     list, and then it stops. On a two-pane screen the third step
     focuses the list beside the conversation instead of throwing the

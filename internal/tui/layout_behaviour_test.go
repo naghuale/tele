@@ -129,6 +129,15 @@ func TestResizeKeepsChatConversationAndDraft(t *testing.T) {
 	}
 }
 
+// paneOf returns the pane a focus belongs to.
+func paneOf(focus Focus) pane {
+	if focus == FocusChatList {
+		return listPane
+	}
+
+	return conversationPane
+}
+
 // The focus is a cycle among the regions that are on screen, and one
 // region at a time carries the accent. Tab is the only gesture that moves
 // it, so the invariant is checked by walking the whole cycle.
@@ -159,15 +168,7 @@ func TestTabCycleKeepsOneAccentAtEveryStop(t *testing.T) {
 					t.Fatalf("focus = %v, want %v", m.focus, want)
 				}
 
-				blocks := accentBlocks(m.View())
-				if len(blocks) != 1 {
-					t.Fatalf(
-						"%d regions carry the accent at focus %v, want 1:\n%s",
-						len(blocks),
-						m.focus,
-						m.View(),
-					)
-				}
+				assertFocusColumn(t, m, focusColumnOf(m, paneOf(m.focus)))
 
 				m, _ = updateModel(t, m, press(tea.KeyTab))
 			}

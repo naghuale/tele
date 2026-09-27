@@ -45,12 +45,11 @@ func (m Model) View() string {
 
 	layout := LayoutFor(m.width, m.height)
 
-	// The chat list is on the left of a two-pane screen, and a
-	// conversation that is open shares the row with it. Without an open
-	// conversation there is nothing to put in the second pane, so the list
-	// takes the whole width rather than sitting in a quarter of the screen
-	// beside empty space.
-	if m.screen == ScreenConversation && layout.TwoPane() {
+	// §10.2 and §10.3: a wide and a medium screen have two panes, and the
+	// right one is there before a chat is chosen. It says what to choose,
+	// which is more use than a quarter of the terminal left empty, and the
+	// list keeps the width §3.3 gives it either way.
+	if m.screen != ScreenAuth && layout.TwoPane() {
 		return m.fitHeight(m.viewTwoPanes(layout), layout)
 	}
 
@@ -67,14 +66,99 @@ func (m Model) View() string {
 }
 
 // viewTwoPanes draws the chat list and the conversation side by side.
+//
+// A screen with no chat chosen draws the empty state of §17 in the right
+// pane, under the same hint bar the conversation has. The empty pane is not
+// focusable: the list is the only region with keys, and a second one that
+// cannot be reached would be a second one that cannot be seen.
 func (m Model) viewTwoPanes(layout Layout) string {
+	right := m.conversationPaneRegion(layout)
+	if m.screen != ScreenConversation {
+		right = m.joinRegions(
+			m.emptyConversationRegion(layout),
+			m.footerRegion(layout, layout.ChatContentWidth()),
+		)
+	}
+
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		m.chatListRegion(layout, layout.SidebarContentWidth(), layout.Height),
 		spaces(paneGapWidth),
-		m.conversationPaneRegion(layout),
+		right,
 	)
 }
+
+// emptyConversationRegion draws the conversation pane before a chat is
+// chosen.
+//
+// The words are §17's, and they depend on what the list is doing: a list
+// that is loading or that failed says so here, in the width it has, rather
+// than in the narrow column of the list where the sentence would be cut in
+// half.
+func (m Model) emptyConversationRegion(layout Layout) string {
+	styles := m.styles()
+	width := layout.ChatContentWidth()
+	footer := m.footerRegion(layout, width)
+
+	title, hint, colour := m.emptyConversationState()
+
+	lines := []string{
+		"",
+		styles.text(colour).Render(fitCells(title, width)),
+	}
+
+	if hint != "" {
+		lines = append(
+			lines,
+			"",
+			styles.dimmed(m.tokens().SecondaryText).Render(fitCells(hint, width)),
+		)
+	}
+
+	return m.renderRegion(
+		styles.conversation,
+		false,
+		width,
+		lines,
+		layout.Height-lineCount(footer),
+	)
+}
+
+// emptyConversationState returns the title, the explanation and the colour
+// of the empty conversation pane.
+func (m Model) emptyConversationState() (string, string, theme.Color) {
+	switch m.chatsState {
+	case loadStateLoading:
+		return "Loading chats...", "", m.tokens().SecondaryText
+
+	case loadStateError:
+		title := "Failed to load chats"
+		if m.loadErr != nil {
+			title += ": " + m.loadErr.Error()
+		}
+
+		return title, "", m.tokens().StatusError
+
+	case loadStateLoaded:
+		if len(m.chats) == 0 {
+			return "No chats yet", emptyChatsHint, m.tokens().PrimaryText
+		}
+
+		return emptyConversationTitle, emptyConversationHint, m.tokens().PrimaryText
+
+	default:
+		return emptyConversationTitle, emptyConversationHint, m.tokens().PrimaryText
+	}
+}
+
+// The words of §17 for a conversation that has not been opened. They are
+// the interface telling the user what to press, which is the only thing an
+// empty pane has to say.
+const (
+	emptyConversationTitle = "Select a chat"
+	emptyConversationHint  = "Use ↑ and ↓, then press Enter."
+	emptyChatsHint         = "Start a new conversation or wait for chats to load."
+)
 
 // viewSinglePane draws one pane across the whole width.
 func (m Model) viewSinglePane(layout Layout, which pane) string {

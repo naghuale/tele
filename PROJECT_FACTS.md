@@ -127,7 +127,8 @@
   4. session cancels the pump and waits for pumpDone
   5. Runtime.Close stops the process-wide receive loop on an
      independent shutdown context
-  6. libtdjson is unloaded
+  6. the native handle is released; libtdjson stays loaded because
+     TDLib keeps process-wide threads and cannot be safely unloaded
   7. same database directory initializes successfully in a second
      runtime
 - Close sentinels:

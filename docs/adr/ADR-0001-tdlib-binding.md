@@ -29,7 +29,8 @@ Use an internal dynamic cgo loader in:
 
 `internal/telegram/tdjson`
 
-The loader uses `dlopen`, `dlsym`, and `dlclose`.
+The loader uses `dlopen` and `dlsym`. It never calls `dlclose`: TDLib keeps
+process-wide threads alive after its clients close, so unloading it is unsafe.
 
 Supported platforms:
 

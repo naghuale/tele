@@ -67,8 +67,14 @@ const char *telecli_tdjson_execute(telecli_tdjson *lib, const char *request, cha
     if (!lib || !request) { set_error(err, err_len, "invalid td_execute arguments"); return NULL; }
     return lib->execute(request);
 }
+/*
+ * The library handle is deliberately never passed to dlclose. TDLib keeps
+ * process-wide worker threads and static state alive after every client
+ * has closed, and unloading its code under those threads can crash the
+ * process on exit. A later open of the same path gets the already loaded
+ * image back, so a second runtime still initializes normally.
+ */
 void telecli_tdjson_close(telecli_tdjson *lib) {
     if (!lib) return;
-    if (lib->handle) dlclose(lib->handle);
     free(lib);
 }

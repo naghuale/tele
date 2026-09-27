@@ -61,6 +61,7 @@ func writeConfig(t *testing.T, path, body string) {
 // ---- ResolvePath ----
 
 func TestResolveConfigPathPrefersExplicit(t *testing.T) {
+	isolateConfigHome(t)
 	dir := t.TempDir()
 	t.Setenv(configPathEnvironment, filepath.Join(dir, "from-env.toml"))
 
@@ -82,6 +83,7 @@ func TestResolveConfigPathPrefersExplicit(t *testing.T) {
 }
 
 func TestResolveConfigPathUsesEnvironment(t *testing.T) {
+	isolateConfigHome(t)
 	dir := t.TempDir()
 	envPath := filepath.Join(dir, "from-env.toml")
 	writeConfig(t, envPath, "log_level = \"info\"\n")

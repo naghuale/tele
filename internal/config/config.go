@@ -16,6 +16,40 @@ type TDLib struct {
 	ShutdownTimeoutMS int    `toml:"shutdown_timeout_ms"`
 }
 
+// TUIConfig holds the interface settings.
+//
+// The two values are plain strings on purpose: the vocabulary of themes
+// and colour modes belongs to internal/tui/theme, and this package is a
+// leaf that must not import it. The values are therefore not validated
+// here but by the theme package, which reports an unknown name as a
+// configuration error with the valid names in it. An absent value is the
+// default, because a configuration written before these settings existed
+// has none.
+type TUIConfig struct {
+	// Theme is the name of a built-in theme.
+	Theme string `toml:"theme"`
+
+	// Color is "auto", "always" or "never".
+	Color string `toml:"color"`
+}
+
+// The interface defaults, spelled out here so that Default is a complete
+// configuration and `telecli configure` writes a file that says what it
+// decided.
+//
+// The theme name is the one the specification lists first and draws its
+// example in. It is duplicated from the theme package because that
+// package must stay a leaf above this one; TestInterfaceDefaultsMatchThe
+// ThemePackage in internal/application fails if the two ever disagree.
+const (
+	// DefaultTUITheme is the theme used when none is configured.
+	DefaultTUITheme = "catppuccin-mocha"
+
+	// DefaultTUIColorMode follows what the terminal reports.
+	DefaultTUIColorMode = "auto"
+)
+
+// MessageDeliveryConfig holds the durable outbox settings.
 type MessageDeliveryConfig struct {
 	Mode       MessageSendMode `toml:"mode"`
 	DataDir    string          `toml:"data_dir"`
@@ -47,6 +81,7 @@ type Config struct {
 	TDLib           TDLib                 `toml:"tdlib"`
 	Auth            AuthConfig            `toml:"auth"`
 	MessageDelivery MessageDeliveryConfig `toml:"message_delivery"`
+	TUI             TUIConfig             `toml:"tui"`
 
 	// Warnings holds non-fatal notes produced while loading, such as a
 	// retired send mode that was normalised rather than rejected. It is
@@ -80,6 +115,10 @@ func Default() Config {
 		},
 		MessageDelivery: MessageDeliveryConfig{
 			Mode: DefaultMessageSendMode,
+		},
+		TUI: TUIConfig{
+			Theme: DefaultTUITheme,
+			Color: string(DefaultTUIColorMode),
 		},
 	}
 }

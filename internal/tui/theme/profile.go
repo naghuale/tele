@@ -1,0 +1,453 @@
+package theme
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+)
+
+// Profile is how much colour a terminal can show. It is the axis §2.7
+// describes: a theme is built for one, and the same theme is usable on
+// every other one through the fallbacks below.
+type Profile uint8
+
+const (
+	// ProfileTrueColor is a terminal with 24-bit colour: the full
+	// palette, the palette's gradients, and shadows.
+	ProfileTrueColor Profile = iota
+
+	// ProfileANSI256 is an indexed 256-colour terminal: the palette is
+	// reduced to the closest indexed colour and a gradient is cut to at
+	// most three steps, which is what a terminal ramp can show.
+	ProfileANSI256
+
+	// ProfileANSI16 is a terminal with the 16 basic colours: the roles
+	// map to basic colours, so the terminal's own palette is used.
+	// Gradients and shadows are dropped.
+	ProfileANSI16
+
+	// ProfileNoColor is a terminal that shows no colour at all. Every
+	// colour becomes unset, and the interface has to stay readable
+	// through symbols, attributes and words.
+	ProfileNoColor
+)
+
+// String names the profile for logs and for `telecli doctor`.
+func (p Profile) String() string {
+	switch p {
+	case ProfileTrueColor:
+		return "true-color"
+	case ProfileANSI256:
+		return "ansi-256"
+	case ProfileANSI16:
+		return "ansi-16"
+	case ProfileNoColor:
+		return "no-color"
+	default:
+		return "unknown"
+	}
+}
+
+// ProfileNames returns the profile names, in the order §2.7 lists them.
+func ProfileNames() []string {
+	return []string{
+		ProfileTrueColor.String(),
+		ProfileANSI256.String(),
+		ProfileANSI16.String(),
+		ProfileNoColor.String(),
+	}
+}
+
+// maxANSI256GradientStops is how many stops an indexed ramp may have.
+//
+// A 256-colour terminal has a cube plus a grey ramp, and a gradient drawn
+// from one cell to the next reads as a band of colour. Three stops is
+// where the steps are still distinguishable instead of two flat blocks.
+const maxANSI256GradientStops = 3
+
+// ColorMode is the configured [tui] color setting.
+type ColorMode string
+
+const (
+	// ColorAuto follows what the terminal reports, and stays conservative
+	// when the terminal cannot be identified.
+	ColorAuto ColorMode = "auto"
+
+	// ColorAlways keeps colour whatever the environment suggests, and
+	// assumes a 256-colour terminal when the terminal cannot be
+	// identified. It cannot invent a capability, so a 16-colour terminal
+	// still gets 16 colours.
+	ColorAlways ColorMode = "always"
+
+	// ColorNever is the user saying no colour, whatever the terminal can
+	// do.
+	ColorNever ColorMode = "never"
+)
+
+// ColorModeNames returns the accepted [tui] color values, sorted.
+func ColorModeNames() []string {
+	names := []string{
+		string(ColorAuto),
+		string(ColorAlways),
+		string(ColorNever),
+	}
+
+	sort.Strings(names)
+
+	return names
+}
+
+// ParseColorMode reads a configured color mode.
+//
+// An empty value is ColorAuto, because a configuration written before
+// this setting existed has none. Anything else is an error that lists the
+// values there are, because a silently ignored colour setting is a
+// support question later.
+func ParseColorMode(value string) (ColorMode, error) {
+	normalized := ColorMode(strings.ToLower(strings.TrimSpace(value)))
+
+	switch normalized {
+	case "":
+		return ColorAuto, nil
+	case ColorAuto, ColorAlways, ColorNever:
+		return normalized, nil
+	default:
+		return "", fmt.Errorf(
+			"unknown tui color mode %q; valid values: %s",
+			value,
+			strings.Join(ColorModeNames(), ", "),
+		)
+	}
+}
+
+// TerminalProfile is what the color library reported about the terminal.
+//
+// It is separate from Profile because it is a measurement and Profile is
+// a decision: the measurement is read from the machine once, and the
+// decision is a pure function of the measurement, the environment, the
+// command line and the configuration.
+type TerminalProfile uint8
+
+const (
+	// TerminalUnknown means the library could not tell what the terminal
+	// can do. The decision treats it as the least useful profile that
+	// still shows colour.
+	TerminalUnknown TerminalProfile = iota
+
+	// TerminalTrueColor, TerminalANSI256 and TerminalANSI16 mirror the
+	// three capabilities termenv reports.
+	TerminalTrueColor
+	TerminalANSI256
+	TerminalANSI16
+
+	// TerminalAscii mirrors the library's "no colour at all".
+	TerminalAscii
+)
+
+// String names the measurement for logs.
+func (t TerminalProfile) String() string {
+	switch t {
+	case TerminalUnknown:
+		return "unknown"
+	case TerminalTrueColor:
+		return "true-color"
+	case TerminalANSI256:
+		return "ansi-256"
+	case TerminalANSI16:
+		return "ansi-16"
+	case TerminalAscii:
+		return "ascii"
+	default:
+		return "unknown"
+	}
+}
+
+// ProfileInput is everything the profile decision depends on.
+//
+// It is a struct rather than a read of the environment so that the
+// decision can be tested on any machine, including one whose terminal is
+// something no CI runner has.
+type ProfileInput struct {
+	// Env is the environment to read. Only NO_COLOR and TERM are used.
+	Env map[string]string
+
+	// FlagNoColor is the --no-color command-line switch.
+	FlagNoColor bool
+
+	// Configured is the [tui] color setting. An empty value is auto.
+	Configured ColorMode
+
+	// Terminal is what the color library reported.
+	Terminal TerminalProfile
+}
+
+// ResolveProfile decides which profile a theme is built for.
+//
+// Precedence, strongest first:
+//
+//  1. [tui] color = "never", --no-color, a non-empty NO_COLOR and
+//     TERM=dumb each force no colour on their own. They are all the user
+//     saying the same thing, and any one of them is enough; a terminal
+//     that reports itself as dumb is not a terminal to argue with.
+//  2. otherwise the profile follows what the terminal reported, with an
+//     unidentifiable terminal taken as 16 colours.
+//  3. [tui] color = "always" changes only that last case: it is the user
+//     saying the terminal is fine even though nothing could measure it,
+//     so a 256-colour terminal is assumed. It never invents a
+//     capability the terminal denied, and never overrides the four
+//     conditions above.
+func ResolveProfile(in ProfileInput) Profile {
+	switch {
+	case in.Configured == ColorNever,
+		in.FlagNoColor,
+		hasNoColorEnvironment(in.Env),
+		in.Env["TERM"] == "dumb":
+		return ProfileNoColor
+	}
+
+	switch in.Terminal {
+	case TerminalTrueColor:
+		return ProfileTrueColor
+	case TerminalANSI256:
+		return ProfileANSI256
+	case TerminalANSI16:
+		return ProfileANSI16
+	case TerminalAscii:
+		// The library has already decided that this output shows no
+		// colour: stdout is not a terminal, or TERM says it cannot.
+		// Deciding again here would throw that away, which is the one
+		// thing the library is there to avoid.
+		return ProfileNoColor
+	}
+
+	// Nothing could be measured. Auto stays conservative; always trusts
+	// the user.
+	if in.Configured == ColorAlways {
+		return ProfileANSI256
+	}
+
+	return ProfileANSI16
+}
+
+// hasNoColorEnvironment reports the NO_COLOR convention.
+//
+// https://no-color.org: any non-empty value disables colour. An empty
+// value is the variable being present but saying nothing, which is not
+// the same as asking for no colour.
+func hasNoColorEnvironment(env map[string]string) bool {
+	return env["NO_COLOR"] != ""
+}
+
+// DetectTerminalProfile reports what the terminal can show.
+//
+// The answer comes from Lip Gloss, the same library a renderer uses, so
+// the profile the theme is built for cannot disagree with the one the
+// renderer would produce on its own. The value is passed back into
+// ResolveProfile, which keeps the decision itself free of the machine.
+func DetectTerminalProfile() TerminalProfile {
+	return TerminalProfileFromTermenv(lipgloss.ColorProfile())
+}
+
+// TerminalProfileFromTermenv converts the color library's answer.
+func TerminalProfileFromTermenv(profile termenv.Profile) TerminalProfile {
+	switch profile {
+	case termenv.TrueColor:
+		return TerminalTrueColor
+	case termenv.ANSI256:
+		return TerminalANSI256
+	case termenv.ANSI:
+		return TerminalANSI16
+	case termenv.Ascii:
+		return TerminalAscii
+	default:
+		return TerminalUnknown
+	}
+}
+
+// Termenv converts a profile back to the color library's own value, so a
+// renderer can hand it to Lip Gloss instead of a termenv literal.
+func (p Profile) Termenv() termenv.Profile {
+	switch p {
+	case ProfileTrueColor:
+		return termenv.TrueColor
+	case ProfileANSI256:
+		return termenv.ANSI256
+	case ProfileANSI16:
+		return termenv.ANSI
+	default:
+		return termenv.Ascii
+	}
+}
+
+// ForProfile returns the theme as this profile can show it.
+//
+// The palette is left alone: it is what the user configured and what a
+// fallback would want to go back to. The tokens, the gradients and the
+// shadow are what change.
+func (t Theme) ForProfile(profile Profile) Theme {
+	out := t
+	out.Tokens = t.Tokens.ForProfile(profile)
+	out.Gradients = t.Gradients.ForProfile(profile)
+
+	return out
+}
+
+// ForProfile returns the tokens as this profile can show them.
+func (tokens Tokens) ForProfile(profile Profile) Tokens {
+	switch profile {
+	case ProfileTrueColor:
+		return tokens
+
+	case ProfileANSI256:
+		out := tokens
+		eachTokenColor(&out, func(c Color) Color { return indexedColor(c) })
+
+		return out
+
+	case ProfileANSI16:
+		// The roles are mapped by name here instead of by hue: on a
+		// 16-colour terminal the nearest RGB value is a colour the user
+		// never chose, and the point of a basic colour is that the
+		// terminal renders it with the palette the user configured.
+		//
+		// Backgrounds stay unset so the terminal's own background shows
+		// through: a 16-colour terminal has no room for five shades of
+		// surface, and a flat background is what the user expects.
+		return Tokens{
+			PrimaryText:   Basic(15),
+			SecondaryText: Basic(7),
+			MutedText:     Basic(8),
+			DisabledText:  Basic(8),
+
+			Focus:    Basic(14),
+			FocusAlt: Basic(12),
+			Selected: Basic(15),
+			Unread:   Basic(15),
+			Cursor:   Basic(15),
+
+			StatusInfo:      Basic(6),
+			StatusActive:    Basic(11),
+			StatusSuccess:   Basic(2),
+			StatusWarning:   Basic(3),
+			StatusError:     Basic(1),
+			StatusUncertain: Basic(5),
+			StatusCanceled:  Basic(8),
+
+			IncomingMessage: Basic(7),
+			OutgoingMessage: Basic(15),
+		}
+
+	default:
+		// No colour at all. Every role becomes unset, and the interface
+		// keeps its meaning through the focus indicator, the selection
+		// attributes and the status marks.
+		return Tokens{}
+	}
+}
+
+// ForProfile returns the gradients as this profile can show them.
+//
+// True Color keeps them as authored: they are already short, and a
+// longer ramp would be a decoration nobody can see anyway. An indexed
+// terminal gets at most three stops. A basic-colour or uncoloured
+// terminal gets none, which is also what a dumb terminal gets.
+func (g Gradients) ForProfile(profile Profile) Gradients {
+	switch profile {
+	case ProfileTrueColor:
+		return g
+
+	case ProfileANSI256:
+		return Gradients{
+			Focus:    indexedGradient(g.Focus),
+			Accent:   indexedGradient(g.Accent),
+			Progress: indexedGradient(g.Progress),
+		}
+
+	default:
+		return Gradients{}
+	}
+}
+
+// indexedGradient reduces a ramp to indexed colours and to the number of
+// stops an indexed terminal can show.
+func indexedGradient(stops []Color) []Color {
+	if len(stops) == 0 {
+		return nil
+	}
+
+	limited := stops
+	if len(limited) > maxANSI256GradientStops {
+		limited = limited[:maxANSI256GradientStops]
+	}
+
+	out := make([]Color, 0, len(limited))
+	for _, stop := range limited {
+		out = append(out, indexedColor(stop))
+	}
+
+	return out
+}
+
+// indexedColor reduces a colour to the closest entry of the 256-colour
+// palette.
+//
+// The reduction is the color library's, not a second implementation of
+// it: a theme that picked its own indexed colours could disagree with the
+// renderer about what a colour looks like on a 256-colour terminal.
+func indexedColor(c Color) Color {
+	if c.kind != ColorKindRGB {
+		return c
+	}
+
+	converted := termenv.ANSI256.Convert(termenv.RGBColor(c.hex))
+
+	indexed, ok := converted.(termenv.ANSI256Color)
+	if !ok {
+		return c
+	}
+
+	// The library returns the palette entry as its own index; the theme
+	// keeps it as a value, so a renderer never has to know that an
+	// indexed terminal had a say in it.
+	return RGB(indexed.String())
+}
+
+// eachTokenColor applies fn to every colour of every role.
+//
+// The theme contract test uses the same walk to prove that no role is
+// left unset, which is why it is a function rather than 28 lines of
+// repetition.
+func eachTokenColor(tokens *Tokens, fn func(Color) Color) {
+	*tokens = Tokens{
+		AppBackground:      fn(tokens.AppBackground),
+		SidebarBackground:  fn(tokens.SidebarBackground),
+		ChatBackground:     fn(tokens.ChatBackground),
+		ComposerBackground: fn(tokens.ComposerBackground),
+		PopupBackground:    fn(tokens.PopupBackground),
+		ShadowBackground:   fn(tokens.ShadowBackground),
+		FooterBackground:   fn(tokens.FooterBackground),
+		PrimaryText:        fn(tokens.PrimaryText),
+		SecondaryText:      fn(tokens.SecondaryText),
+		MutedText:          fn(tokens.MutedText),
+		DisabledText:       fn(tokens.DisabledText),
+		Focus:              fn(tokens.Focus),
+		FocusAlt:           fn(tokens.FocusAlt),
+		Selected:           fn(tokens.Selected),
+		Unread:             fn(tokens.Unread),
+		StatusInfo:         fn(tokens.StatusInfo),
+		StatusActive:       fn(tokens.StatusActive),
+		StatusSuccess:      fn(tokens.StatusSuccess),
+		StatusWarning:      fn(tokens.StatusWarning),
+		StatusError:        fn(tokens.StatusError),
+		StatusUncertain:    fn(tokens.StatusUncertain),
+		StatusCanceled:     fn(tokens.StatusCanceled),
+		IncomingMessage:    fn(tokens.IncomingMessage),
+		OutgoingMessage:    fn(tokens.OutgoingMessage),
+		CodeBackground:     fn(tokens.CodeBackground),
+		Cursor:             fn(tokens.Cursor),
+		Selection:          fn(tokens.Selection),
+	}
+}

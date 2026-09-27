@@ -18,6 +18,7 @@ import (
 	"telecli/internal/telegram"
 	"telecli/internal/telemetry/recorder"
 	"telecli/internal/tui"
+	"telecli/internal/tui/theme"
 )
 
 // TDLibReporter reports TDLib runtime status for the doctor command.
@@ -139,6 +140,33 @@ type App struct {
 	// such as why the message queue could not be opened. It is a field
 	// rather than os.Stderr so tests can read it.
 	diagnostics io.Writer
+
+	// theme and colorProfile are the interface theme resolved by the
+	// composition root and the profile it was built for.
+	theme        theme.Theme
+	colorProfile theme.Profile
+}
+
+// WithInterface returns a copy of the app that draws with the given theme
+// and colour profile.
+//
+// The composition root resolves both, because what the terminal can show
+// is not a view's business and every command that starts an interface has
+// to resolve it the same way. An app built without this draws with the
+// default theme and no colour, which is legible everywhere.
+func (a *App) WithInterface(
+	resolved theme.Theme,
+	profile theme.Profile,
+) *App {
+	if a == nil {
+		return nil
+	}
+
+	copied := *a
+	copied.theme = resolved
+	copied.colorProfile = profile
+
+	return &copied
 }
 
 // WithDiagnostics returns a copy of the app that writes operational
@@ -156,6 +184,18 @@ func (a *App) WithDiagnostics(w io.Writer) *App {
 	}
 	copied.diagnostics = w
 	return &copied
+}
+
+// interfaceTheme returns the theme to draw with, or the default one.
+//
+// An app built without WithInterface still has to draw something, and the
+// default theme is what a user sees until they configure another.
+func (a *App) interfaceTheme() theme.Theme {
+	if a == nil || a.theme.Name == "" {
+		return theme.DefaultTheme()
+	}
+
+	return a.theme
 }
 
 // diagnosticsWriter returns the configured stream or os.Stderr.
@@ -272,6 +312,8 @@ func (a *App) RunTUI(ctx context.Context) error {
 						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
 						SendError:        sendError,
+						Theme:            a.interfaceTheme(),
+						ColorProfile:     a.colorProfile,
 					},
 				)
 			}
@@ -365,8 +407,8 @@ Usage:
   telecli configure status
   telecli configure reset
   telecli outbox reset [--config path] [--yes]
-  telecli doctor [--config path]
-  telecli tui    [--config path]
+  telecli doctor [--config path] [--no-color]
+  telecli tui    [--config path] [--no-color]
 
 Configuration is read from --config, then TELECLI_CONFIG, then
 `+"`$XDG_CONFIG_HOME/telecli/config.toml`"+` (or the platform equivalent),
@@ -426,6 +468,7 @@ func runDoctor(args []string, env Environment) int {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	cfgPath := fs.String("config", "", "path to config file")
+	noColor := fs.Bool("no-color", false, "report without colour")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -440,6 +483,15 @@ func runDoctor(args []string, env Environment) int {
 		return 1
 	}
 
+	// The interface settings are resolved here and not only in runTUI, so
+	// a mistyped theme is reported by the command a user runs when
+	// something looks wrong, instead of at the next start of the TUI.
+	interfaceTheme, profile, err := resolveInterfaceTheme(cfg, *noColor)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
 	fmt.Fprintln(env.Stdout, "telecli doctor")
 	fmt.Fprintln(env.Stdout, buildinfo.Get().String())
 	fmt.Fprintf(env.Stdout, "Go: %s %s/%s\n",
@@ -447,6 +499,7 @@ func runDoctor(args []string, env Environment) int {
 	fmt.Fprintf(env.Stdout, "Config: OK (data_dir=%s, log_level=%s)\n",
 		cfg.DataDir, cfg.LogLevel)
 	writeConfigWarnings(env.Stdout, cfg.Warnings)
+	writeInterfaceStatus(env.Stdout, interfaceTheme, profile)
 	reportOutboxStatus(
 		env.Stdout,
 		context.Background(),
@@ -479,6 +532,11 @@ func runTUI(args []string, env Environment) int {
 	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 	cfgPath := fs.String("config", "", "path to config file")
+	noColor := fs.Bool(
+		"no-color",
+		false,
+		"draw the interface without colour, whatever the terminal can show",
+	)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -488,6 +546,12 @@ func runTUI(args []string, env Environment) int {
 	}
 
 	cfg, err := loadCommandConfig(*cfgPath)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
+	interfaceTheme, colorProfile, err := resolveInterfaceTheme(cfg, *noColor)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -614,7 +678,7 @@ func runTUI(args []string, env Environment) int {
 		runAuth,
 		env.RunTUI,
 		env.RunTUIWithSubmitter,
-	)
+	).WithInterface(interfaceTheme, colorProfile)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)
 

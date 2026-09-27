@@ -24,7 +24,11 @@
 ## CLI and TUI
 - CLI framework: standard library flag
 - TUI framework: github.com/charmbracelet/bubbletea v1.3.10
-- Styling library: none yet
+- Styling library: github.com/charmbracelet/lipgloss v1.1.0, used only to
+  detect what the terminal can show and to reduce a colour to it; the
+  theme itself imports no Lip Gloss style and changes no global state
+  (github.com/muesli/termenv is a direct dependency for the same
+  reason: Lip Gloss reports its profile as a termenv value)
 - Configuration library: github.com/BurntSushi/toml
 - Configuration format: TOML
 - Logging library: standard library log/slog (outbox dispatcher)
@@ -341,6 +345,13 @@
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by
   --config or TELECLI_CONFIG
+- Interface configuration: [tui] theme and [tui] color
+  - theme: a built-in theme name, default catppuccin-mocha; an unknown
+    name is a configuration error that lists the names there are
+  - color: "auto" (default), "always" or "never"; anything else is a
+    configuration error with the valid values in it
+  - the vocabulary lives in internal/tui/theme, so the values are stored
+    as plain strings here and validated there
 - Cache directory: TBD
 
 ## Secrets
@@ -425,6 +436,37 @@
 - Send projection: internal/telegram/send.go
 - Application lifecycle: internal/application/app.go
 - Chat service adapter: internal/application/chat_service.go
+- Interface theme: internal/tui/theme (PR-10A.1, docs/TUI_SPEC.md §2)
+  - a leaf package above internal/config: Palette, Tokens, Theme,
+    ThemeMode and Gradients, with the tokens computed from a palette by
+    one function, TokensFor, so a user palette needs no component change
+  - three built-in dark themes, and only three on purpose (§2.6): the
+    values are the official Catppuccin Mocha, Tokyo Night Storm and
+    Gruvbox Dark palettes, with the upstream role named in a comment
+    beside each block
+  - contrast: PrimaryText and SecondaryText are at or above WCAG AA
+    4.5:1 on AppBackground, SidebarBackground, ChatBackground and
+    ComposerBackground in every built-in theme, and the two dimmer tiers
+    get dimmer in order. A colour that is not set has no luminance, so a
+    ratio with one is 0 and a test cannot be flattered by it
+  - colour profiles: True Color, ANSI-256, ANSI-16 and no colour. The
+    terminal is measured through Lip Gloss and the decision is a pure
+    function of that measurement, the environment, --no-color and
+    [tui] color, so a test states them instead of inheriting the machine
+  - no colour is forced by any of [tui] color = "never", --no-color, a
+    non-empty NO_COLOR, TERM=dumb, or a Lip Gloss that reports no
+    colour; "always" only decides the case where nothing could be
+    measured, and never invents a capability
+  - an indexed terminal gets the color library's own reduction to the 256
+    palette and a gradient of at most three stops; a 16-colour terminal
+    gets basic colours by role, so the terminal renders them with the
+    palette the user configured, and its backgrounds stay unset
+  - nothing depends on colour: the focus marker, the reverse-and-bold
+    selection and the symbol-plus-words of every status are theme roles,
+    not view helpers
+  - the views do not read the theme yet (PR-10A.2). It reaches
+    tui.Model through tui.Dependencies, and telecli doctor reports the
+    theme and the profile that were resolved
 
 ## Current roadmap status
 - PR-01: recorder foundation, accepted
@@ -460,6 +502,11 @@
   - `sendMessage` response object: verified against TDLib 1.8.67
   - final delivery to recipient: not verified
   - delivery-state update tracking: deferred
+- PR-10A: interface rewrite per docs/TUI_SPEC.md
+  - PR-10A.1 semantic theme engine with three dark presets: accepted
+  - PR-10A.2 layout and focus, 10A.3 composer, 10A.4 delivery and status
+    block, 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots:
+    pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

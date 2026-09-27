@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"telecli/internal/tui/theme"
 )
 
 // sendState is the state of the current outbound send.
@@ -104,10 +106,28 @@ type Model struct {
 	authPrompt   AuthPromptKind
 	authCanceled bool
 
+	// theme and colorProfile are the resolved interface theme and the
+	// profile it was built for. The views do not read them yet; they are
+	// carried from the composition root so that PR-10A.2 has one place to
+	// take the theme from instead of resolving it per screen.
+	theme        theme.Theme
+	colorProfile theme.Profile
+
 	width  int
 	height int
 
 	quitting bool
+}
+
+// Theme returns the interface theme the model draws with and the colour
+// profile it was built for.
+//
+// The views read it when they start drawing with the theme in PR-10A.2.
+// Until then it is how a caller tells which theme a model will use, and
+// the reason the theme is carried on the model rather than resolved per
+// screen.
+func (m Model) Theme() (theme.Theme, theme.Profile) {
+	return m.theme, m.colorProfile
 }
 
 // NewModel returns a model in the Chats screen with deterministic mock
@@ -115,6 +135,11 @@ type Model struct {
 //
 // It is the mock-only constructor: Init returns no command, and View
 // renders mockChats immediately.
+//
+// The model starts on the default theme with no colour profile. A model
+// built without a resolution cannot know what the terminal can show, and
+// unstyled text is always legible, while a profile guessed to be True
+// Color on a terminal that cannot show it would be neither.
 func NewModel() Model {
 	return Model{
 		screen:       ScreenChats,
@@ -124,6 +149,8 @@ func NewModel() Model {
 		chatsState:   loadStateLoaded,
 		historyState: loadStateIdle,
 		sendState:    sendStateIdle,
+		theme:        theme.DefaultTheme(),
+		colorProfile: theme.ProfileNoColor,
 	}
 }
 

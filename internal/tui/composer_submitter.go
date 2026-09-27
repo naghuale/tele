@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"telecli/internal/tui/theme"
 )
 
 type SubmissionState string
@@ -47,9 +49,24 @@ type Dependencies struct {
 	//
 	// It is how a composer whose delivery is paused states the reason
 	// before the user has tried to send anything. The message is
-	// user-facing text: the tui package imports nothing, so the reason is
-	// already resolved to a safe string by the composition root.
+	// user-facing text: the composition root resolves the reason to a
+	// safe string.
 	SendError error
+
+	// Theme is the interface theme, and ColorProfile the profile it was
+	// built for.
+	//
+	// The composition root resolves both, because deciding what the
+	// terminal can show is not a view's business and the resolution has to
+	// be the same one for every command. An empty name selects the
+	// default theme, so a caller that does not care about the interface
+	// can leave both out.
+	//
+	// The views do not read them yet: the screens are rewritten in
+	// PR-10A.2, and until then the theme travels with the model so that
+	// step has one place to read it from.
+	Theme        theme.Theme
+	ColorProfile theme.Profile
 }
 
 type composerSubmissionMsg struct {
@@ -78,6 +95,8 @@ func NewModelWithDependencies(
 	model.submitter = deps.MessageSubmitter
 	model.accountKey = strings.TrimSpace(deps.AccountKey)
 	model.messageStatuses = deps.MessageStatuses
+	model.theme = deps.Theme
+	model.colorProfile = deps.ColorProfile
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now
 		// means the user is not invited to press Enter to find out, and

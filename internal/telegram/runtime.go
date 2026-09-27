@@ -26,6 +26,7 @@ type Runtime struct {
 	clients   map[int]*Client
 	cancel    context.CancelFunc
 	done      chan struct{}
+	closed    chan struct{}
 	startOnce sync.Once
 	closeOnce sync.Once
 	startErr  error
@@ -56,6 +57,7 @@ func NewRuntime(cfg Config, native Native, rec recorder.ComponentRecorder) (*Run
 		state:    LifecycleCreated,
 		clients:  make(map[int]*Client),
 		done:     make(chan struct{}),
+		closed:   make(chan struct{}),
 	}, nil
 }
 
@@ -66,25 +68,31 @@ func (r *Runtime) State() LifecycleState {
 }
 
 func (r *Runtime) Start(parent context.Context) error {
-	r.mu.RLock()
-	state := r.state
-	r.mu.RUnlock()
-	if state == LifecycleClosed || state == LifecycleClosing {
-		return ErrClosed
-	}
-
 	called := false
 	r.startOnce.Do(func() {
 		called = true
-		ctx, cancel := context.WithCancel(parent)
+
+		// The state check and the transition happen under one lock, so a
+		// concurrent Close from the created state either wins and Start
+		// reports ErrClosed, or loses and stops the loop Start began.
 		r.mu.Lock()
+		if r.state != LifecycleCreated {
+			r.mu.Unlock()
+			r.startErr = ErrClosed
+			return
+		}
+		ctx, cancel := context.WithCancel(parent)
 		r.cancel = cancel
 		r.state = LifecycleRunning
 		r.mu.Unlock()
+
 		r.recorder.SetState(recorder.StateRunning)
 		go r.receiveLoop(ctx)
 	})
 	if !called {
+		if state := r.State(); state == LifecycleClosing || state == LifecycleClosed {
+			return ErrClosed
+		}
 		return ErrAlreadyStarted
 	}
 	return r.startErr
@@ -208,33 +216,49 @@ func (r *Runtime) closeClientChannels() {
 	}
 }
 
+// Close stops the receive loop and closes the native library.
+//
+// The caller context bounds only the wait. The close sequence runs to
+// completion on its own, so a short deadline cannot leave the library
+// open, and a later Close reports the real outcome.
 func (r *Runtime) Close(ctx context.Context) error {
 	r.closeOnce.Do(func() {
-		r.mu.Lock()
-		if r.state == LifecycleCreated {
-			r.state = LifecycleClosed
-			r.mu.Unlock()
-			r.closeErr = r.native.Close()
-			close(r.done)
-			return
-		}
-		r.state = LifecycleClosing
-		cancel := r.cancel
-		r.mu.Unlock()
-		if cancel != nil {
-			cancel()
-		}
-		select {
-		case <-r.done:
-		case <-ctx.Done():
-			r.closeErr = ctx.Err()
-			return
-		}
-		r.closeErr = r.native.Close()
-		r.mu.Lock()
+		go r.closeSequence()
+	})
+
+	select {
+	case <-r.closed:
+		return r.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// closeSequence runs exactly once. closeErr is written before closed is
+// closed, so readers that observed closed see the final value.
+func (r *Runtime) closeSequence() {
+	defer close(r.closed)
+
+	r.mu.Lock()
+	if r.state == LifecycleCreated {
 		r.state = LifecycleClosed
 		r.mu.Unlock()
-		r.recorder.SetState(recorder.StateStopped)
-	})
-	return r.closeErr
+		r.closeErr = r.native.Close()
+		close(r.done)
+		return
+	}
+	r.state = LifecycleClosing
+	cancel := r.cancel
+	r.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	<-r.done
+
+	r.closeErr = r.native.Close()
+	r.mu.Lock()
+	r.state = LifecycleClosed
+	r.mu.Unlock()
+	r.recorder.SetState(recorder.StateStopped)
 }

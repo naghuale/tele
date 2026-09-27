@@ -20,6 +20,7 @@ type h5bSession struct {
 	closeCalls atomic.Int32
 	order      *[]string
 	closeErr   error
+	live       *telegram.LiveState
 }
 
 func (s *h5bSession) GetChats(
@@ -45,6 +46,10 @@ func (s *h5bSession) SendTextMessage(
 ) (telegram.Message, error) {
 	s.sendCalls.Add(1)
 	return telegram.Message{}, nil
+}
+
+func (s *h5bSession) LiveState() *telegram.LiveState {
+	return s.live
 }
 
 func (s *h5bSession) Close(context.Context) error {

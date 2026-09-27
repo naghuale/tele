@@ -171,6 +171,27 @@ func (s viewStyles) dimmed(color theme.Color) lipgloss.Style {
 	return style.Faint(true)
 }
 
+// raised returns the style of a block that sits on the surface below it.
+//
+// The background is the one of the block and not of the row it is drawn in:
+// a raised band the width of a pane says that the whole pane belongs to the
+// block, and a user reads that as something larger than the two sentences
+// inside it (§24).
+//
+// A profile that cannot show a colour gets the foreground alone, which is
+// the same reason every other style degrades to its text: the words carry
+// the meaning and the colour only repeats it.
+func (s viewStyles) raised(foreground, background theme.Color) lipgloss.Style {
+	if foreground.Kind() != theme.ColorKindRGB ||
+		background.Kind() != theme.ColorKindRGB {
+		return s.text(foreground)
+	}
+
+	return s.renderer.NewStyle().
+		Foreground(lipgloss.Color(foreground.Hex())).
+		Background(lipgloss.Color(background.Hex()))
+}
+
 // selected returns the style of the selected row of a list.
 //
 // The selection is an attribute and not a colour: it has to survive the

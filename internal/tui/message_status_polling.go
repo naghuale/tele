@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,11 @@ type messageStatusPollTickMsg struct {
 
 type messageStatusesLoadedMsg struct {
 	generation uint64
+
+	// read is the number of the read that produced this message, so a slow
+	// read that answers after a newer one is discarded instead of
+	// overwriting it.
+	read       uint64
 	accountKey string
 	chatID     int64
 	statuses   []MessageStatus
@@ -31,8 +37,31 @@ type messageStatusesLoadedMsg struct {
 
 type messageStatusesFailedMsg struct {
 	generation uint64
+	read       uint64
 	accountKey string
 	chatID     int64
+	err        error
+}
+
+// statusSummaryLoadedMsg is delivered by loadStatusSummary.
+//
+// A read that changed nothing delivers nothing at all: a poll that wakes
+// the program every two seconds to redraw the same screen is a program
+// that burns power and flickers, and the read is cheap enough to be worth
+// nothing when it learned nothing.
+type statusSummaryLoadedMsg struct {
+	generation uint64
+
+	// read is the number of the read that produced this message, so a slow
+	// read that answers after a newer one is discarded instead of
+	// overwriting it.
+	read    uint64
+	summary StatusSummary
+}
+
+type statusSummaryFailedMsg struct {
+	generation uint64
+	read       uint64
 	err        error
 }
 
@@ -93,6 +122,119 @@ func (m *Model) invalidateMessageStatusPolling() {
 	m.messageStatusChatID = 0
 }
 
+// loadStatusSummary starts one read of the status line's data.
+//
+// It is independent of the chat: the status line is under the conversation
+// title, and it is also in the header of the chat list on a narrow screen
+// where no conversation is open at all. A summary read that is waiting for
+// an open chat would leave the program saying nothing exactly when the
+// user is least able to act.
+func (m *Model) loadStatusSummary() tea.Cmd {
+	if m == nil || m.quitting || m.statusSummaries == nil || m.summaryLoading {
+		return nil
+	}
+
+	m.summaryLoading = true
+	m.summaryReadSeq++
+
+	generation := m.messageStatusGeneration
+	read := m.summaryReadSeq
+	known := m.summary
+	source := m.statusSummaries
+	ctx := m.ctx
+
+	return func() tea.Msg {
+		if err := ctx.Err(); err != nil {
+			return statusSummaryFailedMsg{generation: generation, read: read, err: err}
+		}
+
+		summary, err := source.ReadStatusSummary(ctx)
+		if err != nil {
+			return statusSummaryFailedMsg{generation: generation, read: read, err: err}
+		}
+		if summary == known {
+			// Nothing changed, so nothing is delivered. The model keeps
+			// loading=true until the next tick, which is where the next
+			// read is started from.
+			return nil
+		}
+
+		return statusSummaryLoadedMsg{
+			generation: generation,
+			read:       read,
+			summary:    summary,
+		}
+	}
+}
+
+// isCurrentSummaryRead reports whether a summary response is the newest
+// one and belongs to the active generation.
+//
+// A read that was slow can answer after the read that replaced it, and a
+// stale summary would put an old connection state back on the screen.
+func (m *Model) isCurrentSummaryRead(msgRead, generation uint64) bool {
+	if m == nil {
+		return false
+	}
+
+	return generation == m.messageStatusGeneration && msgRead == m.summaryReadSeq
+}
+
+func (m Model) handleStatusSummaryLoaded(
+	msg statusSummaryLoadedMsg,
+) (Model, tea.Cmd) {
+	if m.quitting || !m.isCurrentSummaryRead(msg.read, msg.generation) {
+		return m, nil
+	}
+
+	m.summaryLoading = false
+	m.summaryErr = nil
+	m.summary = msg.summary
+
+	return m, nil
+}
+
+// handleStatusSummaryFailed keeps the last summary.
+//
+// The counts of a queue that could not be read are dropped rather than
+// kept: they would be the counts of a moment ago, and a user who is told
+// "2 queued" cannot tell that from a live one. The connection survives,
+// because a client that was connected has not stopped being connected.
+func (m Model) handleStatusSummaryFailed(
+	msg statusSummaryFailedMsg,
+) (Model, tea.Cmd) {
+	if m.quitting || !m.isCurrentSummaryRead(msg.read, msg.generation) {
+		return m, nil
+	}
+
+	m.summaryLoading = false
+
+	if errors.Is(msg.err, context.Canceled) {
+		return m, nil
+	}
+
+	m.reportDiagnostic("status summary unavailable: %v\n", msg.err)
+	m.summaryErr = msg.err
+	if m.summary.Queue.Known {
+		m.summary.Queue = QueueSummary{}
+	}
+
+	return m, nil
+}
+
+// reportDiagnostic writes a cause to the diagnostic stream.
+//
+// The stream is a log, not a screen: §11.3 and §19 keep the transport
+// error text, the file paths and the secrets out of the interface and
+// leave them here, where somebody asked for them.
+func (m Model) reportDiagnostic(format string, args ...any) {
+	if m.diagnostics == nil {
+		return
+	}
+
+	fmt.Fprintf(m.diagnostics, format, args...)
+}
+
 // loadMessageStatuses starts at most one request for the active generation.
 //
 // A nil command means that polling is disabled: direct delivery mode has no
@@ -111,18 +253,23 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 	}
 
 	m.messageStatusLoading = true
+	m.statusReadSeq++
 
 	generation := m.messageStatusGeneration
+	read := m.statusReadSeq
 	accountKey := m.messageStatusAccountKey
 	chatID := m.messageStatusChatID
 	statuses := m.messageStatuses
 	pending := m.pendingMessages
+	knownStatuses := m.deliveryStatuses
+	knownPending := m.pendingSnapshot
 	ctx := m.ctx
 
 	return func() tea.Msg {
 		if err := ctx.Err(); err != nil {
 			return messageStatusesFailedMsg{
 				generation: generation,
+				read:       read,
 				accountKey: accountKey,
 				chatID:     chatID,
 				err:        err,
@@ -135,33 +282,45 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 		)
 
 		if statuses != nil {
-			read, err := statuses.ListMessageStatuses(ctx, accountKey, chatID)
+			listed, err := statuses.ListMessageStatuses(ctx, accountKey, chatID)
 			if err != nil {
 				return messageStatusesFailedMsg{
 					generation: generation,
+					read:       read,
 					accountKey: accountKey,
 					chatID:     chatID,
 					err:        err,
 				}
 			}
-			readStatuses = cloneMessageStatuses(read)
+			readStatuses = cloneMessageStatuses(listed)
 		}
 
 		if pending != nil {
-			read, err := pending.ListPendingMessages(ctx, accountKey, chatID)
+			listed, err := pending.ListPendingMessages(ctx, accountKey, chatID)
 			if err != nil {
 				return messageStatusesFailedMsg{
 					generation: generation,
+					read:       read,
 					accountKey: accountKey,
 					chatID:     chatID,
 					err:        err,
 				}
 			}
-			readPending = clonePendingMessages(read)
+			readPending = clonePendingMessages(listed)
+		}
+
+		// Nothing changed, so nothing is delivered. An idle program that
+		// redraws itself every two seconds is a program that a user with
+		// a battery is paying for, and a repaint that changes no pixels is
+		// a flicker a user can see.
+		if equalMessageStatuses(readStatuses, knownStatuses) &&
+			equalPendingMessages(readPending, knownPending) {
+			return nil
 		}
 
 		return messageStatusesLoadedMsg{
 			generation: generation,
+			read:       read,
 			accountKey: accountKey,
 			chatID:     chatID,
 			statuses:   readStatuses,
@@ -180,54 +339,72 @@ func clonePendingMessages(messages []PendingMessage) []PendingMessage {
 	return append([]PendingMessage{}, messages...)
 }
 
+// messageResponseTarget is what a response carries to say which read and
+// which target it belongs to.
+type messageResponseTarget struct {
+	generation uint64
+	read       uint64
+	accountKey string
+	chatID     int64
+}
+
+func (m messageStatusesLoadedMsg) messageResponseTarget() messageResponseTarget {
+	return messageResponseTarget{
+		generation: m.generation,
+		read:       m.read,
+		accountKey: m.accountKey,
+		chatID:     m.chatID,
+	}
+}
+
+func (m messageStatusesFailedMsg) messageResponseTarget() messageResponseTarget {
+	return messageResponseTarget{
+		generation: m.generation,
+		read:       m.read,
+		accountKey: m.accountKey,
+		chatID:     m.chatID,
+	}
+}
+
 // isCurrentMessageStatusResponse reports whether a response still belongs to
 // the active generation and target.
 //
 // A stale response must change nothing at all, including the loading flag:
 // clearing it would let a second request overlap the current one.
 func (m *Model) isCurrentMessageStatusResponse(
-	generation uint64,
-	accountKey string,
-	chatID int64,
+	msg messageResponseTarget,
 ) bool {
 	if m == nil {
 		return false
 	}
-	return generation == m.messageStatusGeneration &&
-		accountKey == m.messageStatusAccountKey &&
-		chatID == m.messageStatusChatID
+	return msg.generation == m.messageStatusGeneration &&
+		msg.read == m.statusReadSeq &&
+		msg.accountKey == m.messageStatusAccountKey &&
+		msg.chatID == m.messageStatusChatID
 }
 
 func (m Model) handleMessageStatusesLoaded(
 	msg messageStatusesLoadedMsg,
 ) (Model, tea.Cmd) {
-	if !m.isCurrentMessageStatusResponse(
-		msg.generation,
-		msg.accountKey,
-		msg.chatID,
-	) {
+	if !m.isCurrentMessageStatusResponse(msg.messageResponseTarget()) {
 		return m, nil
 	}
 
 	m.messageStatusLoading = false
 	m.messageStatusErr = nil
 	m.deliveryStatuses = cloneMessageStatuses(msg.statuses)
+	m.pendingSnapshot = clonePendingMessages(msg.pending)
 	m.mergePendingMessages(msg.pending, m.deliveryStatuses)
 
-	if m.quitting {
-		return m, nil
-	}
-	return m, scheduleMessageStatusPoll(m.messageStatusGeneration)
+	// The next read is scheduled by the tick, not by this response: the
+	// cadence belongs to the loop and not to whichever read answered last.
+	return m, nil
 }
 
 func (m Model) handleMessageStatusesFailed(
 	msg messageStatusesFailedMsg,
 ) (Model, tea.Cmd) {
-	if !m.isCurrentMessageStatusResponse(
-		msg.generation,
-		msg.accountKey,
-		msg.chatID,
-	) {
+	if !m.isCurrentMessageStatusResponse(msg.messageResponseTarget()) {
 		return m, nil
 	}
 
@@ -241,19 +418,65 @@ func (m Model) handleMessageStatusesFailed(
 
 	m.messageStatusErr = msg.err
 
-	if m.quitting {
-		return m, nil
-	}
-	return m, scheduleMessageStatusPoll(m.messageStatusGeneration)
+	return m, nil
 }
 
+// handleMessageStatusPollTick is the one loop of the program that reads
+// delivery state, and the status summary is read on it.
+//
+// One loop, one cadence, one place that decides when a read happens. Two
+// timers would let the status line and the delivery states be read a
+// second apart, and the screen would show a queue count that does not match
+// the states under the messages it counts.
 func (m Model) handleMessageStatusPollTick(
 	msg messageStatusPollTickMsg,
 ) (Model, tea.Cmd) {
 	if m.quitting || msg.generation != m.messageStatusGeneration {
 		return m, nil
 	}
-	return m, m.loadMessageStatuses()
+
+	// The previous attempt is over, or abandoned: a read that delivered
+	// nothing changed nothing, and a read that was slow must not stop the
+	// next one from being tried.
+	m.messageStatusLoading = false
+	m.summaryLoading = false
+
+	return m, m.pollDeliverySources(msg.generation)
+}
+
+// deliveryPolling reports whether there is anything to poll.
+//
+// A model with no source at all must not keep a timer alive: a program
+// that wakes every two seconds to read nothing is a program that cannot
+// be reasoned about and cannot be put to sleep.
+func (m Model) deliveryPolling() bool {
+	if m.quitting {
+		return false
+	}
+	if m.statusSummaries != nil {
+		return true
+	}
+
+	return (m.messageStatuses != nil || m.pendingMessages != nil) &&
+		m.messageStatusAccountKey != ""
+}
+
+// pollDeliverySources reads every source once and schedules the next tick.
+func (m *Model) pollDeliverySources(generation uint64) tea.Cmd {
+	if !m.deliveryPolling() {
+		return nil
+	}
+
+	cmds := make([]tea.Cmd, 0, 3)
+	if cmd := m.loadStatusSummary(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.loadMessageStatuses(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	cmds = append(cmds, scheduleMessageStatusPoll(generation))
+
+	return tea.Batch(cmds...)
 }
 
 func scheduleMessageStatusPoll(
@@ -265,6 +488,41 @@ func scheduleMessageStatusPoll(
 			return messageStatusPollTickMsg{generation: generation}
 		},
 	)
+}
+
+// equalMessageStatuses reports whether two snapshots are the same.
+//
+// A field-by-field comparison rather than a string or a reflect.DeepEqual:
+// the snapshot is a flat value and the loop runs every two seconds, so the
+// cost of a read should not include a walk of the type.
+func equalMessageStatuses(left, right []MessageStatus) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+// equalPendingMessages reports whether two pending lists are the same.
+//
+// The entries hold a time and a state, and both are comparable values, so
+// the same field-by-field comparison is enough.
+func equalPendingMessages(left, right []PendingMessage) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // cloneMessageStatuses copies a snapshot so the model never aliases a slice

@@ -271,24 +271,32 @@ func (m Model) sendStateLines(width int) []string {
 			return rendered
 		}
 
-		text := "Failed to send: " + sendErrorText(m.sendErr)
-		return []string{styles.text(m.tokens().StatusError).
-			Render(fitCells(text, width))}
+		// §12.1: two fixed sentences, and nothing else. The cause of a
+		// failed queueing can name a keychain service, a path and a TDLib
+		// error message, and this slot is a screen somebody is reading.
+		//
+		// The block is raised (§24): the background is behind the two
+		// sentences and not across the pane, because a band the width of
+		// the composer would say the whole composer had failed.
+		raised := styles.raised(m.tokens().StatusError, m.tokens().PopupBackground)
+		lines := make([]string, 0, 2)
+		for _, text := range []string{notQueuedText, draftKeptText} {
+			for _, line := range wrapCells(text, width) {
+				lines = append(lines, raised.Render(line))
+			}
+		}
+
+		return lines
 
 	default:
 		return nil
 	}
 }
 
-// sendErrorText returns the user-facing text of a send failure.
-//
-// The error is already a safe string: the composition root resolves the
-// reason before it reaches the TUI, so nothing here has to decide what may
-// be shown.
-func sendErrorText(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	return err.Error()
-}
+// The two sentences of §12.1. They are fixed words and not a formatted
+// error: what a user can do about a message that was not queued is nothing
+// on this screen, and the one thing they must not do is lose the text.
+const (
+	notQueuedText = "Message was not queued"
+	draftKeptText = "Your text is still in the composer"
+)

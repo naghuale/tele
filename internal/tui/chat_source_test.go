@@ -711,8 +711,13 @@ func TestMessageSendErrorIsRendered(t *testing.T) {
 		err:       errors.New("boom"),
 	})
 
-	if !strings.Contains(m.View(), "Failed to send") {
-		t.Fatalf("view = %q, want Failed to send", m.View())
+	// §12.1: a message that was not queued is said in fixed words, and
+	// the error itself is not on the screen.
+	if !strings.Contains(m.View(), "Message was not queued") {
+		t.Fatalf("view = %q, want the fixed wording", m.View())
+	}
+	if strings.Contains(plain(m.View()), "boom") {
+		t.Fatalf("the error text is on the screen: %q", plain(m.View()))
 	}
 }
 

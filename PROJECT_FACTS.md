@@ -530,6 +530,48 @@
     terminal: §6.2 keeps it open until the user decides, and the outbox
     keeps its own narrower notion for the dispatcher, which must never
     send the same entry twice
+- Status line (internal/tui/view_status.go, internal/tui/status_summary.go,
+  internal/application/status_summary_source.go, PR-10A.4b, §4.1, §4.3, §11,
+  §12, §17, §18)
+  - the status block is the parts of §11.1 joined with `·` and drawn under
+    the title of a conversation, in the header of the chat list on a narrow
+    screen (§3.3), and in the conversation pane while no chat is open. Two
+    lines at most, one on a short screen (§3.4)
+  - what does not fit is dropped from the end of the parts, in the order
+    §11.1 ranks them, and never cut in the middle of a part: a cut sentence
+    says less than a shorter one
+  - an unknown connection is not drawn at all and a queue that could not be
+    read is not drawn as empty. The interface has no word for either, and a
+    word it makes up would be a claim nothing checked
+  - a failed queue read keeps the connection and drops the counts, and the
+    cause goes to the diagnostic stream. The summary carries counters and a
+    state and nothing else, so it is safe in a log
+  - `tui.StatusSummarySource` is read on the delivery poll, not on a
+    subscription (ADR-0003 step 3). A read that changed nothing delivers
+    no message at all, so an idle program does not redraw itself every two
+    seconds
+  - the tick is the only thing that schedules the next read. A response
+    scheduling one too would make the cadence depend on which read
+    answered, and a read that delivered nothing could never hand the loop
+    back
+  - each read is numbered, so a read slower than the interval is discarded
+    when it answers after a newer one instead of putting an old snapshot
+    back on the screen
+  - `telegram.LiveState` keeps the connection state
+    (`updateConnectionState`, td_api.tl:10974) and holds it during
+    authorization like the chat list: TDLib announces it during the login
+    wait and does not announce it again. A constructor the pinned schema
+    does not have is applied as unknown rather than kept, so a stale "ready"
+    is never read as the present
+  - the chat list waits ten seconds and then says so with the key that ends
+    the wait (§18): `R` repeats the load, and the hint bar names it only
+    while a retry can do something
+  - a failed queueing says `Message was not queued` and `Your text is still
+    in the composer` (§12.1), on a raised background behind those two
+    sentences and not across the pane (§24). The cause goes to the
+    diagnostic stream and the draft text goes nowhere at all
+  - `tui.Dependencies.Diagnostics` is that stream. It is the same one the
+    paused queue writes its cause to
 - Secret logging policy: never log secrets
 - TDLib credentials source (internal/application/auth_credentials.go):
   exactly one source per run, never mixed
@@ -658,8 +700,9 @@
     accepted
   - PR-10A.4a outgoing messages in the timeline with their delivery
     state: accepted
-  - PR-10A.4b status line, conversation header, empty states, loading,
-    10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
+  - PR-10A.4b status line, connection state, empty states §17, loading
+    §18, enqueue error §12.1: accepted
+  - 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

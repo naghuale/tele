@@ -31,7 +31,7 @@ func (m Model) hintLines(layout Layout, width int) []string {
 // hintText returns the hints of the current focus.
 func (m Model) hintText(layout Layout) string {
 	if m.screen == ScreenChats || m.focus == FocusChatList {
-		return hintChatList
+		return m.chatListHint()
 	}
 
 	if m.focus == FocusComposer {
@@ -71,6 +71,25 @@ func (m Model) timelineHint(layout Layout) string {
 	}
 
 	return "j/k scroll · Enter composer · Tab focus · Esc chats"
+}
+
+// chatListHint is what the chat list says, with the retry key when a
+// retry is possible.
+//
+// §4.6 has no hint for a key that does nothing, so R is named while the
+// load is slow or has failed - the two states where R asks again - and not
+// while the list is there, where it would only be a promise.
+func (m Model) chatListHint() string {
+	if !m.chatsRetryPossible() {
+		return hintChatList
+	}
+
+	return hintChatList + " · R retry"
+}
+
+// chatsRetryPossible reports whether pressing R has anything to do.
+func (m Model) chatsRetryPossible() bool {
+	return m.chatsLoadSlow || m.chatsState == loadStateError
 }
 
 // hintChatList is what the chat list says at every width.

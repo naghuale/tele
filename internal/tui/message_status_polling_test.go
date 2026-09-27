@@ -48,6 +48,7 @@ func h6c2bLoadedMsg(
 ) messageStatusesLoadedMsg {
 	return messageStatusesLoadedMsg{
 		generation: model.messageStatusGeneration,
+		read:       model.statusReadSeq,
 		accountKey: model.messageStatusAccountKey,
 		chatID:     model.messageStatusChatID,
 		statuses:   statuses,
@@ -60,6 +61,7 @@ func h6c2bFailedMsg(
 ) messageStatusesFailedMsg {
 	return messageStatusesFailedMsg{
 		generation: model.messageStatusGeneration,
+		read:       model.statusReadSeq,
 		accountKey: model.messageStatusAccountKey,
 		chatID:     model.messageStatusChatID,
 		err:        err,
@@ -532,13 +534,9 @@ func TestMessageStatusPollingDoesNotSubmitOnFailure(t *testing.T) {
 	model.messageStatusGeneration = 1
 	model.composer = []rune("draft text")
 
-	updated, cmd := model.handleMessageStatusesFailed(
+	model.handleMessageStatusesFailed(
 		h6c2bFailedMsg(model, errors.New("read failed")),
 	)
-	if cmd == nil {
-		t.Fatal("failure did not schedule the next poll")
-	}
-	_ = updated
 
 	if submitter.calls.Load() != 0 {
 		t.Fatalf("submitter calls = %d, want 0", submitter.calls.Load())
@@ -649,7 +647,14 @@ func TestMessageStatusPollingStopsWhenContextCanceled(t *testing.T) {
 	}
 }
 
-func TestMessageStatusPollingSchedulesNextPollAfterSuccess(t *testing.T) {
+// The cadence belongs to the tick, and to nothing else.
+//
+// A response scheduling the next read as well means two loops: one driven
+// by the timer and one driven by whichever read answered last, and a
+// failing source would then be asked twice as often as a working one. It
+// also means a read that delivers nothing - because nothing changed - can
+// never hand the loop back, and the poll would stop for good.
+func TestTheTickIsTheOnlyThingThatSchedulesTheNextPoll(t *testing.T) {
 	t.Parallel()
 
 	model := newPollingTestModel(&h6c2bStatusSource{})
@@ -657,25 +662,25 @@ func TestMessageStatusPollingSchedulesNextPollAfterSuccess(t *testing.T) {
 	model.messageStatusChatID = 42
 	model.messageStatusGeneration = 7
 
-	_, cmd := model.handleMessageStatusesLoaded(h6c2bLoadedMsg(model, nil))
-	if cmd == nil {
-		t.Fatal("success did not schedule the next poll")
+	if _, cmd := model.handleMessageStatusesLoaded(
+		h6c2bLoadedMsg(model, nil),
+	); cmd != nil {
+		t.Fatal("a response scheduled a poll of its own")
 	}
-}
-
-func TestMessageStatusPollingSchedulesNextPollAfterFailure(t *testing.T) {
-	t.Parallel()
-
-	model := newPollingTestModel(&h6c2bStatusSource{})
-	model.messageStatusAccountKey = "account-1"
-	model.messageStatusChatID = 42
-	model.messageStatusGeneration = 7
-
-	_, cmd := model.handleMessageStatusesFailed(
+	if _, cmd := model.handleMessageStatusesFailed(
 		h6c2bFailedMsg(model, errors.New("read failed")),
+	); cmd != nil {
+		t.Fatal("a failure scheduled a poll of its own")
+	}
+
+	updated, cmd := model.handleMessageStatusPollTick(
+		messageStatusPollTickMsg{generation: 7},
 	)
 	if cmd == nil {
-		t.Fatal("failure did not schedule the next poll")
+		t.Fatal("the tick did not start the next read")
+	}
+	if !updated.messageStatusLoading {
+		t.Fatal("the tick did not start a read")
 	}
 }
 
@@ -759,29 +764,52 @@ func TestMessageStatusPollingCurrentTickStartsRequest(t *testing.T) {
 	if !updated.messageStatusLoading {
 		t.Fatal("current tick did not set loading")
 	}
-	_ = cmd()
+	_ = firstReadOf(t, cmd)
 	if calls.Load() != 1 {
 		t.Fatalf("source calls = %d, want 1", calls.Load())
 	}
 }
 
-func TestMessageStatusPollingDoesNotStartTickWhileLoading(t *testing.T) {
+// A read that takes longer than the interval is not waited for: the next
+// tick reads again, and the slow answer is then the older one. Applying it
+// would put a snapshot back on the screen that the newer read has already
+// replaced, so it is dropped by its read number instead.
+func TestASlowReadIsDiscardedAfterANewerOne(t *testing.T) {
 	t.Parallel()
 
 	model := newPollingTestModel(&h6c2bStatusSource{})
 	model.messageStatusAccountKey = "account-1"
 	model.messageStatusChatID = 42
 	model.messageStatusGeneration = 2
-	model.messageStatusLoading = true
 
-	updated, cmd := model.handleMessageStatusPollTick(
+	slow := messageStatusesLoadedMsg{
+		generation: 2,
+		read:       1,
+		accountKey: "account-1",
+		chatID:     42,
+		statuses: []MessageStatus{
+			{EntryID: "entry-slow", State: MessageDeliveryQueued},
+		},
+	}
+
+	// The first read is in flight when the tick arrives, and the tick
+	// starts the second one: the read number of the answer below is the
+	// one the tick has already replaced.
+	model.messageStatusLoading = true
+	model.statusReadSeq = 1
+	updated, _ := model.handleMessageStatusPollTick(
 		messageStatusPollTickMsg{generation: 2},
 	)
-	if cmd != nil {
-		t.Fatal("tick started an overlapping request")
-	}
 	if !updated.messageStatusLoading {
-		t.Fatal("tick cleared loading")
+		t.Fatal("the tick did not start a read while one was in flight")
+	}
+
+	updated, _ = updated.handleMessageStatusesLoaded(slow)
+	if len(updated.deliveryStatuses) != 0 {
+		t.Fatalf(
+			"deliveryStatuses = %#v, want the older read discarded",
+			updated.deliveryStatuses,
+		)
 	}
 }
 
@@ -1017,4 +1045,26 @@ func TestMessageStatusPollingStopsOnConversationExit(t *testing.T) {
 	if next := polling.loadMessageStatuses(); next != nil {
 		t.Fatal("polling continued after leaving a conversation")
 	}
+}
+
+// firstReadOf runs the first read of a poll batch and returns its message.
+//
+// A tick returns one command per source plus the next tick, and the tick
+// command sleeps for the interval, so a test must not run the whole batch:
+// this runs the read that comes first and leaves the timer alone.
+func firstReadOf(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
+
+	if cmd == nil {
+		t.Fatal("no command")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok || len(batch) < 2 {
+		t.Fatalf("the poll is not a batch of reads and a tick: %T", cmd())
+	}
+	if len(batch) < 2 {
+		t.Fatal("the poll batch has no next tick")
+	}
+
+	return batch[0]()
 }

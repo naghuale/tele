@@ -321,6 +321,7 @@ func TestAnAcceptedMessageStaysUntilTheHistoryBringsItBack(t *testing.T) {
 	source.messages = nil
 	m, _ = updateModel(t, m, messageStatusesLoadedMsg{
 		generation: m.messageStatusGeneration,
+		read:       m.statusReadSeq,
 		accountKey: m.messageStatusAccountKey,
 		chatID:     m.messageStatusChatID,
 		statuses: []MessageStatus{{
@@ -545,6 +546,7 @@ func deliveryRefresh(t *testing.T, m Model, source PendingMessageSource) tea.Msg
 
 	msg := messageStatusesLoadedMsg{
 		generation: m.messageStatusGeneration,
+		read:       m.statusReadSeq,
 		accountKey: m.messageStatusAccountKey,
 		chatID:     m.messageStatusChatID,
 	}
@@ -561,6 +563,7 @@ func deliveryRefresh(t *testing.T, m Model, source PendingMessageSource) tea.Msg
 	if err != nil {
 		return messageStatusesFailedMsg{
 			generation: msg.generation,
+			read:       msg.read,
 			accountKey: msg.accountKey,
 			chatID:     msg.chatID,
 			err:        err,

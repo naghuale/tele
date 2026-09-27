@@ -43,6 +43,15 @@ func isLast(msg tea.KeyMsg) bool {
 }
 
 // isPageUp and isPageDown are the two page keys of the timeline (§8.3).
+// isReloadChats is the key that repeats a chat list load (§18).
+//
+// It is a capital R because the chat list has no text field of its own, and
+// a capital letter cannot be a character somebody means to type somewhere
+// else by accident.
+func isReloadChats(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'R'
+}
+
 func isPageUp(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyPgUp
 }

@@ -59,6 +59,10 @@ func (m Model) conversationRegion(
 			Render(fitCells(m.conversationTitle(layout, width), width)),
 	}
 
+	// §4.3 puts the status under the title: a user reads it as part of the
+	// header of the conversation rather than as the last line of it.
+	lines = append(lines, m.statusBlock(layout, width)...)
+
 	// The progress of an older-page request is at the top of the timeline,
 	// where the page it is about will go: a line at the bottom would be
 	// read as the end of the conversation, and the end is the newest
@@ -352,11 +356,18 @@ func (m Model) timelineEmptyLines(layout Layout, width int) []string {
 			Render(fitCells("Failed to load history", width))}
 
 	case loadStateEmpty:
-		return []string{styles.dimmed(m.tokens().MutedText).
-			Render(fitCells("No messages yet", width))}
+		// §17: a chat with nothing in it says so, and says where to
+		// write. "No messages" on its own is the same sentence with the
+		// answer removed.
+		return []string{
+			styles.dimmed(m.tokens().MutedText).
+				Render(fitCells("No messages yet", width)),
+			styles.dimmed(m.tokens().SecondaryText).
+				Render(fitCells(noMessagesHint, width)),
+		}
 
 	default:
 		return []string{styles.dimmed(m.tokens().MutedText).
-			Render(fitCells("No messages", width))}
+			Render(fitCells("No messages yet", width))}
 	}
 }

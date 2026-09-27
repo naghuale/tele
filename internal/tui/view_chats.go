@@ -26,7 +26,7 @@ const chatListTitle = "Chats"
 func (m Model) chatListLines(layout Layout, width, height int) []string {
 	lines := []string{
 		m.styles().text(m.tokens().PrimaryText).Render(chatListTitle),
-		m.chatListSummaryLine(width),
+		m.chatListHeaderSecondLine(layout, width),
 	}
 
 	rows := m.chatListRows(layout, width)
@@ -46,8 +46,28 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 	return lines
 }
 
-// chatListSummaryLine is the second line of the header: how much of the
-// list is unread.
+// chatListHeaderSecondLine is the second line of the chat list header.
+//
+// §4.1 puts a search and an unread count there, and §3.3 puts the status
+// block there on a narrow screen, where there is no conversation beside the
+// list to carry it. The status wins where it is drawn: a user who cannot
+// see whether telecli is connected needs that more than a count of unread
+// messages, and the count is still on every chat row.
+//
+// A list with no status to show keeps the unread count at every width, so
+// the line is never blank for a reason the user has to work out.
+func (m Model) chatListHeaderSecondLine(layout Layout, width int) string {
+	if !layout.TwoPane() {
+		if status := m.statusBlockLines(layout, width); len(status) > 0 {
+			return m.statusStyle().Render(status[0])
+		}
+	}
+
+	return m.chatListSummaryLine(width)
+}
+
+// chatListSummaryLine is the second line of the header where there is no
+// status: how much of the list is unread.
 //
 // §4.1 puts a search and an unread count there. The search is PR-10A.6 and
 // is not on the screen yet, so the line says the one half that is true
@@ -188,37 +208,75 @@ func unreadBadge(unread int) string {
 // screen the list has the whole width and says it all itself. What the user
 // reads is the same either way; only the line it is wrapped onto differs.
 func (m Model) chatListEmptyLines(layout Layout, width int) []string {
-	text, style := m.chatListEmptyState()
+	texts, style := m.chatListEmptyState()
 
-	if !layout.TwoPane() {
-		return wrapCells(text, width)
+	if layout.TwoPane() {
+		return []string{style.Render(fitCells(m.chatListEmptyShort(), width))}
 	}
 
-	return []string{style.Render(fitCells(m.chatListEmptyShort(), width))}
+	lines := make([]string, 0, len(texts))
+	for _, text := range texts {
+		for _, line := range wrapCells(text, width) {
+			lines = append(lines, style.Render(line))
+		}
+	}
+
+	return lines
 }
 
-// chatListEmptyState returns the whole sentence the list is in and the
-// style of it.
-func (m Model) chatListEmptyState() (string, lipgloss.Style) {
+// The words of §17 and §18 for a chat list that has nothing in it.
+//
+// The wait is named, not just spent: a screen that says "Loading" for
+// thirty seconds has stopped answering the question the word raises, and
+// the sentence that answers it ends with the key that does something about
+// it.
+const (
+	// chatLoadFailedText says the list did not come, without saying why.
+	chatLoadFailedText = "Failed to load chats"
+
+	// chatsLoadSlowText is §18's sentence for a load that has taken
+	// longer than the wait allows.
+	chatsLoadSlowText = "Taking longer than expected. Check connection or press R to retry."
+
+	// chatsLoadFailedHint is the same key for the same reason: a load that
+	// failed can be asked again, and asking is what the user wants to do.
+	chatsLoadFailedHint = "Check connection or press R to retry."
+
+	// noChatsText and noChatsHint are §17 for an account with no chats,
+	// and noMessagesHint is §17 for a chat with nothing in it.
+	noChatsText    = "No chats yet"
+	noChatsHint    = "Start a new conversation or wait for chats to load."
+	noMessagesHint = "Write the first message below."
+)
+
+// chatListEmptyState returns the sentences the list is in and the style of
+// them.
+//
+// A load that failed says so in one line and says what to do in the next.
+// The reason is not on the screen: a cause can name a file, a TDLib error
+// message and a path, and §11.3 and §19 keep those out of a terminal
+// somebody is looking at.
+func (m Model) chatListEmptyState() ([]string, lipgloss.Style) {
 	styles := m.styles()
 
 	switch m.chatsState {
 	case loadStateLoading:
-		return "Loading chats...", styles.dimmed(m.tokens().SecondaryText)
-
-	case loadStateError:
-		text := "Failed to load chats"
-		if m.loadErr != nil {
-			text += ": " + m.loadErr.Error()
+		if m.chatsLoadSlow {
+			return []string{"Loading chats…", chatsLoadSlowText},
+				styles.dimmed(m.tokens().StatusWarning)
 		}
 
-		return text, styles.dimmed(m.tokens().StatusError)
+		return []string{"Loading chats…"}, styles.dimmed(m.tokens().SecondaryText)
+
+	case loadStateError:
+		return []string{chatLoadFailedText, chatsLoadFailedHint},
+			styles.dimmed(m.tokens().StatusError)
 
 	case loadStateLoaded:
-		return "No chats", styles.dimmed(m.tokens().MutedText)
+		return []string{noChatsText, noChatsHint}, styles.dimmed(m.tokens().MutedText)
 
 	default:
-		return "No chats", styles.dimmed(m.tokens().MutedText)
+		return []string{noChatsText, noChatsHint}, styles.dimmed(m.tokens().MutedText)
 	}
 }
 
@@ -227,7 +285,7 @@ func (m Model) chatListEmptyState() (string, lipgloss.Style) {
 func (m Model) chatListEmptyShort() string {
 	switch m.chatsState {
 	case loadStateLoading:
-		return "Loading..."
+		return "Loading…"
 	case loadStateError:
 		return "Load failed"
 	default:

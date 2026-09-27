@@ -115,6 +115,13 @@ func (m Model) emptyConversationRegion(layout Layout) string {
 		)
 	}
 
+	// The status belongs under the title of a conversation, and this pane
+	// is the conversation of a program that has not been asked to open one
+	// yet. It is also the only place it is drawn on a two-pane screen with
+	// no chat open, and a user who cannot tell whether telecli is connected
+	// is the user who is about to press Enter.
+	lines = append(lines, m.statusBlock(layout, width)...)
+
 	return m.renderRegion(
 		styles.conversation,
 		false,
@@ -126,22 +133,31 @@ func (m Model) emptyConversationRegion(layout Layout) string {
 
 // emptyConversationState returns the title, the explanation and the colour
 // of the empty conversation pane.
+//
+// The explanation is the second line of §17 and §18, and the cause of a
+// failure is not one of them: it goes to the diagnostic stream, and this is
+// a pane a user reads over their shoulder.
 func (m Model) emptyConversationState() (string, string, theme.Color) {
 	switch m.chatsState {
 	case loadStateLoading:
-		return "Loading chats...", "", m.tokens().SecondaryText
-
-	case loadStateError:
-		title := "Failed to load chats"
-		if m.loadErr != nil {
-			title += ": " + m.loadErr.Error()
+		if m.chatsLoadSlow {
+			return "Loading chats…", chatsLoadSlowText, m.tokens().StatusWarning
 		}
 
-		return title, "", m.tokens().StatusError
+		return "Loading chats…", "", m.tokens().SecondaryText
+
+	case loadStateError:
+		return chatLoadFailedText, chatsLoadFailedHint, m.tokens().StatusError
+
+	case loadStateEmpty:
+		// A load that succeeded with nothing in it is not a list waiting
+		// to be chosen from: there is nothing to choose, and the pane says
+		// that instead of asking for a chat.
+		return noChatsText, noChatsHint, m.tokens().PrimaryText
 
 	case loadStateLoaded:
 		if len(m.chats) == 0 {
-			return "No chats yet", emptyChatsHint, m.tokens().PrimaryText
+			return noChatsText, noChatsHint, m.tokens().PrimaryText
 		}
 
 		return emptyConversationTitle, emptyConversationHint, m.tokens().PrimaryText
@@ -157,7 +173,6 @@ func (m Model) emptyConversationState() (string, string, theme.Color) {
 const (
 	emptyConversationTitle = "Select a chat"
 	emptyConversationHint  = "Use ↑ and ↓, then press Enter."
-	emptyChatsHint         = "Start a new conversation or wait for chats to load."
 )
 
 // viewSinglePane draws one pane across the whole width.

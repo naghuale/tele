@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -122,6 +123,36 @@ func listChatsCmd(src ChatSource) tea.Cmd {
 		}
 		return chatsLoadedMsg{chats: chats}
 	}
+}
+
+// chatsLoadSlowAfter is how long the chat list may take before the screen
+// says that the wait is longer than expected (§18).
+//
+// Ten seconds is long enough that a slow connection does not produce a
+// message about a connection, and short enough that a user who is waiting
+// is not waiting to be told. The text it leads to names R, so the wait ends
+// with a key and not only with a sentence.
+const chatsLoadSlowAfter = 10 * time.Second
+
+// chatsLoadDeadlineMsg is delivered when a chat list load has been in
+// flight for chatsLoadSlowAfter.
+//
+// It is a message rather than a clock read in the view because the screen
+// has to be redrawn when the sentence appears, and a view that redraws
+// itself on a timer is the loop §6.3 rules out. One message at the moment
+// the text changes is not a loop.
+type chatsLoadDeadlineMsg struct {
+	// operation is the load this deadline belongs to, so the deadline of a
+	// load the user already retried cannot announce a wait that is over.
+	operation uint64
+}
+
+// scheduleChatsLoadDeadline returns the message that fires when a load has
+// taken too long.
+func scheduleChatsLoadDeadline(operation uint64) tea.Cmd {
+	return tea.Tick(chatsLoadSlowAfter, func(time.Time) tea.Msg {
+		return chatsLoadDeadlineMsg{operation: operation}
+	})
 }
 
 // loadHistoryCmd returns a command that loads one history page through

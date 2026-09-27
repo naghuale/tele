@@ -210,14 +210,24 @@ func TestPausedReasonSurvivesClearingTheDraft(t *testing.T) {
 
 // A real failed send keeps the "Failed to send" wording: the paused case
 // must not swallow it.
-func TestFailedSendStillSaysFailedToSend(t *testing.T) {
+// A paused composer and a failed send are different things, and §12.1 now
+// names the second one: a message that was not queued, with the text still
+// in the composer. It must not borrow the wording of a pause, which says
+// that nothing was even attempted, and it must not show the cause either.
+func TestAFailedSendIsNotReadAsAPausedComposer(t *testing.T) {
 	m := h17PausedModel(t, &h17CountingSubmitter{})
 	m.pausedErr = nil
 	m.sendErr = errors.New("network is down")
 	m.sendState = sendStateError
 
-	view := m.View()
-	if !strings.Contains(view, "Failed to send: network is down") {
-		t.Fatalf("a genuine failure lost its wording:\n%s", view)
+	view := plain(m.View())
+	if !strings.Contains(view, "Message was not queued") {
+		t.Fatalf("a failed send lost its wording:\n%s", view)
+	}
+	if strings.Contains(view, "Sending paused") {
+		t.Fatalf("a failed send was drawn as a pause:\n%s", view)
+	}
+	if strings.Contains(view, "network is down") {
+		t.Fatalf("the cause of a failed send is on the screen:\n%s", view)
 	}
 }

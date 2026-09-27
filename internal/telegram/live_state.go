@@ -89,6 +89,11 @@ type LiveState struct {
 	chats    map[ChatID]*liveChatEntry
 	messages map[ChatID]*chatMessages
 	changed  chan struct{}
+
+	// connection is what TDLib last said about the link to the servers.
+	// It lives under the same lock as the chat list because it is applied
+	// from the same pump, and a status read is a single read of one word.
+	connection ConnectionState
 }
 
 // NewLiveState returns an empty store.
@@ -172,6 +177,12 @@ func (l *LiveState) apply(raw RawMessage) (bool, error) {
 	var envelope updateEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return false, fmt.Errorf("decode live update: %w", err)
+	}
+
+	// The connection state is the one update that is not about a chat. It
+	// is routed before the chat-list decoders, which have no place for it.
+	if envelope.Type == updateConnectionStateType {
+		return l.applyConnectionState(raw)
 	}
 
 	if _, isMessageUpdate := messageUpdateTypes[envelope.Type]; isMessageUpdate {
@@ -368,22 +379,29 @@ func (p chatPositionRaw) isMain() bool {
 // liveStateUpdateTypes are the update @types the main-list store
 // consumes. Every other type is ignored.
 var liveStateUpdateTypes = map[string]struct{}{
-	"updateNewChat":          {},
-	"updateChatTitle":        {},
-	"updateChatPosition":     {},
-	"updateChatLastMessage":  {},
-	"updateChatDraftMessage": {},
-	"updateChatReadInbox":    {},
+	"updateNewChat":           {},
+	"updateChatTitle":         {},
+	"updateChatPosition":      {},
+	"updateChatLastMessage":   {},
+	"updateChatDraftMessage":  {},
+	"updateChatReadInbox":     {},
+	updateConnectionStateType: {},
 }
+
+// updateConnectionStateType is the update the store applies to the
+// connection state instead of to a chat.
+const updateConnectionStateType = "updateConnectionState"
 
 // isLiveStateUpdate reports whether raw is an update the store consumes.
 //
 // The authorization phase uses this to decide what to hold on to. Holding
 // every skipped update would grow with the message traffic of a busy
 // account during a code-entry wait, while the store ignores message
-// updates until a later step. Keeping only chat-list updates bounds the
-// held slice by the chat list, and keeps the held data exactly the data
-// the store needs.
+// updates until a later step. Keeping only chat-list updates and the
+// connection state bounds the held slice by the chat list plus one word,
+// and keeps the held data exactly the data the store needs: the chat list
+// is rebuilt from its updates, and a connection state TDLib announced
+// during the login wait is not announced again afterwards.
 func isLiveStateUpdate(raw RawMessage) bool {
 	var envelope updateEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {

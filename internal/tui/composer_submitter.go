@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -46,6 +47,13 @@ type Dependencies struct {
 	// is sent and nothing is pending.
 	PendingMessages PendingMessageSource
 
+	// StatusSummaries is optional.
+	//
+	// It reads the connection state and the queue counters the status line
+	// shows, on the same poll cycle as the delivery statuses. A nil source
+	// draws no status line.
+	StatusSummaries StatusSummarySource
+
 	// MessageStatuses is optional.
 	//
 	// A nil source is the direct delivery mode and disables durable status
@@ -60,6 +68,16 @@ type Dependencies struct {
 	// user-facing text: the composition root resolves the reason to a
 	// safe string.
 	SendError error
+
+	// Diagnostics, when non-nil, receives the causes the screen must not
+	// show: why a message could not be queued, why the chat list could not
+	// be read.
+	//
+	// The interface shows a fixed sentence for those (§12.1) because a
+	// TDLib error message can carry a phone number, a file path or a
+	// message body. The cause belongs in a log somebody asked for. A nil
+	// writer discards the causes.
+	Diagnostics io.Writer
 
 	// Theme is the interface theme, and ColorProfile the profile it was
 	// built for.
@@ -104,6 +122,8 @@ func NewModelWithDependencies(
 	model.accountKey = strings.TrimSpace(deps.AccountKey)
 	model.messageStatuses = deps.MessageStatuses
 	model.pendingMessages = deps.PendingMessages
+	model.statusSummaries = deps.StatusSummaries
+	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile
 	// The renderer is built here, where the profile is known, rather than

@@ -12,11 +12,24 @@ import (
 
 	"telecli/internal/config"
 	"telecli/internal/outbox"
+	"telecli/internal/telegram"
+	"telecli/internal/tui"
 )
 
 type deliverySession interface {
 	TelegramChats
 	TelegramSender
+
+	// LiveState is the store TDLib updates are applied to, and the only
+	// place the connection state exists. It is a required capability
+	// rather than an optional one: the interface is started through this
+	// session, and a session that cannot say whether it is connected
+	// would leave the status line silent for a reason nobody chose.
+	//
+	// The store answers for itself when it is nil, so a session that has
+	// none reports the connection as unknown rather than failing here.
+	LiveState() *telegram.LiveState
+
 	Close(context.Context) error
 }
 
@@ -251,12 +264,38 @@ func prepareDeliveryAuthResult(
 		}()
 	}
 
+	// The status line reads the same two sources the rest of the delivery
+	// path reads: the live Telegram state for the connection, and the
+	// durable health for the queue. Neither is a subscription, so the
+	// interface keeps its own cadence over them.
+	//
+	// A runtime with no health source has no queue to count, and a
+	// half-built source would report an empty queue for a store it never
+	// read. Without it the interface draws no status line, which is the
+	// truth about a mode that has no queue.
+	var statusSummaries tui.StatusSummarySource
+	if health := delivery.HealthSource(); health != nil {
+		summarySource, err := NewLiveStatusSummarySource(
+			session.LiveState(),
+			health,
+		)
+		if err != nil {
+			return AuthRunResult{}, errors.Join(
+				fmt.Errorf("create status summary source: %w", err),
+				delivery.Close(),
+				closeDeliverySession(session, cfg.TDLib.ShutdownTimeoutMS),
+			)
+		}
+		statusSummaries = summarySource
+	}
+
 	return AuthRunResult{
 		Source:          NewTelegramChatService(session),
 		Submitter:       tuiSubmitter,
 		AccountKey:      accountKey,
 		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
 		PendingMessages: newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
+		StatusSummaries: statusSummaries,
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)
 			if shutdownCtx == nil {

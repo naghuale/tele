@@ -336,20 +336,57 @@ func TestApplyUnsupportedUpdateTypeIsIgnored(t *testing.T) {
 	}
 }
 
+// liveStateUpdateFixtures is one real-shaped update per held type.
+//
+// A held type without a fixture here would be a type whose application is
+// not checked at all, and the check is the whole point of holding it.
+var liveStateUpdateFixtures = map[string]RawMessage{
+	"updateNewChat": RawMessage(`{"@type":"updateNewChat","chat":{"@type":"chat","id":10,` +
+		`"title":"A","unread_count":0,"positions":[]}}`),
+	"updateChatTitle": RawMessage(`{"@type":"updateChatTitle","chat_id":10,"title":"B"}`),
+	"updateChatPosition": RawMessage(`{"@type":"updateChatPosition","chat_id":10,"position":` +
+		`{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"500",` +
+		`"is_pinned":false,"source":null}}`),
+	"updateChatLastMessage": RawMessage(`{"@type":"updateChatLastMessage","chat_id":10,` +
+		`"last_message":{"@type":"message","id":900,"chat_id":10,"is_outgoing":false,` +
+		`"date":1700000000,"content":{"@type":"messageText",` +
+		`"text":{"@type":"formattedText","text":"hey"}}},"positions":[]}`),
+	// The draft text itself is not modelled, so the position it carries is
+	// what an updateChatDraftMessage changes.
+	"updateChatDraftMessage": RawMessage(`{"@type":"updateChatDraftMessage","chat_id":10,` +
+		`"draft_message":{"@type":"draftMessage","date":0,"position":null},"positions":[` +
+		`{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"500",` +
+		`"is_pinned":false,"source":null}]}`),
+	"updateChatReadInbox": RawMessage(`{"@type":"updateChatReadInbox","chat_id":10,` +
+		`"last_read_inbox_message_id":0,"unread_count":1}`),
+	updateConnectionStateType: RawMessage(`{"@type":"updateConnectionState",` +
+		`"state":{"@type":"connectionStateReady"}}`),
+}
+
 // Every type the coordinator holds must be one the store actually applies,
 // otherwise an update would be preserved and then dropped.
 func TestLiveStateUpdateTypesAreAllApplied(t *testing.T) {
 	for updateType := range liveStateUpdateTypes {
-		raw := RawMessage(`{"@type":"` + updateType + `"}`)
+		raw, hasFixture := liveStateUpdateFixtures[updateType]
+		if !hasFixture {
+			t.Fatalf("%s is held but has no fixture to apply", updateType)
+		}
 		if !isLiveStateUpdate(raw) {
 			t.Fatalf("%s: isLiveStateUpdate = false", updateType)
 		}
-		// A bare envelope carries no chat id, so nothing is applied, but
-		// decodeLivePatch must still recognise the type.
-		if _, applies, err := decodeLivePatch(raw); err != nil {
-			t.Fatalf("%s: decodeLivePatch: %v", updateType, err)
-		} else if !applies {
-			t.Fatalf("%s: decodeLivePatch reported no match", updateType)
+
+		// The chat updates need a chat to apply to, so a chat is seeded
+		// first; the connection state needs nothing. The seed has another
+		// title, so the updateNewChat fixture is still a change.
+		state := NewLiveState()
+		mustApplyLiveChatWithoutPositions(t, state, 10, "Seed")
+
+		changed, err := state.apply(raw)
+		if err != nil {
+			t.Fatalf("%s: apply: %v", updateType, err)
+		}
+		if !changed {
+			t.Fatalf("%s: a held update changed nothing", updateType)
 		}
 	}
 }

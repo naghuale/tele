@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"io"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -54,6 +55,28 @@ type Model struct {
 	// direct delivery mode.
 	messageStatuses MessageStatusSource
 
+	// statusSummaries is the optional source of what the status line shows
+	// about the connection and the queue. It is nil in a model built
+	// without it, and then the interface draws no status line rather than
+	// an empty one.
+	statusSummaries StatusSummarySource
+
+	// summary is the last accepted status summary, and summaryErr the last
+	// failure to read one.
+	//
+	// A failed read leaves summary alone: the counts of a queue that could
+	// not be opened are not the counts of an empty one, and the connection
+	// a client reported a moment ago has not stopped being true.
+	summary        StatusSummary
+	summaryErr     error
+	summaryLoading bool
+
+	// summaryReadSeq and statusReadSeq number the reads of each source, so
+	// a read that was slow can be recognised and discarded after a newer
+	// one answered.
+	summaryReadSeq uint64
+	statusReadSeq  uint64
+
 	// deliveryStatuses is the last accepted status snapshot for the active
 	// chat, replaced as a whole on every successful poll.
 	deliveryStatuses []MessageStatus
@@ -71,6 +94,15 @@ type Model struct {
 	chatsState   loadState
 	historyState loadState
 	loadErr      error
+
+	// chatsLoadOperation counts the chat list loads, and chatsLoadSlow
+	// says that the current one has taken longer than §18 allows.
+	//
+	// The count is what a deadline belongs to: a load the user retried has
+	// a new one, and the deadline of the load before it must not announce
+	// a wait that is already over.
+	chatsLoadOperation uint64
+	chatsLoadSlow      bool
 
 	// historyExhausted records that a page added no new message, which is
 	// the only reliable end-of-history signal. HistoryPage.HasMore cannot
@@ -94,6 +126,15 @@ type Model struct {
 	// the user sees it go out. It leaves when the history brings it back.
 	pendingMessages PendingMessageSource
 	pending         []PendingMessage
+
+	// pendingSnapshot is the last pending list a source returned, without
+	// the messages this session queued by hand.
+	//
+	// The poll compares a read against this one and delivers nothing when
+	// they are equal, and it cannot compare against pending: that one has
+	// the local additions in it, so a queue that never changes would look
+	// like it changed on every read.
+	pendingSnapshot []PendingMessage
 
 	// timelineTop is the index of the first message the conversation shows.
 	//
@@ -128,6 +169,16 @@ type Model struct {
 	// cannot work at all. It outlives a per-chat send error, so the reason
 	// follows the user into every chat instead of being cleared on entry.
 	pausedErr error
+
+	// diagnostics receives the causes the screen must not show: why a
+	// message could not be queued, why the chat list could not be read.
+	//
+	// The interface shows a fixed sentence for those (§12.1) and the cause
+	// goes here instead, so a TDLib error message or a file path stays out
+	// of a terminal somebody is looking at over their shoulder. A nil
+	// writer discards them, which is what a program built without one
+	// gets.
+	diagnostics io.Writer
 
 	// composer is the draft and composerCursor the index in it.
 	//
@@ -233,14 +284,28 @@ func (m Model) withRenderer(profile theme.Profile) Model {
 }
 
 // Init implements tea.Model.
+//
+// The delivery poll starts here rather than when a chat is opened: the
+// status line is in the chat list header on a narrow screen, where no chat
+// is open, and the queue it counts is the program's rather than a chat's.
 func (m Model) Init() tea.Cmd {
-	if m.source == nil {
+	var cmds []tea.Cmd
+	if m.source != nil && m.chatsState == loadStateLoading {
+		m.chatsLoadOperation++
+		cmds = append(
+			cmds,
+			listChatsCmd(m.source),
+			scheduleChatsLoadDeadline(m.chatsLoadOperation),
+		)
+	}
+	if cmd := m.pollDeliverySources(m.messageStatusGeneration); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) == 0 {
 		return nil
 	}
-	if m.chatsState == loadStateLoading {
-		return listChatsCmd(m.source)
-	}
-	return nil
+
+	return tea.Batch(cmds...)
 }
 
 // Update implements tea.Model.
@@ -266,6 +331,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messageStatusesFailedMsg:
 		return m.handleMessageStatusesFailed(msg)
+
+	case statusSummaryLoadedMsg:
+		return m.handleStatusSummaryLoaded(msg)
+
+	case statusSummaryFailedMsg:
+		return m.handleStatusSummaryFailed(msg)
+
+	case chatsLoadDeadlineMsg:
+		return m.updateChatsLoadDeadline(msg)
 
 	case composerPlaceholderExpiredMsg:
 		m.composerPlaceholderLit = false
@@ -294,9 +368,14 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
+	m.chatsLoadSlow = false
+
 	if msg.err != nil {
 		m.chatsState = loadStateError
 		m.loadErr = msg.err
+		// The cause can name a file, a TDLib error message or a path, and
+		// the screen shows a fixed sentence instead (§11.3, §19).
+		m.reportDiagnostic("chat list unavailable: %v\n", msg.err)
 		return m, nil
 	}
 
@@ -315,6 +394,44 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 		m.selectedChat = len(m.chats) - 1
 	}
 	return m, nil
+}
+
+// updateChatsLoadDeadline announces a chat list load that has taken
+// longer than §18 allows.
+//
+// The announcement is a sentence about the wait and a key that ends it. A
+// spinner would say that something is happening; what a user needs to know
+// is that the list is not coming on its own and that R will ask again.
+func (m Model) updateChatsLoadDeadline(
+	msg chatsLoadDeadlineMsg,
+) (tea.Model, tea.Cmd) {
+	if msg.operation != m.chatsLoadOperation {
+		return m, nil
+	}
+	if m.chatsState != loadStateLoading {
+		return m, nil
+	}
+
+	m.chatsLoadSlow = true
+
+	return m, nil
+}
+
+// startChatsLoad begins a chat list load and arms the wait of §18.
+func (m *Model) startChatsLoad() tea.Cmd {
+	if m == nil || m.source == nil {
+		return nil
+	}
+
+	m.chatsState = loadStateLoading
+	m.chatsLoadSlow = false
+	m.loadErr = nil
+	m.chatsLoadOperation++
+
+	return tea.Batch(
+		listChatsCmd(m.source),
+		scheduleChatsLoadDeadline(m.chatsLoadOperation),
+	)
 }
 
 // updateHistoryLoaded applies a history response.
@@ -538,6 +655,15 @@ func (m Model) updateMessageSent(msg messageSentMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.sendState = sendStateError
 		m.sendErr = msg.err
+		// The cause goes to the log and the screen keeps §12.1's two
+		// sentences. The text that was not queued is deliberately absent
+		// here: a log of failures is a log somebody pastes into an issue.
+		m.reportDiagnostic(
+			"message was not queued for chat %d: %v\n",
+			msg.chatID,
+			msg.err,
+		)
+
 		return m, nil
 	}
 
@@ -577,6 +703,15 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 	if msg.err != nil {
 		m.sendState = sendStateError
 		m.sendErr = msg.err
+		// The cause goes to the log and the screen keeps §12.1's two
+		// sentences. The text that was not queued is deliberately absent
+		// here: a log of failures is a log somebody pastes into an issue.
+		m.reportDiagnostic(
+			"message was not queued for chat %d: %v\n",
+			msg.chatID,
+			msg.err,
+		)
+
 		return m, nil
 	}
 
@@ -673,6 +808,12 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
+
+	case isReloadChats(msg):
+		// §18: the waiting is over and the load is asked again. R is a
+		// key of the list and not of the composer, where §8.4 turns
+		// single letters back into text.
+		return m, m.startChatsLoad()
 
 	case msg.Type == tea.KeyEnter:
 		if len(m.chats) == 0 {

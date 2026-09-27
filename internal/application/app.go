@@ -59,6 +59,11 @@ type AuthRunResult struct {
 	// an outgoing message reaches the interface.
 	PendingMessages tui.PendingMessageSource
 
+	// StatusSummaries reads the connection and the queue counters the
+	// status line shows. It is nil in direct delivery mode, which has no
+	// queue to count, and then the interface draws no status line.
+	StatusSummaries tui.StatusSummarySource
+
 	// SendingPaused is non-nil when the durable outbox could not be
 	// opened. The TUI still starts: only sending is paused, and the
 	// submitter refuses rather than sending by another route.
@@ -317,9 +322,14 @@ func (a *App) RunTUI(ctx context.Context) error {
 						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
 						PendingMessages:  authResult.PendingMessages,
+						StatusSummaries:  authResult.StatusSummaries,
 						SendError:        sendError,
-						Theme:            a.interfaceTheme(),
-						ColorProfile:     a.colorProfile,
+						// The causes the screen must not show go here:
+						// why a message could not be queued and why the
+						// chat list could not be read.
+						Diagnostics:  a.diagnosticsWriter(),
+						Theme:        a.interfaceTheme(),
+						ColorProfile: a.colorProfile,
 					},
 				)
 			}

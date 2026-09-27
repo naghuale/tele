@@ -205,6 +205,10 @@ func (s *h7dSession) GetChatHistory(
 	return telegram.HistoryPage{}, nil
 }
 
+func (s *h7dSession) LiveState() *telegram.LiveState {
+	return nil
+}
+
 func (s *h7dSession) Close(context.Context) error {
 	s.closed.Store(true)
 	return nil

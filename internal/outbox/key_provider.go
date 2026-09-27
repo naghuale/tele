@@ -8,13 +8,30 @@ import (
 )
 
 var (
-	// ErrOutboxKeyUnavailable is returned when a key is missing for
-	// an existing database, or when a stored key is malformed.
+	// ErrOutboxKeyUnavailable is returned when the platform key
+	// provider reports that no key exists for an existing database.
 	//
-	// The caller must treat this as a fail-closed condition: a new
-	// key is never created as a fallback.
+	// It is deliberately exclusive: it means the item is absent, nothing
+	// else. Only this condition may be treated as recoverable by starting
+	// a new queue, because only here is there no key to lose. A key that
+	// exists but cannot be used is ErrOutboxKeyMalformed, and a provider
+	// that will not answer is ErrOutboxKeyAccessDenied.
+	//
+	// It remains fail-closed: a new key is never created as a fallback.
 	ErrOutboxKeyUnavailable = errors.New(
 		"outbox: key unavailable",
+	)
+
+	// ErrOutboxKeyMalformed is returned when a key exists but is not a
+	// usable one, for example of the wrong length.
+	//
+	// It is distinct from ErrOutboxKeyUnavailable on purpose. The key is
+	// still in the keychain, so the queue is not unrecoverable: a
+	// restored backup may fix it. Reporting it as a missing key would
+	// tell the user their key is gone and, once a reset command exists,
+	// would offer to orphan a queue whose key is still present.
+	ErrOutboxKeyMalformed = errors.New(
+		"outbox: key malformed",
 	)
 
 	// ErrOutboxKeyAccessDenied is returned when the platform key
@@ -107,11 +124,15 @@ func validateDatabaseID(id string) error {
 //
 // A malformed stored key is fail-closed: the caller must not proceed
 // with a truncated or oversized key, and must not create a replacement.
+//
+// The error is ErrOutboxKeyMalformed and not ErrOutboxKeyUnavailable,
+// because the key exists. Only a caller that can tell the two apart can
+// avoid telling a user with a recoverable key that it is gone.
 func validateLoadedKey(key []byte) ([]byte, error) {
 	if len(key) != outboxDataEncryptionKeySize {
 		return nil, fmt.Errorf(
 			"%w: invalid key length %d, want %d",
-			ErrOutboxKeyUnavailable,
+			ErrOutboxKeyMalformed,
 			len(key),
 			outboxDataEncryptionKeySize,
 		)

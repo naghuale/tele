@@ -141,6 +141,10 @@ func TestLinuxKeyProviderLoadKeyMissing(t *testing.T) {
 	if !errors.Is(err, ErrOutboxKeyUnavailable) {
 		t.Fatalf("err = %v, want ErrOutboxKeyUnavailable", err)
 	}
+	if errors.Is(err, ErrOutboxKeyMalformed) {
+		t.Fatal("a genuinely absent key must be ErrOutboxKeyUnavailable, " +
+			"not malformed")
+	}
 }
 
 // A locked keyring is not a missing key, and the two send the user to
@@ -207,8 +211,12 @@ func TestLinuxKeyProviderLoadKeyMalformed(t *testing.T) {
 	provider := newLinuxKeyProvider(client, countedReader{}, &fakeLockFactory{})
 
 	_, err := provider.LoadKey(context.Background(), "database-1")
-	if !errors.Is(err, ErrOutboxKeyUnavailable) {
-		t.Fatalf("err = %v, want ErrOutboxKeyUnavailable", err)
+	if !errors.Is(err, ErrOutboxKeyMalformed) {
+		t.Fatalf("err = %v, want ErrOutboxKeyMalformed", err)
+	}
+	if errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatal("a malformed key must not be reported as a missing key: " +
+			"it still exists, and a reset would orphan a recoverable queue")
 	}
 }
 

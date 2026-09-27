@@ -226,14 +226,12 @@ func TestDarwinKeyProviderRejectsMalformedKey(
 		context.Background(),
 		"database-1",
 	)
-	if !errors.Is(
-		err,
-		ErrOutboxKeyUnavailable,
-	) {
-		t.Fatalf(
-			"error = %v, want ErrOutboxKeyUnavailable",
-			err,
-		)
+	if !errors.Is(err, ErrOutboxKeyMalformed) {
+		t.Fatalf("error = %v, want ErrOutboxKeyMalformed", err)
+	}
+	if errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatal("a malformed key must not be reported as a missing key: " +
+			"it still exists, and a reset would orphan a recoverable queue")
 	}
 }
 

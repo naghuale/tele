@@ -40,6 +40,14 @@ func TestClassifySendingPausedCoversEveryCase(t *testing.T) {
 			want: SendingPausedKeyMissing,
 		},
 		{
+			// A key that exists but is unusable must not be reported as
+			// missing: a reset would orphan a queue that a restored
+			// Keychain backup could still recover.
+			name: "key present but malformed",
+			err:  outbox.ErrOutboxKeyMalformed,
+			want: SendingPausedOther,
+		},
+		{
 			name: "no secure key storage",
 			err:  outbox.ErrOutboxKeyProviderUnsupported,
 			want: SendingPausedNoKeyStorage,

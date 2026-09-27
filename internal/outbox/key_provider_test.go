@@ -212,9 +212,16 @@ func TestValidateLoadedKeyReturnsDefensiveCopy(t *testing.T) {
 func TestValidateLoadedKeyRejectsWrongLength(t *testing.T) {
 	for _, size := range []int{0, 1, 16, 31, 33, 64} {
 		_, err := validateLoadedKey(make([]byte, size))
-		if !errors.Is(err, ErrOutboxKeyUnavailable) {
-			t.Fatalf("size=%d: err = %v, want ErrOutboxKeyUnavailable",
+		if !errors.Is(err, ErrOutboxKeyMalformed) {
+			t.Fatalf("size=%d: err = %v, want ErrOutboxKeyMalformed",
 				size, err)
+		}
+		if errors.Is(err, ErrOutboxKeyUnavailable) {
+			t.Fatalf(
+				"size=%d: a malformed key must not satisfy "+
+					"ErrOutboxKeyUnavailable: it still exists",
+				size,
+			)
 		}
 	}
 }

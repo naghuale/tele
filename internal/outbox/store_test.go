@@ -106,7 +106,7 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 		for i := 0; i < 5; i++ {
 			if err := store.Enqueue(
 				context.Background(),
-				queuedEntryAt(ID(rune('a'+i)), 42, "x",
+				queuedEntryAt(ID(rune('a'+i)), int64(42+i), "x",
 					t0.Add(time.Duration(i)*time.Second)),
 			); err != nil {
 				t.Fatal(err)
@@ -120,6 +120,86 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 		if len(ready) != 2 {
 			t.Fatalf("len = %d, want 2", len(ready))
 		}
+	})
+
+	t.Run("ListReadyKeepsPerChatOrder", func(t *testing.T) {
+		store := factory(t)
+		ctx := context.Background()
+		t0 := time.Unix(1700000000, 0).UTC()
+
+		head := queuedEntryAt("op-head", 42, "first", t0)
+		next := queuedEntryAt("op-next", 42, "second", t0.Add(time.Second))
+		otherChat := queuedEntryAt("op-other-chat", 43, "x", t0.Add(2*time.Second))
+		otherAccount := queuedEntryAt("op-other-account", 42, "x", t0.Add(3*time.Second))
+		otherAccount.AccountKey = "secondary"
+		for _, entry := range []Entry{head, next, otherChat, otherAccount} {
+			if err := store.Enqueue(ctx, entry); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		readyIDs := func(now time.Time) []ID {
+			t.Helper()
+			ready, err := store.ListReady(ctx, now, 10)
+			if err != nil {
+				t.Fatalf("ListReady: %v", err)
+			}
+			ids := make([]ID, 0, len(ready))
+			for _, entry := range ready {
+				ids = append(ids, entry.ID)
+			}
+			return ids
+		}
+		assertReady := func(now time.Time, want ...ID) {
+			t.Helper()
+			got := readyIDs(now)
+			if len(got) != len(want) {
+				t.Fatalf("ready = %v, want %v", got, want)
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("ready = %v, want %v", got, want)
+				}
+			}
+		}
+
+		now := t0.Add(time.Minute)
+
+		// A queued head blocks later entries in its chat only.
+		assertReady(now, "op-head", "op-other-chat", "op-other-account")
+
+		// An in-flight head still blocks.
+		claimed, err := store.Claim(ctx, head.ID, 0, "d1", now.Add(time.Minute), now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertReady(now, "op-other-chat", "op-other-account")
+
+		// A head waiting for its retry blocks until it is terminal, so
+		// the second message can never overtake the first.
+		retrying, err := store.MarkRetryable(
+			ctx, head.ID, claimed.Version, now.Add(time.Hour), 0, "retry", now,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertReady(now, "op-other-chat", "op-other-account")
+
+		reclaimed, err := store.Claim(
+			ctx, head.ID, retrying.Version, "d1",
+			now.Add(2*time.Hour), now.Add(time.Hour),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.MarkPermanentFailure(
+			ctx, head.ID, reclaimed.Version, 400, "rejected", now.Add(time.Hour),
+		); err != nil {
+			t.Fatal(err)
+		}
+
+		// A terminal head no longer blocks its chat.
+		assertReady(now.Add(time.Hour), "op-next", "op-other-chat", "op-other-account")
 	})
 
 	t.Run("ListReadySkipsNonReady", func(t *testing.T) {

@@ -98,7 +98,7 @@ func (s *MemoryStore) ListReady(
 
 	var ready []Entry
 	for _, entry := range s.entries {
-		if entry.IsReadyAt(now) {
+		if entry.IsReadyAt(now) && !s.hasEarlierUnfinishedLocked(entry) {
 			ready = append(ready, entry)
 		}
 	}
@@ -112,6 +112,24 @@ func (s *MemoryStore) ListReady(
 		ready = ready[:limit]
 	}
 	return ready, nil
+}
+
+// hasEarlierUnfinishedLocked reports whether an older entry of the same
+// chat is still queued, in flight or waiting for a retry. Only the oldest
+// unfinished entry of a chat is ready, so messages keep their order.
+func (s *MemoryStore) hasEarlierUnfinishedLocked(entry Entry) bool {
+	for _, other := range s.entries {
+		if other.AccountKey != entry.AccountKey ||
+			other.ChatID != entry.ChatID ||
+			other.State.Terminal() {
+			continue
+		}
+		if other.CreatedAt.Before(entry.CreatedAt) ||
+			(other.CreatedAt.Equal(entry.CreatedAt) && other.ID < entry.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // ListAll implements Store.

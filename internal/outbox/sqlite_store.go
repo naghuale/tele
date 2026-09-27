@@ -440,12 +440,23 @@ SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
        lease_owner, lease_until_ns, version
-FROM outbox_entries
-WHERE state = 'queued'
-   OR (state = 'failed_retryable'
-       AND next_attempt_ns IS NOT NULL
-       AND next_attempt_ns <= ?)
-ORDER BY created_at_ns ASC, id ASC
+FROM outbox_entries AS e
+WHERE (e.state = 'queued'
+       OR (e.state = 'failed_retryable'
+           AND e.next_attempt_ns IS NOT NULL
+           AND e.next_attempt_ns <= ?))
+  -- Only the oldest unfinished entry of a chat is ready, so a later
+  -- message can never overtake one that is in flight or waiting for a
+  -- retry.
+  AND NOT EXISTS (
+      SELECT 1
+      FROM outbox_entries AS p
+      WHERE p.account_key = e.account_key
+        AND p.chat_id = e.chat_id
+        AND p.state IN ('queued', 'dispatching', 'failed_retryable')
+        AND (p.created_at_ns < e.created_at_ns
+             OR (p.created_at_ns = e.created_at_ns AND p.id < e.id)))
+ORDER BY e.created_at_ns ASC, e.id ASC
 LIMIT ?
 `, now.UnixNano(), limit)
 	if err != nil {

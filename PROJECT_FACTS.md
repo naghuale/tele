@@ -250,18 +250,28 @@
 - Cache directory: TBD
 
 ## Secrets
-- Keyring backend: macOS Keychain Services; Linux Secret Service
-  (outbox keys and Telegram credential profiles)
+- Keyring backend:
+  - outbox keys: macOS Keychain Services; Linux Secret Service
+  - Telegram credential profiles: macOS Keychain Services only
+    (internal/authstore, darwin + cgo); other platforms have no
+    profile store and must use the environment
 - Headless fallback: none; without a key provider the durable outbox
   fails closed and never creates a replacement key
 - Secret logging policy: never log secrets
-- TDLib credentials source: environment variables
-  - TELECLI_TDLIB_API_ID
-  - TELECLI_TDLIB_API_HASH
-  - TELECLI_TDLIB_PHONE
-- 2FA password source: environment variable for manual integration
-  - TELECLI_TDLIB_PASSWORD
-  - production path must use a masked TUI prompt or OS keyring
+- TDLib credentials source (internal/application/auth_credentials.go):
+  exactly one source per run, never mixed
+  1. environment, when all three are set:
+     - TELECLI_TDLIB_API_ID
+     - TELECLI_TDLIB_API_HASH
+     - TELECLI_TDLIB_PHONE
+     Only some of them set is a configuration error; it never falls
+     through to a profile.
+  2. otherwise a credential profile: [auth] api_id in the config file
+     (not a secret) plus the API hash and phone stored in the Keychain
+     under [auth] credential_profile; created by `telecli configure`
+  3. neither configured: mock-only TUI
+- 2FA password source: masked TUI prompt in production;
+  TELECLI_TDLIB_PASSWORD is read only by the manual integration tests
 
 ## Commands
 - telecli --help
@@ -361,9 +371,9 @@
     target chat ID appears in the first GetChats page; absence is not
     a failure and the send is always attempted
   - passed on macOS arm64
-- Production authorization activation: blocked until the credentials
-  policy is wired: no env → mock-only, partial env → configuration
-  error, complete env → production authorization
+- Production authorization activation: wired. No credentials →
+  mock-only, partial environment or incomplete profile → configuration
+  error, complete environment or profile → production authorization
 
 ## Open ADRs
 - ADR-0001: TDLib modern JSON C API through an internal dynamic cgo

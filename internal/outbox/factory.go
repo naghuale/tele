@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 var (
@@ -42,6 +43,20 @@ var (
 
 // outboxDatabaseFileName is the SQLite database file inside DataDir.
 const outboxDatabaseFileName = "outbox.db"
+
+// DatabaseExists reports whether the queue database is already present in
+// dataDir.
+//
+// It exists so a read-only caller can tell an existing queue from a clean
+// install without calling Open, which would create the directory, the
+// database and a key. The file name stays here so the two cannot drift.
+func DatabaseExists(dataDir string) bool {
+	if strings.TrimSpace(dataDir) == "" {
+		return false
+	}
+	info, err := os.Lstat(filepath.Join(dataDir, outboxDatabaseFileName))
+	return err == nil && info.Mode().IsRegular()
+}
 
 // Config describes a durable outbox instance.
 type Config struct {

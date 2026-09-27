@@ -552,3 +552,29 @@ func TestDarwinKeyProviderImplementsInterface(
 	var _ secItemClient = (*fakeSecItemClient)(nil)
 	var _ io.Reader = fixedReader{}
 }
+
+// A missing key is the only condition that may be reported as missing.
+// Anything else risks an offered reset throwing away a working queue.
+func TestDarwinKeyProviderMissingKeyComesOnlyFromNotFound(t *testing.T) {
+	results := []secItemResult{
+		secItemUnavailable,
+		secItemFailure,
+	}
+
+	for _, result := range results {
+		client := &fakeSecItemClient{copyResult: result}
+		provider := newDarwinKeyProvider(client, fixedReader{})
+
+		_, err := provider.LoadKey(context.Background(), "database-1")
+		if err == nil {
+			t.Fatalf("result %d: expected an error", result)
+		}
+		if errors.Is(err, ErrOutboxKeyUnavailable) {
+			t.Fatalf(
+				"result %d produced ErrOutboxKeyUnavailable; only "+
+					"secItemNotFound may",
+				result,
+			)
+		}
+	}
+}

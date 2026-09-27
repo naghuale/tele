@@ -143,13 +143,59 @@ func TestLinuxKeyProviderLoadKeyMissing(t *testing.T) {
 	}
 }
 
-func TestLinuxKeyProviderLoadKeyUnavailable(t *testing.T) {
+// A locked keyring is not a missing key, and the two send the user to
+// opposite places.
+func TestLinuxKeyProviderLoadKeyUnavailableIsAccessDenied(t *testing.T) {
 	client := &fakeSecretServiceClient{lookupResult: secretServiceUnavailable}
 	provider := newLinuxKeyProvider(client, countedReader{}, &fakeLockFactory{})
 
 	_, err := provider.LoadKey(context.Background(), "database-1")
-	if !errors.Is(err, ErrOutboxKeyUnavailable) {
-		t.Fatalf("err = %v, want ErrOutboxKeyUnavailable", err)
+	if !errors.Is(err, ErrOutboxKeyAccessDenied) {
+		t.Fatalf("err = %v, want ErrOutboxKeyAccessDenied", err)
+	}
+	if errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatal("a locked keyring must not be reported as a missing key")
+	}
+}
+
+func TestLinuxKeyProviderLoadKeyUnknownResultIsAccessDenied(t *testing.T) {
+	client := &fakeSecretServiceClient{lookupResult: secretServiceResult(99)}
+	provider := newLinuxKeyProvider(client, countedReader{}, &fakeLockFactory{})
+
+	_, err := provider.LoadKey(context.Background(), "database-1")
+	if err == nil {
+		t.Fatal("an unknown result must be an error")
+	}
+	if errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatal("an unknown failure must never be read as a missing key")
+	}
+}
+
+// A missing key is the only condition that may be reported as missing.
+// Anything else risks an offered reset throwing away a working queue.
+func TestLinuxKeyProviderMissingKeyComesOnlyFromNotFound(t *testing.T) {
+	results := []secretServiceResult{
+		secretServiceUnavailable,
+		secretServiceResult(99),
+	}
+
+	for _, result := range results {
+		client := &fakeSecretServiceClient{lookupResult: result}
+		provider := newLinuxKeyProvider(
+			client, countedReader{}, &fakeLockFactory{},
+		)
+
+		_, err := provider.LoadKey(context.Background(), "database-1")
+		if err == nil {
+			t.Fatalf("result %d: expected an error", result)
+		}
+		if errors.Is(err, ErrOutboxKeyUnavailable) {
+			t.Fatalf(
+				"result %d produced ErrOutboxKeyUnavailable; only "+
+					"secretServiceNotFound may",
+				result,
+			)
+		}
 	}
 }
 

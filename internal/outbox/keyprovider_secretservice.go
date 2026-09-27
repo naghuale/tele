@@ -118,15 +118,27 @@ func (p *linuxKeyProvider) LoadKey(
 		}
 		return validated, nil
 
-	case secretServiceNotFound, secretServiceUnavailable:
+	case secretServiceNotFound:
+		// The item is genuinely absent. This is the only result that
+		// means "key missing": everything else would tell a user with a
+		// locked keyring that their key is gone, and an offered reset
+		// would throw away a working queue.
 		clearBytes(value)
 		return nil, ErrOutboxKeyUnavailable
 
+	case secretServiceUnavailable:
+		// The item exists but the collection is locked, or the call was
+		// cancelled. Same meaning as a denied Keychain on macOS.
+		clearBytes(value)
+		return nil, ErrOutboxKeyAccessDenied
+
 	default:
+		// An unknown failure must never be read as a missing key, for
+		// the same reason.
 		clearBytes(value)
 		return nil, fmt.Errorf(
 			"%w: secret service lookup failed",
-			ErrOutboxKeyUnavailable,
+			ErrOutboxKeyAccessDenied,
 		)
 	}
 }

@@ -161,3 +161,60 @@ func TestPausedStateNeverFallsBackToDirectSend(t *testing.T) {
 		t.Fatal("the model fell back to ChatSource.SendMessage")
 	}
 }
+
+// Nothing was sent, so the screen must not claim a send failed.
+func TestPausedViewDoesNotSaySendFailed(t *testing.T) {
+	m := h17PausedModel(t, &h17CountingSubmitter{})
+
+	view := m.View()
+	if strings.Contains(view, "Failed to send") {
+		t.Fatalf("a paused composer must not be labelled a failed send:\n%s",
+			view)
+	}
+	if !strings.Contains(view, "Sending paused") {
+		t.Fatalf("view is missing the paused headline:\n%s", view)
+	}
+}
+
+// Ctrl+U clears the draft, not the reason. The condition is still true.
+func TestPausedReasonSurvivesClearingTheDraft(t *testing.T) {
+	m := h17PausedModel(t, &h17CountingSubmitter{})
+	m.focus = FocusComposer
+	m.composer = []rune("unsent draft")
+
+	if m.sendState != sendStateError {
+		t.Fatalf("sendState = %v, want error", m.sendState)
+	}
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlU))
+
+	if got := m.Composer(); got != "" {
+		t.Fatalf("Composer() = %q, want the draft cleared", got)
+	}
+	if m.sendState != sendStateError {
+		t.Fatalf("sendState = %v, want error: the reason still holds",
+			m.sendState)
+	}
+	if !errors.Is(m.sendErr, errSendingPausedFixture) {
+		t.Fatalf("sendErr = %v, want the paused reason", m.sendErr)
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Sending paused") {
+		t.Fatalf("the reason disappeared after Ctrl+U:\n%s", view)
+	}
+}
+
+// A real failed send keeps the "Failed to send" wording: the paused case
+// must not swallow it.
+func TestFailedSendStillSaysFailedToSend(t *testing.T) {
+	m := h17PausedModel(t, &h17CountingSubmitter{})
+	m.pausedErr = nil
+	m.sendErr = errors.New("network is down")
+	m.sendState = sendStateError
+
+	view := m.View()
+	if !strings.Contains(view, "Failed to send: network is down") {
+		t.Fatalf("a genuine failure lost its wording:\n%s", view)
+	}
+}

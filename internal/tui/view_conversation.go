@@ -65,7 +65,14 @@ func (m Model) viewConversation() string {
 	case sendStateSending:
 		b.WriteString("Sending...\n")
 	case sendStateError:
-		fmt.Fprintf(&b, "Failed to send: %v\n", m.sendErr)
+		// A paused composer is not a failed send: nothing was ever
+		// attempted, so the "Failed to send" wording would be a lie the
+		// user has to interpret.
+		if m.pausedErr != nil {
+			fmt.Fprintf(&b, "%v\n", m.sendErr)
+		} else {
+			fmt.Fprintf(&b, "Failed to send: %v\n", m.sendErr)
+		}
 	}
 
 	b.WriteString(strings.Repeat("-", minInt(maxInt(m.width, minWidth), 60)))

@@ -78,6 +78,18 @@ func reportOutboxStatus(
 		dataDir = strings.TrimSpace(cfg.DataDir)
 	}
 
+	// A diagnostic command must not change anything. outbox.Open creates
+	// the data directory, the SQLite file and a new Keychain item when
+	// they are absent, and macOS may raise an access dialog. So the
+	// database is checked first and Open is only reached for a queue that
+	// already exists.
+	if !outbox.DatabaseExists(dataDir) {
+		fmt.Fprint(out,
+			"Message queue: not created yet (it is created on first start)\n")
+		fmt.Fprintf(out, "  Data folder: %s\n", dataDir)
+		return
+	}
+
 	opened, err := probe(
 		ctx,
 		outbox.Config{

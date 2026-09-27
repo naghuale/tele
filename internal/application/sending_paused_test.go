@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -220,7 +222,7 @@ func TestReportOutboxStatusPrintsOK(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	cfg := h17Config(t)
+	cfg := h17ConfigWithDatabase(t)
 	reportOutboxStatus(&out, context.Background(), cfg, h17Probe(nil))
 
 	text := out.String()
@@ -254,7 +256,7 @@ func TestReportOutboxStatusPrintsEveryCase(t *testing.T) {
 			t.Parallel()
 
 			var out bytes.Buffer
-			cfg := h17Config(t)
+			cfg := h17ConfigWithDatabase(t)
 			reportOutboxStatus(
 				&out, context.Background(), cfg, h17Probe(c.err),
 			)
@@ -322,13 +324,76 @@ type h17NoopCloser struct{}
 
 func (h17NoopCloser) Close() error { return nil }
 
-// h17Config returns a config with a known data directory.
+// h17Config returns a config with an empty data directory: a clean
+// install with no queue.
 func h17Config(t *testing.T) config.Config {
 	t.Helper()
 	cfg := config.Default()
 	cfg.DataDir = t.TempDir()
 	cfg.MessageDelivery.DataDir = cfg.DataDir
 	return cfg
+}
+
+// h17ConfigWithDatabase returns a config whose data directory already
+// holds a queue database, which is the only case where the probe runs.
+func h17ConfigWithDatabase(t *testing.T) config.Config {
+	t.Helper()
+
+	cfg := h17Config(t)
+	path := filepath.Join(cfg.DataDir, "outbox.db")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// A diagnostic command must not create anything. On a clean install the
+// probe would build the data directory, the database and a Keychain item,
+// so it must not run at all.
+func TestDoctorDoesNotProbeOrCreateOnACleanInstall(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu    sync.Mutex
+		calls int
+	)
+
+	cfg := h17Config(t)
+	var out bytes.Buffer
+	reportOutboxStatus(&out, context.Background(), cfg, func(
+		context.Context,
+		outbox.Config,
+		outbox.Deps,
+	) (io.Closer, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		return h17NoopCloser{}, nil
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("probe calls = %d, want 0: doctor must not open a queue "+
+			"that does not exist", calls)
+	}
+
+	text := out.String()
+	if !strings.Contains(text, "not created yet") {
+		t.Fatalf("doctor did not say the queue is uncreated:\n%s", text)
+	}
+	if !strings.Contains(text, cfg.DataDir) {
+		t.Fatalf("doctor did not print the data folder:\n%s", text)
+	}
+
+	entries, err := os.ReadDir(cfg.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("doctor created %d file(s) in the data folder: %v",
+			len(entries), entries)
+	}
 }
 
 // ---- The doctor probe must be injectable ----
@@ -348,7 +413,7 @@ func TestDoctorUsesTheInjectedProbe(t *testing.T) {
 	)
 
 	var out bytes.Buffer
-	cfg := h17Config(t)
+	cfg := h17ConfigWithDatabase(t)
 	reportOutboxStatus(&out, context.Background(), cfg, func(
 		_ context.Context,
 		got outbox.Config,
@@ -380,7 +445,7 @@ func TestDoctorReportsAFailedProbeWithoutPanicking(t *testing.T) {
 	t.Parallel()
 
 	var out bytes.Buffer
-	cfg := h17Config(t)
+	cfg := h17ConfigWithDatabase(t)
 	reportOutboxStatus(
 		&out,
 		context.Background(),

@@ -613,6 +613,12 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.composer = nil
 			m.sendState = sendStateIdle
 			m.sendErr = nil
+			if m.pausedErr != nil {
+				// Clearing the draft must not also silence the reason
+				// sending is impossible. That still holds.
+				m.sendState = sendStateError
+				m.sendErr = m.pausedErr
+			}
 		}
 		return m, nil
 	}

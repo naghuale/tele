@@ -154,6 +154,10 @@ a no-op, which the existing dedup by ID already provides.
 
 ## Implementation plan
 
+Steps 3 and 4 wait until the PR-10A interface from docs/TUI_SPEC.md has
+landed, so the screens are not rewritten twice (TUI_SPEC decision 2).
+Steps 1 and 2 are independent of it.
+
 Each step is its own issue and PR, in this order:
 
 1. **Store and pump wiring (chat list).** `LiveState` in

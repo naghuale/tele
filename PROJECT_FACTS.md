@@ -383,3 +383,5 @@
   loader (accepted)
 - ADR-0002: durable outbox storage and at-rest privacy (accepted)
 - ADR-0003: live updates through a coalescing state store (accepted)
+- TUI specification: docs/TUI_SPEC.md (source of truth for PR-10A and
+  later interface work; its "Решения" section overrides the body)

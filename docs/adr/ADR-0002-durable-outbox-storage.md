@@ -20,6 +20,12 @@ Plaintext fallback is not allowed. If the platform key provider is
 unavailable, locked, or unsupported, production outbox activation
 fails closed and the existing PR-07 direct-send path remains active.
 
+> **Amended 2026-09-27 by docs/TUI_SPEC.md, decision 1.** There is no
+> direct-send fallback. `durable` is the only production send mode.
+> When the outbox cannot be opened, the TUI starts in the "Durable
+> outbox unavailable" state and refuses to queue messages, keeping the
+> draft. Startup does not fail because of it.
+
 Headless Linux remains unsupported for production outbox persistence
 until a separate explicit key-source policy is accepted.
 

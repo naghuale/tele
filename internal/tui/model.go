@@ -70,11 +70,6 @@ type Model struct {
 	historyState loadState
 	loadErr      error
 
-	// historyNextFrom is the inclusive boundary for the next older page.
-	// Zero means no request can be made yet: either nothing is loaded or
-	// the last page reported no boundary.
-	historyNextFrom int64
-
 	// historyExhausted records that a page added no new message, which is
 	// the only reliable end-of-history signal. HistoryPage.HasMore cannot
 	// be used: it is a len(messages) == limit heuristic that reports
@@ -252,7 +247,6 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.loadErr = nil
 	m.chats[m.selectedChat].Messages = msg.page.Messages
 	m.selectedMsg = 0
-	m.historyNextFrom = msg.page.NextFrom
 
 	// A new first page re-opens the history: nothing is known to be
 	// missing from it yet.
@@ -289,7 +283,6 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	existing := m.chats[m.selectedChat].Messages
 	merged := appendMessagesByID(existing, msg.page.Messages)
 	m.chats[m.selectedChat].Messages = merged
-	m.historyNextFrom = msg.page.NextFrom
 
 	// The page is appended at the older end, so the selection index still
 	// points at the same message. Clamp anyway in case a page arrived
@@ -331,12 +324,27 @@ func appendMessagesByID(messages []Message, older []Message) []Message {
 	return result
 }
 
+// historyBoundary returns the inclusive boundary for the next older page
+// of chat, or zero when there is nothing to continue from.
+//
+// HistoryPage.NextFrom is by definition the ID of the oldest message in
+// the page it came from, so the boundary is read from the oldest loaded
+// message rather than stored. Deriving it means the cursor can never
+// drift from the cache: re-entering a chat whose messages are already
+// loaded keeps paginating without refetching the first page.
+func historyBoundary(chat Chat) int64 {
+	if len(chat.Messages) == 0 {
+		return 0
+	}
+	return chat.Messages[len(chat.Messages)-1].ID
+}
+
 // loadOlderMessages requests the next older page of the open chat's
 // history.
 //
 // It returns no command when the request is not applicable: mock mode,
 // an exhausted history, a request already in flight, a history that has
-// not loaded yet, or no cursor to continue from.
+// not loaded yet, or no boundary to continue from.
 func (m Model) loadOlderMessages() (tea.Model, tea.Cmd) {
 	if m.source == nil {
 		return m, nil
@@ -349,7 +357,8 @@ func (m Model) loadOlderMessages() (tea.Model, tea.Cmd) {
 	}
 
 	chat := m.selected()
-	if len(chat.Messages) == 0 || chat.ID == 0 || m.historyNextFrom == 0 {
+	boundary := historyBoundary(chat)
+	if chat.ID == 0 || boundary == 0 {
 		return m, nil
 	}
 
@@ -359,7 +368,7 @@ func (m Model) loadOlderMessages() (tea.Model, tea.Cmd) {
 	return m, loadHistoryCmd(
 		m.source,
 		chat.ID,
-		m.historyNextFrom,
+		boundary,
 		historyPageSize,
 		m.historyOperation,
 	)
@@ -495,9 +504,9 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Entering a conversation starts a new history operation, so a page
 		// still in flight for a previous visit is discarded on arrival. The
-		// pagination cursor and its flags belong to the chat being left.
+		// pagination flags belong to the chat being left; the boundary
+		// itself is derived from the messages, not stored.
 		m.historyOperation++
-		m.historyNextFrom = 0
 		m.historyExhausted = false
 		m.historyMoreLoading = false
 		m.historyMoreErr = nil
@@ -507,19 +516,26 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.chats[m.selectedChat].ID,
 		)
 
-		if m.source != nil && len(m.chats[m.selectedChat].Messages) == 0 {
-			m.historyState = loadStateLoading
+		if m.source != nil {
+			if len(m.chats[m.selectedChat].Messages) == 0 {
+				m.historyState = loadStateLoading
+				m.loadErr = nil
+				return m, tea.Batch(
+					loadHistoryCmd(
+						m.source,
+						m.chats[m.selectedChat].ID,
+						0,
+						historyPageSize,
+						m.historyOperation,
+					),
+					statusCmd,
+				)
+			}
+			// The messages are already cached, so this chat is loaded even
+			// though nothing was requested. Without this the previous
+			// chat's loadStateError would block pagination here.
+			m.historyState = loadStateLoaded
 			m.loadErr = nil
-			return m, tea.Batch(
-				loadHistoryCmd(
-					m.source,
-					m.chats[m.selectedChat].ID,
-					0,
-					historyPageSize,
-					m.historyOperation,
-				),
-				statusCmd,
-			)
 		}
 		return m, statusCmd
 

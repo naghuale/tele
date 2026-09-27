@@ -250,11 +250,11 @@ func TestOlderPageAdvancesTheCursor(t *testing.T) {
 	m := openConversationWithHistory(t, source, 7, firstPage())
 	m = selectOldestMessage(t, m)
 
-	_, cmd := updateModel(t, m, press(tea.KeyDown))
+	m, cmd := updateModel(t, m, press(tea.KeyDown))
 	m, _ = updateModel(t, m, runCmd(t, cmd))
 
-	if m.historyNextFrom != 97 {
-		t.Fatalf("historyNextFrom = %d, want 97", m.historyNextFrom)
+	if got := historyBoundary(m.selected()); got != 97 {
+		t.Fatalf("boundary = %d, want 97 (the oldest message after appending)", got)
 	}
 }
 
@@ -552,7 +552,7 @@ func TestSentMessageDoesNotMoveTheHistoryCursor(t *testing.T) {
 	m := openConversationWithHistory(t, source, 7, firstPage())
 	m = selectOldestMessage(t, m)
 
-	cursor := m.historyNextFrom
+	boundary := historyBoundary(m.selected())
 
 	m, _ = updateModel(t, m, messageSentMsg{
 		chatID:    7,
@@ -560,8 +560,8 @@ func TestSentMessageDoesNotMoveTheHistoryCursor(t *testing.T) {
 		message:   Message{ID: 101, Outgoing: true, Text: "sent"},
 	})
 
-	if m.historyNextFrom != cursor {
-		t.Fatalf("historyNextFrom = %d, want %d", m.historyNextFrom, cursor)
+	if got := historyBoundary(m.selected()); got != boundary {
+		t.Fatalf("boundary = %d, want %d (a sent message must not move the cursor)", got, boundary)
 	}
 	if m.selected().Messages[0].ID != 101 {
 		t.Fatalf("messages[0].ID = %d, want 101 (a sent message goes to the front)",
@@ -602,17 +602,114 @@ func TestFirstPageLoadIsUnchanged(t *testing.T) {
 	}
 }
 
-func TestEnteringAnotherChatResetsTheHistoryCursor(t *testing.T) {
+// ---- Re-entering a chat with cached messages ----
+
+func TestReentryIntoCachedChatCanStillPaginate(t *testing.T) {
+	source := &recordingChatSource{pages: []HistoryPage{firstPage(), olderPage()}}
+	m := openConversationWithHistory(t, source, 7, firstPage())
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m = selectOldestMessage(t, m)
+
+	m, cmd := updateModel(t, m, press(tea.KeyDown))
+	if cmd == nil {
+		t.Fatal("↓ on the oldest cached message did not request an older page")
+	}
+	m, _ = updateModel(t, m, runCmd(t, cmd))
+
+	if len(m.selected().Messages) != 4 {
+		t.Fatalf(
+			"messages = %d (%v), want 4: re-entering a chat must keep pagination working",
+			len(m.selected().Messages),
+			messageIDs(m.selected().Messages),
+		)
+	}
+}
+
+func TestReentryIntoCachedChatRequestsFromTheOldestCachedMessage(t *testing.T) {
+	source := &recordingChatSource{pages: []HistoryPage{firstPage(), olderPage(), olderPage()}}
+	m := openConversationWithHistory(t, source, 7, firstPage())
+	m = selectOldestMessage(t, m)
+
+	m, cmd := updateModel(t, m, press(tea.KeyDown))
+	m, _ = updateModel(t, m, runCmd(t, cmd))
+	if m.historyExhausted {
+		t.Fatal("the second page adds messages, so history must not be exhausted")
+	}
+
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m = selectOldestMessage(t, m)
+	m, cmd = updateModel(t, m, press(tea.KeyDown))
+	if cmd == nil {
+		t.Fatal("↓ after re-entry must request a page")
+	}
+	runCmd(t, cmd)
+
+	if got := source.lastCall(t).fromMessageID; got != 97 {
+		t.Fatalf("fromMessageID = %d, want 97 (the oldest cached message)", got)
+	}
+}
+
+func TestReentryAfterAFailedFirstLoadInAnotherChatCanPaginate(t *testing.T) {
+	boom := errors.New("history fail")
+	source := &recordingChatSource{
+		pages: []HistoryPage{{Messages: nil}, olderPage(), olderPage()},
+		errs:  []error{boom},
+	}
+
+	m := NewModelWithSource(source)
+	m, _ = updateModel(t, m, chatsLoadedMsg{chats: []Chat{
+		{ID: 7, Title: "A"},
+		{ID: 8, Title: "B"},
+	}})
+
+	// Chat A: the first page fails, leaving historyState as error.
+	m, cmd := updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, runCmd(t, cmd))
+	if m.historyState != loadStateError {
+		t.Fatalf("historyState = %s, want error", m.historyState)
+	}
+
+	// Chat B already has cached messages, so no first page is requested.
+	m.chats[1].Messages = []Message{
+		{ID: 100, Text: "newest"},
+		{ID: 99, Text: "oldest loaded"},
+	}
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
+	m.selectedChat = 1
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+
+	if m.historyState != loadStateLoaded {
+		t.Fatalf(
+			"historyState = %s, want loaded: another chat's failure must not block this one",
+			m.historyState,
+		)
+	}
+
+	m = selectOldestMessage(t, m)
+	m, cmd = updateModel(t, m, press(tea.KeyDown))
+	if cmd == nil {
+		t.Fatal("↓ on the oldest cached message must request a page")
+	}
+	m, _ = updateModel(t, m, runCmd(t, cmd))
+
+	if len(m.selected().Messages) != 4 {
+		t.Fatalf("messages = %d (%v), want 4", len(m.selected().Messages), messageIDs(m.selected().Messages))
+	}
+}
+
+func TestEnteringAnotherChatResetsTheHistoryFlags(t *testing.T) {
 	source := &recordingChatSource{
 		pages: []HistoryPage{firstPage(), olderPage(), firstPage()},
 	}
 	m := openConversationWithHistory(t, source, 7, firstPage())
 	m = selectOldestMessage(t, m)
 
-	_, cmd := updateModel(t, m, press(tea.KeyDown))
+	m, cmd := updateModel(t, m, press(tea.KeyDown))
 	m, _ = updateModel(t, m, runCmd(t, cmd))
-	if m.historyNextFrom != 97 {
-		t.Fatalf("historyNextFrom = %d, want 97", m.historyNextFrom)
+	if got := historyBoundary(m.selected()); got != 97 {
+		t.Fatalf("boundary = %d, want 97", got)
 	}
 
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
@@ -621,8 +718,8 @@ func TestEnteringAnotherChatResetsTheHistoryCursor(t *testing.T) {
 	m, cmd = updateModel(t, m, press(tea.KeyEnter))
 	m, _ = updateModel(t, m, runCmd(t, cmd))
 
-	if m.historyNextFrom != 99 {
-		t.Fatalf("historyNextFrom = %d, want 99 for the newly entered chat", m.historyNextFrom)
+	if got := historyBoundary(m.selected()); got != 99 {
+		t.Fatalf("boundary = %d, want 99 for the newly entered chat", got)
 	}
 	if m.historyExhausted {
 		t.Fatal("entering a chat must clear the exhausted flag")

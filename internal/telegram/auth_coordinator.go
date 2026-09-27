@@ -252,6 +252,20 @@ func RunAuthWithClientDiagnostics(
 					errorCode,
 					errorName,
 				)
+
+				// A refused request leaves TDLib in the same state, so no
+				// further update will arrive. Waiting would hang the run.
+				if known {
+					if rejection := authRequestRejection(
+						request,
+						update.Raw,
+					); rejection != nil {
+						return AuthResult{
+							State:   session.State(),
+							Elapsed: time.Since(start),
+						}, rejection
+					}
+				}
 			} else if envelope, errorCode := classifyAuthDiagnosticEnvelope(
 				update.Raw,
 			); authDiagnosticEnvelopeReportable(envelope) {

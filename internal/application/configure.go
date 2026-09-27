@@ -461,14 +461,23 @@ func collectCredentials(
 	}
 	// The secret is copied into a string for the store call and the
 	// original buffer is wiped immediately.
-	apiHash := string(hashBytes)
+	apiHash := strings.TrimSpace(string(hashBytes))
 	zeroBytes(hashBytes)
 
-	if strings.TrimSpace(apiHash) == "" {
-		zeroBytes(hashBytes)
-
+	if apiHash == "" {
 		return 0, "", "", fmt.Errorf(
 			"%w: API hash must not be empty",
+			ErrConfigureInput,
+		)
+	}
+	// Telegram issues the API hash as 32 hexadecimal characters. Checking
+	// the shape here turns a typo, a stray character from the clipboard
+	// or a broken terminal read into an immediate answer, instead of an
+	// API_ID_INVALID from the server after setup reported success. The
+	// value itself is never echoed.
+	if !validTelegramAPIHash(apiHash) {
+		return 0, "", "", fmt.Errorf(
+			"%w: API hash must be the 32 hexadecimal characters shown on my.telegram.org",
 			ErrConfigureInput,
 		)
 	}
@@ -493,6 +502,22 @@ func collectCredentials(
 	_ = ctx
 
 	return parsedID, apiHash, trimmedPhone, nil
+}
+
+// validTelegramAPIHash reports whether value has the shape of a Telegram
+// API hash: exactly 32 hexadecimal characters.
+func validTelegramAPIHash(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // collectMode resolves the delivery mode.

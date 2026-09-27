@@ -274,7 +274,7 @@ func newConfigureFixture(t *testing.T) *configureFixture {
 		prompter: &scriptedPrompter{
 			answers: []string{"123456", "+15550001234", "durable", "default"},
 		},
-		secrets:    &scriptedSecretReader{value: "hash-0123456789abcdef"},
+		secrets:    &scriptedSecretReader{value: "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7"},
 		store:      newFakeConfigureStore(),
 		probe:      verifiedProbe(),
 		configPath: configPath,
@@ -341,7 +341,7 @@ func TestConfigureHidesAPIHashInput(t *testing.T) {
 	}
 
 	for _, prompt := range fixture.prompter.prompts {
-		if strings.Contains(prompt, "hash-0123456789abcdef") {
+		if strings.Contains(prompt, "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7") {
 			t.Fatal("the API hash was requested through a visible prompt")
 		}
 	}
@@ -359,7 +359,7 @@ func TestConfigureDoesNotEchoCredentialsInOutput(t *testing.T) {
 	writeConfigureReport(&out, result)
 
 	for _, secret := range []string{
-		"hash-0123456789abcdef",
+		"5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 		"+15550001234",
 		"123456",
 	} {
@@ -379,38 +379,44 @@ func TestConfigureRejectsInvalidInputs(t *testing.T) {
 		{
 			name:    "empty api id",
 			answers: []string{"", "+1555", "durable", "default"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must not be empty",
 		},
 		{
 			name:    "non numeric api id",
 			answers: []string{"abc", "+1555", "durable", "default"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must be a number",
 		},
 		{
 			name:    "negative api id",
 			answers: []string{"-5", "+1555", "durable", "default"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must be positive",
 		},
 		{
 			name:    "empty phone",
 			answers: []string{"123", "", "durable", "default"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "phone must not be empty",
 		},
 		{
 			name:    "unknown mode",
 			answers: []string{"123", "+1555", "sideways", "default"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "unsupported message send mode",
 		},
 		{
 			name:    "invalid profile name",
 			answers: []string{"123", "+1555", "durable", "bad profile"},
-			secret:  "hash",
+			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "profile name",
+		},
+		{
+			name:    "malformed api hash",
+			answers: []string{"123", "+1555", "durable", "default"},
+			secret:  "not-a-telegram-hash",
+			want:    "32 hexadecimal characters",
 		},
 		{
 			name:    "empty api hash",
@@ -460,7 +466,7 @@ func TestConfigureWritesExpectedConfigShape(t *testing.T) {
 
 	content := string(raw)
 
-	if strings.Contains(content, "hash-0123456789abcdef") {
+	if strings.Contains(content, "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7") {
 		t.Fatal("the API hash was written to the configuration")
 	}
 	if strings.Contains(content, "+15550001234") {
@@ -689,7 +695,7 @@ func TestConfigureDoesNotReplaceWithoutConfirmation(t *testing.T) {
 		APIHash: "old-hash",
 		Phone:   "+15550000000",
 	}
-	fixture.secrets.value = "new-hash-value"
+	fixture.secrets.value = "0123456789abcdef0123456789abcdef"
 	fixture.prompter.confirms = []bool{false}
 
 	_, err := fixture.run(t)
@@ -715,7 +721,7 @@ func TestConfigureReplacesAfterConfirmation(t *testing.T) {
 		APIHash: "old-hash",
 		Phone:   "+15550000000",
 	}
-	fixture.secrets.value = "new-hash-value"
+	fixture.secrets.value = "0123456789abcdef0123456789abcdef"
 	fixture.prompter.confirms = []bool{true}
 
 	result, err := fixture.run(t)
@@ -727,7 +733,7 @@ func TestConfigureReplacesAfterConfirmation(t *testing.T) {
 	}
 
 	stored, _ := fixture.store.Load(context.Background(), "default")
-	if stored.APIHash != "new-hash-value" {
+	if stored.APIHash != "0123456789abcdef0123456789abcdef" {
 		t.Fatal("the profile was not replaced")
 	}
 }
@@ -1247,7 +1253,7 @@ func TestConfigureStatusRendersEveryField(t *testing.T) {
 
 	// And no credential value may appear.
 	for _, secret := range []string{
-		"hash-0123456789abcdef",
+		"5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 		"+15550001234",
 	} {
 		if strings.Contains(out, secret) {

@@ -59,3 +59,23 @@ func TestBuildConfiguredConfigKeepsOperatorDirectoriesWithoutHome(t *testing.T) 
 		}
 	}
 }
+
+// TestConfigureStoresTrimmedAPIHash pins that whitespace picked up from
+// the clipboard around a valid hash is dropped before it is stored.
+func TestConfigureStoresTrimmedAPIHash(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef"
+	fixture := newConfigureFixture(t)
+	fixture.secrets.value = "  " + hash + "\t"
+
+	if _, err := fixture.run(t); err != nil {
+		t.Fatalf("configure: %v", err)
+	}
+	for name, profile := range fixture.store.profiles {
+		if profile.APIHash != hash {
+			t.Fatalf("profile %q stored API hash %q, want the trimmed hash", name, profile.APIHash)
+		}
+	}
+	if len(fixture.store.profiles) == 0 {
+		t.Fatal("no credential profile was stored")
+	}
+}

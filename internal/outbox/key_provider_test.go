@@ -285,8 +285,12 @@ func TestPlatformStubDoesNotReturnMalformedKey(t *testing.T) {
 
 	key, err := p.LoadKey(context.Background(), "primary")
 	if err != nil {
+		// Any of the "the key cannot be produced" sentinels is
+		// acceptable; what must never happen is a key coming back
+		// malformed.
 		if !errors.Is(err, ErrOutboxKeyProviderUnsupported) &&
-			!errors.Is(err, ErrOutboxKeyUnavailable) {
+			!errors.Is(err, ErrOutboxKeyUnavailable) &&
+			!errors.Is(err, ErrOutboxKeyAccessDenied) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		return

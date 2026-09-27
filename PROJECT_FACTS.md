@@ -60,6 +60,10 @@
 - Compatibility manifest: internal/telegram/manifest.go
 - Compatibility status: verified on macOS arm64 against the pinned commit above
 - Receive ownership: exactly one process-wide td_receive loop per Runtime
+- Receive errors: backoff from 10ms doubling to 1s; after 32
+  consecutive errors the runtime becomes failed, closes client channels,
+  and rejects Send with ErrRuntimeFailed; Close still releases the
+  native handle
 - Client routing: by @client_id envelope field
 - Initial client activation: Authorize sends getAuthorizationState
   immediately after NewClient. In the verified TDLib 1.8.67 runtime,

@@ -11,6 +11,14 @@ import (
 	"telecli/internal/telemetry/recorder"
 )
 
+// Receive error policy. A native bridge that keeps failing must neither
+// spin the CPU nor keep the runtime pretending to be healthy.
+const (
+	defaultReceiveErrorBackoffMin = 10 * time.Millisecond
+	defaultReceiveErrorBackoffMax = time.Second
+	defaultReceiveErrorLimit      = 32
+)
+
 type envelope struct {
 	ClientID int `json:"@client_id"`
 }
@@ -20,6 +28,10 @@ type Runtime struct {
 	native   Native
 	recorder recorder.ComponentRecorder
 	now      func() time.Time
+
+	receiveErrorBackoffMin time.Duration
+	receiveErrorBackoffMax time.Duration
+	receiveErrorLimit      int
 
 	mu        sync.RWMutex
 	state     LifecycleState
@@ -54,10 +66,15 @@ func NewRuntime(cfg Config, native Native, rec recorder.ComponentRecorder) (*Run
 		native:   native,
 		recorder: rec,
 		now:      time.Now,
-		state:    LifecycleCreated,
-		clients:  make(map[int]*Client),
-		done:     make(chan struct{}),
-		closed:   make(chan struct{}),
+
+		receiveErrorBackoffMin: defaultReceiveErrorBackoffMin,
+		receiveErrorBackoffMax: defaultReceiveErrorBackoffMax,
+		receiveErrorLimit:      defaultReceiveErrorLimit,
+
+		state:   LifecycleCreated,
+		clients: make(map[int]*Client),
+		done:    make(chan struct{}),
+		closed:  make(chan struct{}),
 	}, nil
 }
 
@@ -128,7 +145,11 @@ func (c *Client) Updates() <-chan Update { return c.updates }
 func (c *Client) Errors() <-chan error   { return c.errors }
 
 func (r *Runtime) Send(clientID int, request RawMessage) error {
-	if r.State() != LifecycleRunning {
+	switch r.State() {
+	case LifecycleRunning:
+	case LifecycleFailed:
+		return ErrRuntimeFailed
+	default:
 		return ErrClosing
 	}
 	if err := r.native.Send(clientID, request); err != nil {
@@ -149,6 +170,8 @@ func (r *Runtime) receiveLoop(ctx context.Context) {
 	defer close(r.done)
 	defer r.closeClientChannels()
 	var sequence uint64
+	consecutiveErrors := 0
+	backoff := r.receiveErrorBackoffMin
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,8 +185,20 @@ func (r *Runtime) receiveLoop(ctx context.Context) {
 			}
 			r.recorder.RecordError(recorder.ErrorTDLib, 0)
 			r.broadcastError(fmt.Errorf("receive TDLib message: %w", err))
+
+			consecutiveErrors++
+			if consecutiveErrors >= r.receiveErrorLimit {
+				r.fail(err)
+				return
+			}
+			if !sleepContext(ctx, backoff) {
+				return
+			}
+			backoff = min(backoff*2, r.receiveErrorBackoffMax)
 			continue
 		}
+		consecutiveErrors = 0
+		backoff = r.receiveErrorBackoffMin
 		if len(raw) == 0 {
 			continue
 		}
@@ -193,6 +228,37 @@ func (r *Runtime) receiveLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
+	}
+}
+
+// fail moves a running runtime to the failed state. The receive loop
+// returns right after, closing every client channel so owners stop
+// waiting; Close still releases the native library.
+func (r *Runtime) fail(cause error) {
+	r.mu.Lock()
+	if r.state == LifecycleRunning {
+		r.state = LifecycleFailed
+	}
+	r.mu.Unlock()
+	r.recorder.SetState(recorder.StateFailed)
+	r.broadcastError(fmt.Errorf(
+		"%w: %d consecutive receive errors: %w",
+		ErrRuntimeFailed,
+		r.receiveErrorLimit,
+		cause,
+	))
+}
+
+// sleepContext waits for d or until ctx is done. It reports whether the
+// full delay elapsed.
+func sleepContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 

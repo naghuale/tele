@@ -23,6 +23,7 @@ var (
 	ErrInvalidConfig     = errors.New("invalid telegram runtime configuration")
 	ErrUnknownClient     = errors.New("telegram message references an unknown client")
 	ErrNativeUnavailable = errors.New("TDLib native runtime unavailable")
+	ErrRuntimeFailed     = errors.New("telegram runtime failed")
 )
 
 type LifecycleState uint8

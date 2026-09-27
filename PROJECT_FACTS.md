@@ -647,6 +647,13 @@
   - `Copy text` writes OSC 52 to the program's terminal and nowhere else.
     The notice says `Copied`, and with no terminal to write to it says the
     copy did not happen rather than claiming one
+  - the program's output is one mutex-guarded writer (`terminalOutput`)
+    given to Bubble Tea (`tea.WithOutput`) and to the model at the same
+    time, because a copy written while a frame is painted lands inside
+    that frame's escape sequence. It is also a `term.File`: Bubble Tea
+    v1.3.10 takes its output as a terminal only through that interface, and
+    a writer that is not one leaves the program without a size and without
+    a resize
   - an action that answers says so in the status line, in a notice that one
     message takes away after three seconds. It is one message, not a repaint
     loop (§6.3)

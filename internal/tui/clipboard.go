@@ -37,13 +37,16 @@ import (
 type terminalOutput struct {
 	mu    sync.Mutex
 	out   io.Writer
+	file  *os.File
 	isTTY bool
 }
 
 // newTerminalOutput wraps a writer for the frames and the copies of the
 // program.
 func newTerminalOutput(out io.Writer, isTTY bool) *terminalOutput {
-	return &terminalOutput{out: out, isTTY: isTTY}
+	file, _ := out.(*os.File)
+
+	return &terminalOutput{out: out, file: file, isTTY: isTTY}
 }
 
 // programOutput returns the output of the running program.
@@ -60,6 +63,49 @@ func (t *terminalOutput) Write(p []byte) (int, error) {
 
 	return t.out.Write(p)
 }
+
+// Read, Close and Fd make terminalOutput a term.File, and that is not a
+// detail: Bubble Tea v1.3.10 takes its output as a terminal only when it
+// implements term.File, and without that it sends neither the first
+// WindowSizeMsg nor a resize. A program whose layout is never told how big
+// the terminal is draws it at zero size, and a wrapped writer would have
+// done that silently.
+//
+// The three delegate to the file the output wraps. A test buffer is not a
+// file and reports an invalid descriptor, which is the honest answer: there
+// is no terminal there to ask.
+func (t *terminalOutput) Read(p []byte) (int, error) {
+	if t == nil || t.file == nil {
+		return 0, os.ErrInvalid
+	}
+
+	// No lock: this is the input side, which only Bubble Tea reads, and it
+	// never carries a frame.
+	return t.file.Read(p)
+}
+
+func (t *terminalOutput) Close() error {
+	if t == nil || t.file == nil {
+		return os.ErrInvalid
+	}
+
+	return t.file.Close()
+}
+
+func (t *terminalOutput) Fd() uintptr {
+	if t == nil || t.file == nil {
+		return notATerminalFD
+	}
+
+	return t.file.Fd()
+}
+
+// notATerminalFD is what an output that is not a file reports as its
+// descriptor. A terminal check on it is false on every platform, which is
+// what a buffer is.
+const notATerminalFD = ^uintptr(0)
+
+var _ term.File = (*terminalOutput)(nil)
 
 // terminal reports whether there is a terminal to ask.
 func (t *terminalOutput) terminal() bool {

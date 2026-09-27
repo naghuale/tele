@@ -371,7 +371,7 @@ func TestMessageDeliveryHealthSamplerRecordsInitialState(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerRecordsAllInitialCounters(t *testing.T) {
@@ -394,7 +394,7 @@ func TestMessageDeliveryHealthSamplerRecordsAllInitialCounters(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerRecordsPeriodicSnapshots(t *testing.T) {
@@ -419,7 +419,7 @@ func TestMessageDeliveryHealthSamplerRecordsPeriodicSnapshots(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerUsesUpdatedSnapshot(t *testing.T) {
@@ -448,7 +448,7 @@ func TestMessageDeliveryHealthSamplerUsesUpdatedSnapshot(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerWaitsForInterval(t *testing.T) {
@@ -479,7 +479,7 @@ func TestMessageDeliveryHealthSamplerWaitsForInterval(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerDoesNotTightLoop(t *testing.T) {
@@ -503,7 +503,7 @@ func TestMessageDeliveryHealthSamplerDoesNotTightLoop(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerRequestsOneTimerPerCycle(t *testing.T) {
@@ -530,7 +530,7 @@ func TestMessageDeliveryHealthSamplerRequestsOneTimerPerCycle(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerSkipsRecordAfterReadFailure(t *testing.T) {
@@ -549,7 +549,7 @@ func TestMessageDeliveryHealthSamplerSkipsRecordAfterReadFailure(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerContinuesAfterReadFailure(t *testing.T) {
@@ -576,7 +576,7 @@ func TestMessageDeliveryHealthSamplerContinuesAfterReadFailure(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 }
 
 func TestMessageDeliveryHealthSamplerWaitsAfterReadFailure(t *testing.T) {
@@ -597,7 +597,7 @@ func TestMessageDeliveryHealthSamplerWaitsAfterReadFailure(t *testing.T) {
 	}
 
 	cancel()
-	_ = <-done
+	<-done
 	_ = tick
 }
 
@@ -730,7 +730,7 @@ func TestMessageDeliveryHealthSamplerDoesNotReadAfterCancellation(t *testing.T) 
 	cancel, done := h7c2Start(t, sampler)
 	tick := clock.next(t)
 	cancel()
-	_ = <-done
+	<-done
 
 	// A late tick from the cycle in flight must not start a new read.
 	tick <- time.Now()
@@ -751,7 +751,7 @@ func TestMessageDeliveryHealthSamplerDoesNotRecordAfterCancellation(t *testing.T
 	cancel, done := h7c2Start(t, sampler)
 	_ = clock.next(t)
 	cancel()
-	_ = <-done
+	<-done
 
 	if got := len(recorder.records()); got != 1 {
 		t.Fatalf("records = %d, want 1", got)

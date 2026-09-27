@@ -116,12 +116,6 @@ func (c *h7dClock) After(time.Duration) <-chan time.Time {
 	return tick
 }
 
-func (c *h7dClock) advance(delta time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.now = c.now.Add(delta)
-}
-
 func (c *h7dClock) setNow(now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

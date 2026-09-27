@@ -636,30 +636,6 @@ func TestPrepareDeliveryAuthResultSkipsSamplerInDirectMode(t *testing.T) {
 	}
 }
 
-type h7c2bBlockingHealthSource struct {
-	started chan struct{}
-	release chan struct{}
-}
-
-func (s *h7c2bBlockingHealthSource) State() MessageDeliveryHealthState {
-	return MessageDeliveryHealthRunning
-}
-
-func (s *h7c2bBlockingHealthSource) ReadMessageDeliveryHealth(
-	ctx context.Context,
-) (MessageDeliveryHealth, error) {
-	select {
-	case s.started <- struct{}{}:
-	default:
-	}
-	select {
-	case <-ctx.Done():
-		return MessageDeliveryHealth{}, ctx.Err()
-	case <-s.release:
-		return MessageDeliveryHealth{State: MessageDeliveryHealthRunning}, nil
-	}
-}
-
 // h7c2bHealthRecorder captures the telemetry observations the sampler records.
 type h7c2bHealthRecorder struct {
 	mu       sync.Mutex

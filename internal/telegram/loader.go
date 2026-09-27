@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	"telecli/internal/telegram/tdjson"
@@ -188,4 +189,22 @@ func uniqueLibraryCandidates(
 	}
 
 	return result
+}
+
+// platformLibraryPaths returns the platform candidates.
+//
+// On macOS a bare leaf name makes dlopen fall back to the working
+// directory, so only absolute system locations are offered there. On
+// Linux the dynamic linker never searches the working directory for a
+// leaf name, so the loader default is kept and signalled by an empty
+// path.
+func platformLibraryPaths() []string {
+	if runtime.GOOS == "darwin" {
+		return []string{
+			"/opt/homebrew/lib/libtdjson.dylib",
+			"/usr/local/lib/libtdjson.dylib",
+		}
+	}
+
+	return []string{""}
 }

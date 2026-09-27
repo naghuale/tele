@@ -12,11 +12,13 @@
 - Supported runtime platforms:
   - macOS arm64 (verified in PR-04, PR-05, PR-07)
   - macOS amd64
-  - Linux amd64 (structural, CI pending)
-  - Linux arm64 (structural, CI pending)
+  - Linux amd64 (unit tests in CI; native TDLib not yet verified)
+  - Linux arm64 (cross-compiled in development; not yet in CI)
 - Required build feature: CGO (for TDLib)
 - Builds without CGO: supported, but TDLib runtime is unavailable
-- Linux verification: required in CI
+- CI: .github/workflows/ci.yml runs gofmt, go vet, race tests, a
+  telecli_dev test build and a cgo-free build on macOS and Linux, and
+  golangci-lint v2 (.golangci.yml) built with the module Go version
 - Windows: unsupported in PR-04 / PR-05 / PR-07
 
 ## CLI and TUI
@@ -25,7 +27,7 @@
 - Styling library: none yet
 - Configuration library: github.com/BurntSushi/toml
 - Configuration format: TOML
-- Logging library: TBD
+- Logging library: standard library log/slog (outbox dispatcher)
 
 ## TDLib
 - Interface: modern JSON C API
@@ -232,8 +234,9 @@
     keyring
 
 ## Storage
-- Embedded database: TBD
-- Payload encryption: TBD
+- Embedded database: SQLite via modernc.org/sqlite (durable outbox,
+  ADR-0002)
+- Payload encryption: XChaCha20-Poly1305 per outbox message text
 - Schema migration: TBD
 - Outbox retention: accepted and canceled entries are purged 7 days
   after their last update (DispatcherConfig.Retention; negative
@@ -242,12 +245,15 @@
 - Data directory: ~/.local/share/telecli
 - TDLib database directory: ~/.local/share/telecli/tdlib/database
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
-- Config directory: TBD
+- Config file: os.UserConfigDir()/telecli/config.toml, overridden by
+  --config or TELECLI_CONFIG
 - Cache directory: TBD
 
 ## Secrets
-- Keyring backend: TBD
-- Headless fallback: TBD
+- Keyring backend: macOS Keychain Services; Linux Secret Service
+  (outbox keys and Telegram credential profiles)
+- Headless fallback: none; without a key provider the durable outbox
+  fails closed and never creates a replacement key
 - Secret logging policy: never log secrets
 - TDLib credentials source: environment variables
   - TELECLI_TDLIB_API_ID
@@ -261,10 +267,12 @@
 - telecli --help
 - telecli version
 - telecli doctor
+- telecli configure
 - telecli tui
 
 ## Architecture
-- Architecture policy: internal/archdeps/policy.go
+- Architecture policy: internal/archdeps/policy.go, enforced by
+  TestArchImports over every Go file regardless of build tags
 - Recorder contract: internal/telemetry/recorder
 - Recorder dependency rule: standard library only
 - TDLib binding: internal/telegram/tdjson

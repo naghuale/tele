@@ -34,47 +34,6 @@ func realPackagedPath(t *testing.T) string {
 	return candidate.Path
 }
 
-// packagedFixture builds a fake package layout and returns its library
-// path, the way a real package looks next to a binary.
-func packagedFixture(t *testing.T) (string, string) {
-	t.Helper()
-
-	root := t.TempDir()
-	executable := filepath.Join(root, "bin", "telecli")
-	library := filepath.Join(root, "lib", defaultTDLibNameForTest())
-
-	if err := os.MkdirAll(filepath.Dir(executable), 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(library), 0o755); err != nil {
-		t.Fatalf("mkdir lib: %v", err)
-	}
-	if err := os.WriteFile(executable, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatalf("write executable: %v", err)
-	}
-	if err := os.WriteFile(library, []byte("dylib"), 0o755); err != nil {
-		t.Fatalf("write library: %v", err)
-	}
-
-	return root, library
-}
-
-func defaultTDLibNameForTest() string {
-	if strings.Contains(defaultLibraryNameForTest(), ".dylib") {
-		return "libtdjson.dylib"
-	}
-
-	return "libtdjson.so"
-}
-
-func defaultLibraryNameForTest() string {
-	if _, err := os.Stat("/System/Library"); err == nil {
-		return "libtdjson.dylib"
-	}
-
-	return "libtdjson.so"
-}
-
 // writeExistingLibraryPath seeds a configuration file so the flow starts
 // from an operator who already named a library.
 func writeExistingLibraryPath(t *testing.T, path, library string) {

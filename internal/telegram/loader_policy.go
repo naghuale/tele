@@ -1,9 +1,6 @@
 package telegram
 
-import (
-	"path/filepath"
-	"runtime"
-)
+import "path/filepath"
 
 // The search policy lives outside any cgo build tag so the runtime loader
 // and the configuration wizard answer the same question the same way.
@@ -27,22 +24,4 @@ func DevelopmentLibrarySearchEnabled() bool {
 // the source tree root.
 func DevelopmentLibraryPath() string {
 	return filepath.Join("third_party", "tdlib", "lib", defaultLibraryName())
-}
-
-// platformLibraryPaths returns the platform candidates.
-//
-// On macOS a bare leaf name makes dlopen fall back to the working
-// directory, so only absolute system locations are offered there. On
-// Linux the dynamic linker never searches the working directory for a
-// leaf name, so the loader default is kept and signalled by an empty
-// path.
-func platformLibraryPaths() []string {
-	if runtime.GOOS == "darwin" {
-		return []string{
-			"/opt/homebrew/lib/libtdjson.dylib",
-			"/usr/local/lib/libtdjson.dylib",
-		}
-	}
-
-	return []string{""}
 }

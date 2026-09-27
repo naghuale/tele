@@ -20,17 +20,6 @@ func candidatePaths(candidates []NativeLibraryCandidate) []string {
 	return paths
 }
 
-func candidateSources(
-	candidates []NativeLibraryCandidate,
-) []NativeLibrarySource {
-	sources := make([]NativeLibrarySource, 0, len(candidates))
-	for _, candidate := range candidates {
-		sources = append(sources, candidate.Source)
-	}
-
-	return sources
-}
-
 func indexOfSource(
 	candidates []NativeLibraryCandidate,
 	source NativeLibrarySource,

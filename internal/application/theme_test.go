@@ -144,6 +144,50 @@ func TestNoColorFlagForcesTheNoColorProfile(t *testing.T) {
 	}
 }
 
+// A user whose terminal cannot be measured still asked for colour, and
+// the setting is called "always": a pipe, `script`, tmux with an unusual
+// TERM and the terminals of some IDEs all report no colour, and a user
+// who writes color = "always" in a configuration file is right more often
+// than the measurement is.
+func TestAlwaysColorModeForcesAColourProfile(t *testing.T) {
+	path := writeInterfaceConfig(t, "", "always")
+
+	_, profile, err := resolveInterfaceThemeFor(
+		loadInterfaceConfig(t, path),
+		false,
+		map[string]string{},
+		theme.TerminalAscii,
+	)
+	if err != nil {
+		t.Fatalf("resolveInterfaceThemeFor: %v", err)
+	}
+	if profile != theme.ProfileANSI256 {
+		t.Errorf(
+			"profile = %v, want ansi-256: always must force colour",
+			profile,
+		)
+	}
+
+	// And it must not survive --no-color, which is the most specific
+	// thing a user can say.
+	_, profile, err = resolveInterfaceThemeFor(
+		loadInterfaceConfig(t, path),
+		true,
+		map[string]string{},
+		theme.TerminalAscii,
+	)
+	if err != nil {
+		t.Fatalf("resolveInterfaceThemeFor: %v", err)
+	}
+	if profile != theme.ProfileNoColor {
+		t.Errorf(
+			"profile = %v, want no colour: --no-color outranks the "+
+				"configuration",
+			profile,
+		)
+	}
+}
+
 // The doctor report is how a user finds out which theme and profile their
 // terminal actually got, which is the only way to tell a wrong setting
 // from a wrong terminal.

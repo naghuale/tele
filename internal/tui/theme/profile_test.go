@@ -330,16 +330,16 @@ func TestResolveProfileFollowsTheDecisionTable(t *testing.T) {
 			input: ProfileInput{Terminal: TerminalANSI16},
 			want:  ProfileANSI16,
 		},
-		"a library that reports no colour at all": {
+		"a library that reports no colour at all is believed": {
 			input: ProfileInput{Terminal: TerminalAscii},
 			want:  ProfileNoColor,
 		},
-		"a library that reports no colour wins over always": {
+		"always takes a terminal that reported nothing as 256": {
 			input: ProfileInput{
 				Configured: ColorAlways,
 				Terminal:   TerminalAscii,
 			},
-			want: ProfileNoColor,
+			want: ProfileANSI256,
 		},
 		"unmeasurable terminal stays conservative": {
 			input: ProfileInput{Terminal: TerminalUnknown},
@@ -401,26 +401,50 @@ func TestResolveProfileFollowsTheDecisionTable(t *testing.T) {
 			},
 			want: ProfileNoColor,
 		},
-		"always does not override never": {
+		"never is stronger than everything": {
 			input: ProfileInput{
 				Configured: ColorNever,
+				Env:        map[string]string{"NO_COLOR": ""},
 				Terminal:   TerminalTrueColor,
 			},
 			want: ProfileNoColor,
 		},
-		"NO_COLOR wins over always": {
+		"--no-color is stronger than everything": {
+			input: ProfileInput{
+				FlagNoColor: true,
+				Configured:  ColorAlways,
+				Terminal:    TerminalTrueColor,
+			},
+			want: ProfileNoColor,
+		},
+		"always wins over NO_COLOR": {
 			input: ProfileInput{
 				Env:        map[string]string{"NO_COLOR": "1"},
 				Configured: ColorAlways,
 				Terminal:   TerminalTrueColor,
 			},
-			want: ProfileNoColor,
+			want: ProfileTrueColor,
+		},
+		"always wins over NO_COLOR on a terminal that measured nothing": {
+			input: ProfileInput{
+				Env:        map[string]string{"NO_COLOR": "1"},
+				Configured: ColorAlways,
+				Terminal:   TerminalAscii,
+			},
+			want: ProfileANSI256,
 		},
 		"TERM=dumb wins over always": {
 			input: ProfileInput{
 				Env:        map[string]string{"TERM": "dumb"},
 				Configured: ColorAlways,
 				Terminal:   TerminalTrueColor,
+			},
+			want: ProfileNoColor,
+		},
+		"NO_COLOR wins over auto": {
+			input: ProfileInput{
+				Env:      map[string]string{"NO_COLOR": "1"},
+				Terminal: TerminalTrueColor,
 			},
 			want: ProfileNoColor,
 		},

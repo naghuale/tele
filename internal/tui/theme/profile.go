@@ -186,25 +186,45 @@ type ProfileInput struct {
 
 // ResolveProfile decides which profile a theme is built for.
 //
-// Precedence, strongest first:
+// Precedence, strongest first. The order follows
+// https://no-color.org, which asks a user-level configuration file and a
+// per-instance command line to override the NO_COLOR environment
+// variable:
 //
-//  1. [tui] color = "never", --no-color, a non-empty NO_COLOR and
-//     TERM=dumb each force no colour on their own. They are all the user
-//     saying the same thing, and any one of them is enough; a terminal
-//     that reports itself as dumb is not a terminal to argue with.
-//  2. otherwise the profile follows what the terminal reported, with an
-//     unidentifiable terminal taken as 16 colours.
-//  3. [tui] color = "always" changes only that last case: it is the user
-//     saying the terminal is fine even though nothing could measure it,
-//     so a 256-colour terminal is assumed. It never invents a
-//     capability the terminal denied, and never overrides the four
-//     conditions above.
+//  1. [tui] color = "never" and --no-color. Both are the user saying no
+//     colour on this machine, and they win over everything: a
+//     per-instance command-line argument is the most specific thing a user
+//     can say.
+//  2. TERM=dumb. A terminal that renders escape sequences as garbage gets
+//     none, whatever was asked for. A user who set color = "always" in a
+//     configuration file and runs under TERM=dumb is in something that is
+//     not a terminal.
+//  3. [tui] color = "always". Stronger than NO_COLOR, because it is a
+//     configuration file and that is what the convention says. It never
+//     invents a capability the terminal reported, and it assumes 256
+//     colours when nothing could be measured or the color library
+//     reported none: those are pipes, `script`, tmux with an unusual TERM
+//     and the terminals of some IDEs, and a user asking for colour there
+//     is right more often than the measurement is.
+//  4. everything else, which is auto: NO_COLOR, then what the color
+//     library reported. A library that reports no colour at all is
+//     believed, because deciding again here would throw its decision away;
+//     an unidentifiable terminal is assumed to be a 16-colour one.
 func ResolveProfile(in ProfileInput) Profile {
 	switch {
-	case in.Configured == ColorNever,
-		in.FlagNoColor,
-		hasNoColorEnvironment(in.Env),
-		in.Env["TERM"] == "dumb":
+	case in.Configured == ColorNever:
+		return ProfileNoColor
+
+	case in.FlagNoColor:
+		return ProfileNoColor
+
+	case in.Env["TERM"] == "dumb":
+		return ProfileNoColor
+
+	case in.Configured == ColorAlways:
+		return forcedProfile(in.Terminal)
+
+	case hasNoColorEnvironment(in.Env):
 		return ProfileNoColor
 	}
 
@@ -216,20 +236,34 @@ func ResolveProfile(in ProfileInput) Profile {
 	case TerminalANSI16:
 		return ProfileANSI16
 	case TerminalAscii:
-		// The library has already decided that this output shows no
-		// colour: stdout is not a terminal, or TERM says it cannot.
-		// Deciding again here would throw that away, which is the one
-		// thing the library is there to avoid.
 		return ProfileNoColor
 	}
 
-	// Nothing could be measured. Auto stays conservative; always trusts
-	// the user.
-	if in.Configured == ColorAlways {
+	// Nothing could be measured and nothing was requested, so the
+	// conservative choice is the least useful profile that still shows
+	// colour.
+	return ProfileANSI16
+}
+
+// forcedProfile is the profile for a user who said the terminal is fine
+// even though nothing could measure it.
+//
+// What the terminal reported is used as reported, including 16 colours: a
+// terminal that said it has sixteen is believed, because asking for colour
+// is not a request for a capability the terminal denied. A terminal that
+// said nothing, or that the library found unable to show colour at all, is
+// taken to be a 256-colour one.
+func forcedProfile(terminal TerminalProfile) Profile {
+	switch terminal {
+	case TerminalTrueColor:
+		return ProfileTrueColor
+	case TerminalANSI256:
 		return ProfileANSI256
+	case TerminalANSI16:
+		return ProfileANSI16
 	}
 
-	return ProfileANSI16
+	return ProfileANSI256
 }
 
 // hasNoColorEnvironment reports the NO_COLOR convention.

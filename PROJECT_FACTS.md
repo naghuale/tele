@@ -453,10 +453,20 @@
     terminal is measured through Lip Gloss and the decision is a pure
     function of that measurement, the environment, --no-color and
     [tui] color, so a test states them instead of inheriting the machine
-  - no colour is forced by any of [tui] color = "never", --no-color, a
-    non-empty NO_COLOR, TERM=dumb, or a Lip Gloss that reports no
-    colour; "always" only decides the case where nothing could be
-    measured, and never invents a capability
+  - the precedence follows no-color.org, which asks a user-level
+    configuration file and a per-instance command line to override the
+    NO_COLOR environment variable:
+    1. [tui] color = "never" and --no-color win over everything, a
+       command-line argument being the most specific thing a user can say
+    2. TERM=dumb still means no colour: a terminal that renders escape
+       sequences as garbage is not a terminal
+    3. [tui] color = "always" is stronger than NO_COLOR; it uses what the
+       terminal reported, and assumes 256 colours when nothing could be
+       measured or Lip Gloss reported none, which is a pipe, `script`,
+       tmux with an unusual TERM, or the terminal of some IDE
+    4. auto follows NO_COLOR and then the measurement, believes a Lip
+       Gloss that reports no colour, and assumes 16 colours for a
+       terminal it could not identify
   - an indexed terminal gets the color library's own reduction to the 256
     palette and a gradient of at most three stops; a 16-colour terminal
     gets basic colours by role, so the terminal renders them with the

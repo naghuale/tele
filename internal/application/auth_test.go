@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -159,4 +160,18 @@ func TestTdlibParametersErrorsDoNotLeakCredentials(t *testing.T) {
 
 func TestTUIAuthProviderImplementsTelegramAuthProvider(t *testing.T) {
 	var _ telegram.AuthProvider = TUIAuthProvider{}
+}
+
+// TestTUIAuthProviderUsesConfiguredPhone pins that a phone number already
+// stored by configure or the environment is used without prompting.
+func TestTUIAuthProviderUsesConfiguredPhone(t *testing.T) {
+	provider := TUIAuthProvider{Phone: " +15550001234 "}
+
+	phone, err := provider.ProvidePhoneNumber(context.Background())
+	if err != nil {
+		t.Fatalf("ProvidePhoneNumber: %v", err)
+	}
+	if phone != "+15550001234" {
+		t.Fatalf("phone = %q, want the configured number", phone)
+	}
 }

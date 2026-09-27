@@ -22,13 +22,23 @@ const (
 
 // TUIAuthProvider implements telegram.AuthProvider using the TUI auth
 // prompts.
-type TUIAuthProvider struct{}
+//
+// Phone is the number from the resolved credentials. When it is set the
+// phone prompt is skipped: the user already gave it to configure or the
+// environment, and asking again invites a mismatch.
+type TUIAuthProvider struct {
+	Phone string
+}
 
 // Compile-time assertion: TUIAuthProvider implements telegram.AuthProvider.
 var _ telegram.AuthProvider = TUIAuthProvider{}
 
-// ProvidePhoneNumber prompts for a phone number.
-func (TUIAuthProvider) ProvidePhoneNumber(ctx context.Context) (string, error) {
+// ProvidePhoneNumber returns the configured phone number, and prompts
+// only when none is configured.
+func (p TUIAuthProvider) ProvidePhoneNumber(ctx context.Context) (string, error) {
+	if phone := strings.TrimSpace(p.Phone); phone != "" {
+		return phone, nil
+	}
 	return tui.RunAuthContext(ctx, tui.AuthPromptPhone)
 }
 

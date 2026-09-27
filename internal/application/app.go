@@ -489,7 +489,7 @@ func runTUI(args []string, env Environment) int {
 			authCtx,
 			rt,
 			params,
-			TUIAuthProvider{},
+			TUIAuthProvider{Phone: resolved.Credentials.Phone},
 		)
 		if err != nil {
 			return AuthRunResult{}, fmt.Errorf(

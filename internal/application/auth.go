@@ -28,18 +28,18 @@ type TUIAuthProvider struct{}
 var _ telegram.AuthProvider = TUIAuthProvider{}
 
 // ProvidePhoneNumber prompts for a phone number.
-func (TUIAuthProvider) ProvidePhoneNumber(_ context.Context) (string, error) {
-	return tui.RunAuth(tui.AuthPromptPhone)
+func (TUIAuthProvider) ProvidePhoneNumber(ctx context.Context) (string, error) {
+	return tui.RunAuthContext(ctx, tui.AuthPromptPhone)
 }
 
 // ProvideCode prompts for the authentication code.
-func (TUIAuthProvider) ProvideCode(_ context.Context) (string, error) {
-	return tui.RunAuth(tui.AuthPromptCode)
+func (TUIAuthProvider) ProvideCode(ctx context.Context) (string, error) {
+	return tui.RunAuthContext(ctx, tui.AuthPromptCode)
 }
 
 // ProvidePassword prompts for the two-factor password.
-func (TUIAuthProvider) ProvidePassword(_ context.Context) (string, error) {
-	return tui.RunAuth(tui.AuthPromptPassword)
+func (TUIAuthProvider) ProvidePassword(ctx context.Context) (string, error) {
+	return tui.RunAuthContext(ctx, tui.AuthPromptPassword)
 }
 
 // TdlibParametersFromEnv builds TDLib parameters from a resolved

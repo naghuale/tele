@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"telecli/internal/buildinfo"
 	"telecli/internal/config"
 	"telecli/internal/telegram"
@@ -459,6 +461,11 @@ func runTUI(args []string, env Environment) int {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 
+	// A shutdown signal cancels ctx instead of killing the process, so
+	// the session and the outbox still close gracefully below.
+	stopSignals := notifyShutdownSignals(ctx, cancel)
+	defer stopSignals()
+
 	rt, err := env.NewTelegramRuntime(cfg, rec)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "Telegram runtime error: %v\n", err)
@@ -525,6 +532,17 @@ func runTUI(args []string, env Environment) int {
 	)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)
+
+	var signalErr *shutdownSignalError
+	if errors.As(cause, &signalErr) {
+		// Cancellation errors are the expected result of the signal;
+		// only a failed graceful close is worth reporting.
+		if closeErr := withoutCancellation(appErr); closeErr != nil {
+			fmt.Fprintf(env.Stderr, "app error: %v\n", closeErr)
+		}
+		fmt.Fprintf(env.Stderr, "telecli: %v\n", signalErr)
+		return signalErr.exitCode()
+	}
 	if cause != nil && !errors.Is(cause, context.Canceled) {
 		appErr = errors.Join(appErr, cause)
 	}
@@ -536,4 +554,27 @@ func runTUI(args []string, env Environment) int {
 	}
 	fmt.Fprintf(env.Stderr, "app error: %v\n", appErr)
 	return 1
+}
+
+// withoutCancellation drops context cancellation from a joined error, so
+// only real failures remain.
+func withoutCancellation(err error) error {
+	if err == nil {
+		return nil
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		var kept []error
+		for _, part := range joined.Unwrap() {
+			if part = withoutCancellation(part); part != nil {
+				kept = append(kept, part)
+			}
+		}
+		return errors.Join(kept...)
+	}
+	if errors.Is(err, context.Canceled) ||
+		errors.Is(err, tea.ErrProgramKilled) ||
+		errors.Is(err, errShutdownSignal) {
+		return nil
+	}
+	return err
 }

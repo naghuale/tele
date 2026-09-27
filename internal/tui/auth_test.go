@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -289,5 +290,14 @@ func TestAuthPromptKindString(t *testing.T) {
 				test.want,
 			)
 		}
+	}
+}
+
+func TestRunAuthContextReturnsWhenAlreadyCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := RunAuthContext(ctx, AuthPromptPhone); !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context.Canceled", err)
 	}
 }

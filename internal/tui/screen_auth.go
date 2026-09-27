@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -49,11 +50,21 @@ func (m Model) viewAuth() string {
 // Returns ErrAuthCanceled when the user cancels. Returns ("", nil) only
 // for an explicit empty submission.
 func RunAuth(prompt AuthPromptKind) (string, error) {
+	return RunAuthContext(context.Background(), prompt)
+}
+
+// RunAuthContext is RunAuth bounded by ctx: cancelling ctx, for example
+// on a shutdown signal, ends the prompt instead of waiting for input.
+func RunAuthContext(ctx context.Context, prompt AuthPromptKind) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
 	model := NewModel()
 	model.screen = ScreenAuth
 	model.authPrompt = prompt
 
-	program := newProgram(model)
+	program := newProgramWithContext(ctx, model)
 	finalModel, err := program.Run()
 	if err != nil {
 		return "", err

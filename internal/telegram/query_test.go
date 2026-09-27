@@ -672,20 +672,7 @@ func TestPumpAppliesUpdateWithForeignObjectExtra(t *testing.T) {
 
 	// A foreign @extra must not make the pump treat the object as a query
 	// reply. The update belongs to the store, so it lands there.
-	raw := RawMessage(`{
-		"@type": "updateNewChat",
-		"@extra": {"source": "other"},
-		"chat": {
-			"id": 7,
-			"title": "Alice",
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
-				]
-			}
-		}
-	}`)
+	raw := newChatRaw(7, "Alice", 100, `"@extra":{"source":"other"}`)
 
 	client.updates <- Update{ClientID: client.id, Raw: raw}
 

@@ -10,33 +10,31 @@ import (
 	"time"
 )
 
+// The JSON fixtures below follow the pinned TDLib schema,
+// td/generate/scheme/td_api.tl at commit ea97bcdd (TDLib 1.8.67):
+//
+//	chatPosition list:ChatList order:int64 is_pinned:Bool source:ChatSource
+//	    = ChatPosition;                                              // :3545
+//	chat ... last_message:message positions:vector<chatPosition> ...;  // :3628
+//	updateNewChat chat:chat = Update;                              // :10483
+//	updateChatLastMessage chat_id:int53 last_message:message
+//	    positions:vector<chatPosition> = Update;                    // :10507
+//	updateChatPosition chat_id:int53 position:chatPosition
+//	    = Update;                                                  // :10512
+//	updateChatDraftMessage chat_id:int53 draft_message:draftMessage
+//	    positions:vector<chatPosition> = Update;                    // :10539
+//
+// positions is therefore a bare JSON array of chatPosition, and the chat
+// list is the position's `list` field. `source` is a ChatSource and must
+// stay null in these fixtures. Fixtures must not be shaped to match the
+// implementation: a fixture written to the parser keeps both wrong.
+
 // ---- Applying updates ----
 
 func TestApplyNewChatAddsChat(t *testing.T) {
 	state := NewLiveState()
 
-	changed, err := state.apply(RawMessage(`{
-		"@type": "updateNewChat",
-		"chat": {
-			"id": 7,
-			"title": "Alice",
-			"unread_count": 3,
-			"last_message": {
-				"@type": "message",
-				"id": 900,
-				"chat_id": 7,
-				"is_outgoing": false,
-				"date": 1700000000,
-				"content": {"@type": "messageText", "text": {"@type": "formattedText", "text": "hey"}}
-			},
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
-				]
-			}
-		}
-	}`))
+	changed, err := state.apply(RawMessage(reviewNewChat))
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -49,17 +47,17 @@ func TestApplyNewChatAddsChat(t *testing.T) {
 		t.Fatalf("ChatList() = %d chats, want 1", len(chats))
 	}
 	got := chats[0]
-	if got.ID != 7 {
-		t.Fatalf("ID = %d, want 7", got.ID)
+	if got.ID != 10 {
+		t.Fatalf("ID = %d, want 10", got.ID)
 	}
-	if got.Title != "Alice" {
-		t.Fatalf("Title = %q, want Alice", got.Title)
+	if got.Title != "A" {
+		t.Fatalf("Title = %q, want A", got.Title)
 	}
-	if got.Order != 100 {
-		t.Fatalf("Order = %d, want 100", got.Order)
+	if got.Order != 500 {
+		t.Fatalf("Order = %d, want 500", got.Order)
 	}
-	if got.UnreadCount != 3 {
-		t.Fatalf("UnreadCount = %d, want 3", got.UnreadCount)
+	if got.UnreadCount != 2 {
+		t.Fatalf("UnreadCount = %d, want 2", got.UnreadCount)
 	}
 	if got.LastMessage == nil {
 		t.Fatal("LastMessage is nil")
@@ -67,7 +65,18 @@ func TestApplyNewChatAddsChat(t *testing.T) {
 	if got.LastMessage.ID != 900 || got.LastMessage.Text != "hey" {
 		t.Fatalf("LastMessage = %+v, want id=900 text=hey", got.LastMessage)
 	}
+	if !got.LastMessage.Outgoing {
+		t.Fatal("LastMessage.Outgoing = false, want true")
+	}
 }
+
+// reviewNewChat is a real-format updateNewChat: positions is an array and
+// the list is in `list`.
+const reviewNewChat = `{"@type":"updateNewChat","chat":{"@type":"chat","id":10,"title":"A","unread_count":2,` +
+	`"last_message":{"@type":"message","id":900,"chat_id":10,"is_outgoing":true,"date":1700000000,` +
+	`"content":{"@type":"messageText","text":{"@type":"formattedText","text":"hey"}}},` +
+	`"positions":[{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"500",` +
+	`"is_pinned":false,"source":null}]}}`
 
 func TestApplyChatTitleUpdatesTitle(t *testing.T) {
 	state := seededLiveState(t)
@@ -89,11 +98,9 @@ func TestApplyChatTitleUpdatesTitle(t *testing.T) {
 func TestApplyChatPositionSetsOrder(t *testing.T) {
 	state := seededLiveState(t)
 
-	changed, err := state.apply(RawMessage(`{
-		"@type": "updateChatPosition",
-		"chat_id": 7,
-		"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "500"}
-	}`))
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatPosition","chat_id":7,` +
+		`"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"500","is_pinned":false,"source":null}}`))
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -105,46 +112,91 @@ func TestApplyChatPositionSetsOrder(t *testing.T) {
 	}
 }
 
-func TestApplyChatPositionRemovesChatFromMainList(t *testing.T) {
+// TDLib: "If new order is 0, then the chat needs to be removed from the
+// list" (td_api.tl:10511). The list is the one named in the position,
+// which for a removal is chatListMain.
+func TestApplyChatPositionZeroOrderRemovesChatFromMainList(t *testing.T) {
 	state := seededLiveState(t)
 
-	changed, err := state.apply(RawMessage(`{
-		"@type": "updateChatPosition",
-		"chat_id": 7,
-		"position": {"@type": "chatPosition", "source": {"@type": "chatListArchive"}, "order": "500"}
-	}`))
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatPosition","chat_id":7,` +
+		`"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"0","is_pinned":false,"source":null}}`))
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 	if !changed {
-		t.Fatal("moving a chat out of the main list must report a change")
+		t.Fatal("order 0 must report a change")
 	}
 	if chats := state.ChatList(); len(chats) != 0 {
 		t.Fatalf("ChatList() = %d chats, want 0", len(chats))
 	}
 }
 
+// A chat can be in the main list and in a folder at once. updateChatPosition
+// names one list, so a position for any other list says nothing about the
+// main list and must leave it alone.
+func TestApplyChatPositionForAnotherListDoesNotAffectMainList(t *testing.T) {
+	for _, list := range []string{
+		`{"@type":"chatListArchive"}`,
+		`{"@type":"chatListFolder","chat_folder_id":2}`,
+	} {
+		state := seededLiveState(t)
+		drainChanged(state)
+
+		changed, err := state.apply(RawMessage(`{"@type":"updateChatPosition","chat_id":7,` +
+			`"position":{"@type":"chatPosition","list":` + list + `,` +
+			`"order":"900","is_pinned":false,"source":null}}`))
+		if err != nil {
+			t.Fatalf("apply %s: %v", list, err)
+		}
+		if changed {
+			t.Fatalf("a position in %s must not change the main list", list)
+		}
+
+		chats := state.ChatList()
+		if len(chats) != 1 {
+			t.Fatalf("ChatList() = %d chats, want 1 for %s", len(chats), list)
+		}
+		if chats[0].Order != 100 {
+			t.Fatalf("Order = %d, want 100 (unchanged for %s)", chats[0].Order, list)
+		}
+
+		select {
+		case <-state.Changed():
+			t.Fatalf("a position in %s must not signal a change", list)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// A chatSource is not a chat list, so a position whose list is unknown
+// must not be treated as main.
+func TestApplyChatPositionWithChatSourceIsNotMainList(t *testing.T) {
+	state := seededLiveState(t)
+
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatPosition","chat_id":7,` +
+		`"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"500","is_pinned":false,"source":{"@type":"chatSourcePublic"}}}`))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !changed {
+		t.Fatal("a main-list position applies regardless of source")
+	}
+	if got := state.ChatList()[0].Order; got != 500 {
+		t.Fatalf("Order = %d, want 500", got)
+	}
+}
+
 func TestApplyChatLastMessageUpdatesMessageAndPositions(t *testing.T) {
 	state := seededLiveState(t)
 
-	changed, err := state.apply(RawMessage(`{
-		"@type": "updateChatLastMessage",
-		"chat_id": 7,
-		"last_message": {
-			"@type": "message",
-			"id": 950,
-			"chat_id": 7,
-			"is_outgoing": true,
-			"date": 1700000500,
-			"content": {"@type": "messageText", "text": {"@type": "formattedText", "text": "newest"}}
-		},
-		"positions": {
-			"@type": "chatPositions",
-			"positions": [
-				{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "900"}, "chat_id": 7}
-			]
-		}
-	}`))
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatLastMessage","chat_id":7,` +
+		`"last_message":{"@type":"message","id":950,"chat_id":7,"is_outgoing":true,` +
+		`"date":1700000500,"content":{"@type":"messageText",` +
+		`"text":{"@type":"formattedText","text":"newest"}}},` +
+		`"positions":[{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"900","is_pinned":false,"source":null}]}`))
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -164,21 +216,37 @@ func TestApplyChatLastMessageUpdatesMessageAndPositions(t *testing.T) {
 	}
 }
 
+// A positions vector with no chatListMain entry means the chat left the
+// main list.
+func TestApplyChatLastMessageDropsChatLeftFromMainList(t *testing.T) {
+	state := seededLiveState(t)
+
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatLastMessage","chat_id":7,` +
+		`"last_message":{"@type":"message","id":950,"chat_id":7,"date":1700000500,` +
+		`"content":{"@type":"messageText","text":{"@type":"formattedText","text":"newest"}}},` +
+		`"positions":[{"@type":"chatPosition","list":{"@type":"chatListArchive"},` +
+		`"order":"900","is_pinned":false,"source":null}]}`))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !changed {
+		t.Fatal("losing the main-list position must report a change")
+	}
+	if chats := state.ChatList(); len(chats) != 0 {
+		t.Fatalf("ChatList() = %d chats, want 0", len(chats))
+	}
+}
+
 func TestApplyChatDraftMessageAppliesOnlyPositions(t *testing.T) {
 	state := seededLiveState(t)
 	before := state.ChatList()[0]
 
-	changed, err := state.apply(RawMessage(`{
-		"@type": "updateChatDraftMessage",
-		"chat_id": 7,
-		"draft_text": {"@type": "formattedText", "text": "unsent"},
-		"positions": {
-			"@type": "chatPositions",
-			"positions": [
-				{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "750"}, "chat_id": 7}
-			]
-		}
-	}`))
+	changed, err := state.apply(RawMessage(`{"@type":"updateChatDraftMessage","chat_id":7,` +
+		`"draft_message":{"@type":"draftMessage","date":1700000000,"is_ephemeral":false,` +
+		`"input_message_text":{"@type":"inputMessageText",` +
+		`"text":{"@type":"formattedText","text":"unsent"}}},` +
+		`"positions":[{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"750","is_pinned":false,"source":null}]}`))
 	if err != nil {
 		t.Fatalf("apply: %v", err)
 	}
@@ -233,8 +301,9 @@ func TestApplyChatReadInboxUpdatesUnreadCount(t *testing.T) {
 func TestApplyUnknownChatDoesNotCreateEntry(t *testing.T) {
 	for _, raw := range []string{
 		`{"@type":"updateChatTitle","chat_id":404,"title":"Ghost"}`,
-		`{"@type":"updateChatPosition","chat_id":404,"position":{"@type":"chatPosition","source":{"@type":"chatListMain"},"order":"10"}}`,
-		`{"@type":"updateChatLastMessage","chat_id":404,"last_message":null,"positions":{"@type":"chatPositions","positions":[]}}`,
+		`{"@type":"updateChatPosition","chat_id":404,"position":{"@type":"chatPosition",` +
+			`"list":{"@type":"chatListMain"},"order":"10","is_pinned":false,"source":null}}`,
+		`{"@type":"updateChatLastMessage","chat_id":404,"last_message":null,"positions":[]}`,
 		`{"@type":"updateChatReadInbox","chat_id":404,"unread_count":5}`,
 	} {
 		changed, err := NewLiveState().apply(RawMessage(raw))
@@ -249,10 +318,10 @@ func TestApplyUnknownChatDoesNotCreateEntry(t *testing.T) {
 
 func TestApplyUnsupportedUpdateTypeIsIgnored(t *testing.T) {
 	for _, raw := range []string{
-		`{"@type":"updateNewMessage","message":{"id":1}}`,
-		`{"@type":"updateMessageSendSucceeded","message_id":1}`,
-		`{"@type":"updateDeleteMessages","chat_id":7,"message_ids":[1]}`,
-		`{"@type":"updateUser","user":{"id":1}}`,
+		`{"@type":"updateNewMessage","message":{"@type":"message","id":1}}`,
+		`{"@type":"updateMessageSendSucceeded","old_message_id":1,"message":{"@type":"message","id":1}}`,
+		`{"@type":"updateDeleteMessages","chat_id":7,"message_ids":[1],"is_permanent":true}`,
+		`{"@type":"updateUser","user":{"@type":"user","id":1}}`,
 		`{"@type":"updateOption","name":"x","value":{"@type":"optionValueBoolean","value":true}}`,
 	} {
 		state := seededLiveState(t)
@@ -266,15 +335,31 @@ func TestApplyUnsupportedUpdateTypeIsIgnored(t *testing.T) {
 	}
 }
 
+// Every type the coordinator holds must be one the store actually applies,
+// otherwise an update would be preserved and then dropped.
+func TestLiveStateUpdateTypesAreAllApplied(t *testing.T) {
+	for updateType := range liveStateUpdateTypes {
+		raw := RawMessage(`{"@type":"` + updateType + `"}`)
+		if !isLiveStateUpdate(raw) {
+			t.Fatalf("%s: isLiveStateUpdate = false", updateType)
+		}
+		// A bare envelope carries no chat id, so nothing is applied, but
+		// decodeLivePatch must still recognise the type.
+		if _, applies, err := decodeLivePatch(raw); err != nil {
+			t.Fatalf("%s: decodeLivePatch: %v", updateType, err)
+		} else if !applies {
+			t.Fatalf("%s: decodeLivePatch reported no match", updateType)
+		}
+	}
+}
+
 func TestApplyMalformedOrderReportsErrorAndKeepsState(t *testing.T) {
 	state := seededLiveState(t)
 	before := state.ChatList()
 
-	_, err := state.apply(RawMessage(`{
-		"@type": "updateChatPosition",
-		"chat_id": 7,
-		"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "not-a-number"}
-	}`))
+	_, err := state.apply(RawMessage(`{"@type":"updateChatPosition","chat_id":7,` +
+		`"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"not-a-number","is_pinned":false,"source":null}}`))
 	if err == nil {
 		t.Fatal("an unparsable order must be reported as an error")
 	}
@@ -316,8 +401,9 @@ func TestChatListExcludesZeroOrderAndForeignLists(t *testing.T) {
 	state := NewLiveState()
 	mustApplyLiveChat(t, state, 1, "listed", 100)
 	mustApplyLiveChat(t, state, 2, "zero order", 0)
-	mustApplyLiveChatWithSource(t, state, 3, "archived", 900, "chatListArchive")
-	mustApplyLiveChatWithoutPositions(t, state, 4, "no position", "unlisted")
+	mustApplyLiveChatInList(t, state, 3, "archived", 900, `{"@type":"chatListArchive"}`)
+	mustApplyLiveChatWithoutPositions(t, state, 4, "no position")
+	mustApplyLiveChatInList(t, state, 5, "in a folder", 800, `{"@type":"chatListFolder","chat_folder_id":2}`)
 
 	got := liveIDs(state.ChatList())
 	if len(got) != 1 || got[0] != 1 {
@@ -329,7 +415,6 @@ func TestChatListExcludesZeroOrderAndForeignLists(t *testing.T) {
 
 func TestChangedSignalsOncePerChange(t *testing.T) {
 	state := seededLiveState(t)
-
 	drainChanged(state)
 
 	if _, err := state.apply(RawMessage(
@@ -486,6 +571,17 @@ func TestApplyRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+// A positions object instead of an array must be reported, not silently
+// dropped: that was the shape this store got wrong once.
+func TestApplyRejectsChatPositionsWrapperObject(t *testing.T) {
+	_, err := NewLiveState().apply(RawMessage(`{"@type":"updateNewChat","chat":{"@type":"chat",` +
+		`"id":10,"title":"A","unread_count":0,` +
+		`"positions":{"@type":"chatPositions","positions":[]}}}`))
+	if err == nil {
+		t.Fatal("a chatPositions wrapper object must be reported as an error")
+	}
+}
+
 func TestNilLiveStateAccessorsAreSafe(t *testing.T) {
 	var state *LiveState
 	if chats := state.ChatList(); chats != nil {
@@ -501,42 +597,17 @@ func TestNilLiveStateAccessorsAreSafe(t *testing.T) {
 func TestPumpAppliesUpdateNewChatToLiveState(t *testing.T) {
 	session, _, _, client := newSessionWithFakes(t)
 
-	client.updates <- Update{ClientID: client.id, Raw: RawMessage(`{
-		"@type": "updateNewChat",
-		"chat": {
-			"id": 7,
-			"title": "Alice",
-			"unread_count": 1,
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
-				]
-			}
-		}
-	}`)}
+	client.updates <- Update{ClientID: client.id, Raw: RawMessage(reviewNewChat)}
 
-	waitForLiveChat(t, session.LiveState(), 7)
+	waitForLiveChat(t, session.LiveState(), 10)
 }
 
 func TestPumpKeepsQueryRepliesWorking(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	// An update that changes the store, then a query reply.
-	client.updates <- Update{ClientID: client.id, Raw: RawMessage(`{
-		"@type": "updateNewChat",
-		"chat": {
-			"id": 7,
-			"title": "Alice",
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
-				]
-			}
-		}
-	}`)}
-	waitForLiveChat(t, session.LiveState(), 7)
+	client.updates <- Update{ClientID: client.id, Raw: RawMessage(reviewNewChat)}
+	waitForLiveChat(t, session.LiveState(), 10)
 
 	type result struct {
 		raw RawMessage
@@ -574,11 +645,11 @@ func TestPumpRecordsOrderErrorAndKeepsState(t *testing.T) {
 	state := session.LiveState()
 	mustApplyLiveChat(t, state, 7, "Alice", 100)
 
-	client.updates <- Update{ClientID: client.id, Raw: RawMessage(`{
-		"@type": "updateChatPosition",
-		"chat_id": 7,
-		"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "oops"}
-	}`)}
+	client.updates <- Update{ClientID: client.id, Raw: RawMessage(
+		`{"@type":"updateChatPosition","chat_id":7,` +
+			`"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+			`"order":"oops","is_pinned":false,"source":null}}`,
+	)}
 
 	select {
 	case err := <-session.Errors():
@@ -602,19 +673,10 @@ func TestUpdatesHeldDuringAuthAreAppliedBeforePumpUpdates(t *testing.T) {
 	client := newTestClient(t)
 
 	held := []RawMessage{
-		RawMessage(`{
-			"@type": "updateNewChat",
-			"chat": {
-				"id": 11,
-				"title": "During auth",
-				"positions": {
-					"@type": "chatPositions",
-					"positions": [
-						{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "300"}, "chat_id": 11}
-					]
-				}
-			}
-		}`),
+		RawMessage(`{"@type":"updateNewChat","chat":{"@type":"chat","id":11,` +
+			`"title":"During auth","unread_count":0,` +
+			`"positions":[{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+			`"order":"300","is_pinned":false,"source":null}]}}`),
 		RawMessage(`{"@type":"updateChatTitle","chat_id":11,"title":"After auth rename"}`),
 	}
 
@@ -803,6 +865,22 @@ func TestLoadChatsAcceptsMaxLimit(t *testing.T) {
 
 // ---- helpers ----
 
+// newChatRaw builds a real-format updateNewChat for one listed chat, with
+// an optional extra field spliced in after the @type.
+//
+// Fixtures are built from the schema rather than hand-written per test, so
+// a wrong shape cannot hide behind a parser that agrees with it.
+func newChatRaw(id ChatID, title string, order int64, extra string) RawMessage {
+	position := `{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"` +
+		strconv.FormatInt(order, 10) + `","is_pinned":false,"source":null}`
+	if extra != "" {
+		extra = "," + extra
+	}
+	return RawMessage(`{"@type":"updateNewChat"` + extra + `,"chat":{"@type":"chat","id":` +
+		strconv.Itoa(int(id)) + `,"title":"` + title + `","unread_count":0,` +
+		`"positions":[` + position + `]}}`)
+}
+
 // seededLiveState returns a store holding one listed chat, id 7.
 func seededLiveState(t *testing.T) *LiveState {
 	t.Helper()
@@ -815,41 +893,28 @@ func seededLiveState(t *testing.T) *LiveState {
 // mustApplyLiveChat adds a listed chat with one text last message.
 func mustApplyLiveChat(t *testing.T, state *LiveState, id ChatID, title string, order int64) {
 	t.Helper()
-	mustApplyLiveChatWithSource(t, state, id, title, order, "chatListMain")
+	mustApplyLiveChatInList(
+		t, state, id, title, order, `{"@type":"chatListMain"}`,
+	)
 }
 
-// mustApplyLiveChatWithSource adds a chat positioned in source.
-func mustApplyLiveChatWithSource(
+// mustApplyLiveChatInList adds a chat positioned in the given list.
+func mustApplyLiveChatInList(
 	t *testing.T,
 	state *LiveState,
 	id ChatID,
 	title string,
 	order int64,
-	source string,
+	list string,
 ) {
 	t.Helper()
-	raw := `{
-		"@type": "updateNewChat",
-		"chat": {
-			"id": ` + strconv.Itoa(int(id)) + `,
-			"title": "` + title + `",
-			"unread_count": 0,
-			"last_message": {
-				"@type": "message",
-				"id": 1000,
-				"chat_id": ` + strconv.Itoa(int(id)) + `,
-				"date": 1700000000,
-				"content": {"@type": "messageText", "text": {"@type": "formattedText", "text": "hi"}}
-			},
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "` + source + `"}, "order": "` +
-		strconv.FormatInt(order, 10) + `"}, "chat_id": ` + strconv.Itoa(int(id)) + `}
-				]
-			}
-		}
-	}`
+	raw := `{"@type":"updateNewChat","chat":{"@type":"chat","id":` + strconv.Itoa(int(id)) +
+		`,"title":"` + title + `","unread_count":0,` +
+		`"last_message":{"@type":"message","id":1000,"chat_id":` + strconv.Itoa(int(id)) +
+		`,"date":1700000000,"content":{"@type":"messageText",` +
+		`"text":{"@type":"formattedText","text":"hi"}}},` +
+		`"positions":[{"@type":"chatPosition","list":` + list + `,"order":"` +
+		strconv.FormatInt(order, 10) + `","is_pinned":false,"source":null}]}}`
 	if _, err := state.apply(RawMessage(raw)); err != nil {
 		t.Fatalf("seed apply: %v", err)
 	}
@@ -861,10 +926,9 @@ func mustApplyLiveChatWithoutPositions(
 	state *LiveState,
 	id ChatID,
 	title string,
-	_ string,
 ) {
 	t.Helper()
-	raw := `{"@type":"updateNewChat","chat":{"id":` + strconv.Itoa(int(id)) +
+	raw := `{"@type":"updateNewChat","chat":{"@type":"chat","id":` + strconv.Itoa(int(id)) +
 		`,"title":"` + title + `","unread_count":0}}`
 	if _, err := state.apply(RawMessage(raw)); err != nil {
 		t.Fatalf("seed apply: %v", err)

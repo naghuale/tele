@@ -1036,23 +1036,9 @@ func TestSessionPumpAppliesNonAuthUpdatesToLiveState(t *testing.T) {
 	session, _, _, client :=
 		newSessionWithFakes(t)
 
-	raw := []byte(`{
-		"@type": "updateNewChat",
-		"chat": {
-			"id": 7,
-			"title": "Alice",
-			"positions": {
-				"@type": "chatPositions",
-				"positions": [
-					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
-				]
-			}
-		}
-	}`)
-
 	client.updates <- Update{
 		ClientID: client.id,
-		Raw:      raw,
+		Raw:      newChatRaw(7, "Alice", 100, ""),
 	}
 
 	chat := waitForLiveChat(t, session.LiveState(), 7)
@@ -1060,6 +1046,12 @@ func TestSessionPumpAppliesNonAuthUpdatesToLiveState(t *testing.T) {
 		t.Fatalf(
 			"Title = %q, want Alice",
 			chat.Title,
+		)
+	}
+	if chat.Order != 100 {
+		t.Fatalf(
+			"Order = %d, want 100",
+			chat.Order,
 		)
 	}
 }

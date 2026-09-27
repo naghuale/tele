@@ -10,13 +10,40 @@ import (
 	"time"
 )
 
-// ErrLiveStateOrder is returned when a TDLib position carries an order
-// that is not a decimal integer.
+// ErrLiveStateOrder is returned when a TDLib chat position carries an
+// order that is not a decimal integer.
 //
-// TDLib carries position.order as a JSON string of an int64, so a
+// TDLib carries chatPosition.order as a JSON string of an int64, so a
 // malformed value is a protocol surprise rather than a routine event.
 // The store treats it as an error and leaves its state untouched.
 var ErrLiveStateOrder = errors.New("telegram live state: invalid chat position order")
+
+// The field and type names below follow the pinned TDLib schema,
+// td/generate/scheme/td_api.tl at commit ea97bcdd (TDLib 1.8.67):
+//
+//	chatPosition list:ChatList order:int64 is_pinned:Bool source:ChatSource
+//	    = ChatPosition;                                              // :3545
+//	chat ... last_message:message positions:vector<chatPosition> ...;  // :3628
+//	updateNewChat chat:chat = Update;                              // :10483
+//	updateChatLastMessage chat_id:int53 last_message:message
+//	    positions:vector<chatPosition> = Update;                    // :10507
+//	updateChatPosition chat_id:int53 position:chatPosition
+//	    = Update;                                                  // :10512
+//	updateChatDraftMessage chat_id:int53 draft_message:draftMessage
+//	    positions:vector<chatPosition> = Update;                    // :10539
+//
+// Two consequences are easy to get wrong and are load-bearing here:
+//
+//   - positions is a bare JSON array of chatPosition, not an object
+//     wrapping one. There is no chatPositions type in this schema.
+//   - the chat list is the position's `list` field. `source` is a
+//     ChatSource (an MTProto proxy or PSA) and says nothing about chat
+//     lists.
+//
+// The `chat` object has no order field: order lives only on a position.
+
+// mainChatList is the TDLib chat list this store projects.
+const mainChatList = "chatListMain"
 
 // LiveChat is one chat in the live main-list projection.
 //
@@ -32,8 +59,9 @@ type LiveChat struct {
 
 // liveChatEntry is the store's own mutable record for one chat.
 //
-// mainOrder and inMain are kept apart because a chat can be positioned in
-// the main list with order 0, which is not a listable position.
+// inMain and Order are kept apart because a chat can hold a
+// chatListMain position with order 0, which TDLib documents as "needs
+// to be removed from the list".
 type liveChatEntry struct {
 	ID          ChatID
 	Title       string
@@ -43,43 +71,7 @@ type liveChatEntry struct {
 	lastMessage *Message
 }
 
-// clone returns a deep copy, so a snapshot and the store never share
-// mutable memory.
-func (e *liveChatEntry) clone() LiveChat {
-	out := LiveChat{
-		ID:          e.ID,
-		Title:       e.Title,
-		Order:       e.Order,
-		UnreadCount: e.UnreadCount,
-	}
-	if e.lastMessage != nil {
-		message := *e.lastMessage
-		out.LastMessage = &message
-	}
-	return out
-}
-
-func (e *liveChatEntry) equal(other *liveChatEntry) bool {
-	if e.Title != other.Title ||
-		e.Order != other.Order ||
-		e.inMain != other.inMain ||
-		e.UnreadCount != other.UnreadCount {
-		return false
-	}
-	switch {
-	case e.lastMessage == nil && other.lastMessage == nil:
-		return true
-	case e.lastMessage == nil || other.lastMessage == nil:
-		return false
-	default:
-		return *e.lastMessage == *other.lastMessage
-	}
-}
-
 // listable reports whether the chat belongs in the main chat list.
-//
-// TDLib documents a chat with order 0, or with no chatListMain position
-// at all, as not part of the main list.
 func (e *liveChatEntry) listable() bool {
 	return e.inMain && e.Order != 0
 }
@@ -118,7 +110,8 @@ func (l *LiveState) Changed() <-chan struct{} {
 }
 
 // ChatList returns a copy of the main chat list, ordered by position
-// order descending and then by chat ID descending.
+// order descending and then by chat ID descending, which is the order
+// TDLib documents for chatPosition.
 //
 // Chats without a chatListMain position, or whose order is 0, are
 // excluded. The returned slice and the messages in it are copies and are
@@ -159,56 +152,133 @@ func (l *LiveState) signalChanged() {
 //
 // The boolean result reports whether the update changed state. An
 // unsupported update type is ignored and reports (false, nil); only a
-// malformed payload or an unparsable order is an error, and an error
-// leaves the state untouched.
+// malformed payload or an unparsable order is an error.
+//
+// Decoding completes before any state is touched, so an error cannot
+// leave a half-applied update behind and no rollback is needed.
 func (l *LiveState) apply(raw RawMessage) (bool, error) {
 	if l == nil {
+		return false, nil
+	}
+
+	patch, applies, err := decodeLivePatch(raw)
+	if err != nil {
+		return false, err
+	}
+	if !applies || patch.chatID == 0 {
 		return false, nil
 	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	before := make(map[ChatID]liveChatEntry, len(l.chats))
-	for id, entry := range l.chats {
-		before[id] = *entry
-	}
-
-	if err := l.applyLocked(raw); err != nil {
-		l.restoreLocked(before)
-		return false, err
-	}
-
-	if l.unchangedLocked(before) {
-		return false, nil
-	}
-	l.signalChanged()
-	return true, nil
+	return l.commit(patch), nil
 }
 
-// unchangedLocked reports whether every entry still matches snapshot.
-func (l *LiveState) unchangedLocked(snapshot map[ChatID]liveChatEntry) bool {
-	if len(l.chats) != len(snapshot) {
-		return false
-	}
-	for id, entry := range l.chats {
-		previous, existed := snapshot[id]
-		if !existed || !entry.equal(&previous) {
+// commit applies a decoded patch to a single entry.
+//
+// Only the affected entry is compared, so applying an update costs the
+// same whether the store holds ten chats or ten thousand.
+func (l *LiveState) commit(p livePatch) bool {
+	before, exists := l.chats[p.chatID]
+	if !exists {
+		// Only updateNewChat may create a record: a title or a position
+		// for an unknown chat would leave a partial entry that the list
+		// cannot use, since TDLib never repeats updateNewChat.
+		if !p.create {
 			return false
 		}
+		l.chats[p.chatID] = p.entry()
+		l.signalChanged()
+		return true
 	}
+
+	after := p.applyTo(before)
+	if after.equal(before) {
+		return false
+	}
+	l.chats[p.chatID] = after
+	l.signalChanged()
 	return true
 }
 
-// restoreLocked rolls the store back to snapshot after a failed apply.
-func (l *LiveState) restoreLocked(snapshot map[ChatID]liveChatEntry) {
-	for id := range l.chats {
-		delete(l.chats, id)
+// livePatch is a decoded update that has not been applied yet.
+//
+// Keeping the decoded intent separate from the store is what allows
+// commit to compare one entry instead of snapshotting the whole map.
+type livePatch struct {
+	chatID ChatID
+	create bool
+
+	setTitle    bool
+	title       string
+	setUnread   bool
+	unreadCount int
+	setMessage  bool
+	message     *Message
+
+	setMain bool
+	inMain  bool
+	order   int64
+}
+
+// entry returns the patch as a fresh store record.
+func (p livePatch) entry() *liveChatEntry {
+	after := &liveChatEntry{ID: p.chatID}
+	return p.applyTo(after)
+}
+
+// applyTo returns a copy of base with the patch's fields applied.
+func (p livePatch) applyTo(base *liveChatEntry) *liveChatEntry {
+	after := *base
+	if p.setTitle {
+		after.Title = p.title
 	}
-	for id, previous := range snapshot {
-		entry := previous
-		l.chats[id] = &entry
+	if p.setUnread {
+		after.UnreadCount = p.unreadCount
 	}
+	if p.setMessage {
+		after.lastMessage = p.message
+	}
+	if p.setMain {
+		after.inMain = p.inMain
+		after.Order = p.order
+	}
+	return &after
+}
+
+// equal compares two records by value.
+func (e *liveChatEntry) equal(other *liveChatEntry) bool {
+	if e.Title != other.Title ||
+		e.Order != other.Order ||
+		e.inMain != other.inMain ||
+		e.UnreadCount != other.UnreadCount {
+		return false
+	}
+	switch {
+	case e.lastMessage == nil && other.lastMessage == nil:
+		return true
+	case e.lastMessage == nil || other.lastMessage == nil:
+		return false
+	default:
+		return *e.lastMessage == *other.lastMessage
+	}
+}
+
+// clone returns a deep copy, so a snapshot and the store never share
+// mutable memory.
+func (e *liveChatEntry) clone() LiveChat {
+	out := LiveChat{
+		ID:          e.ID,
+		Title:       e.Title,
+		Order:       e.Order,
+		UnreadCount: e.UnreadCount,
+	}
+	if e.lastMessage != nil {
+		message := *e.lastMessage
+		out.LastMessage = &message
+	}
+	return out
 }
 
 // ---- Update decoding ----
@@ -217,66 +287,58 @@ type updateEnvelope struct {
 	Type string `json:"@type"`
 }
 
-// liveChatRaw mirrors the fields of a TDLib chat that the main list
-// needs. positions is decoded separately because only the main-list
-// entry matters.
-type liveChatRaw struct {
+// livePatchJSON mirrors the fields of a TDLib chat that the main list
+// needs.
+type livePatchJSON struct {
 	ID          int64           `json:"id"`
 	Title       string          `json:"title"`
 	UnreadCount int             `json:"unread_count"`
 	LastMessage json.RawMessage `json:"last_message"`
 	Positions   json.RawMessage `json:"positions"`
-	Order       json.RawMessage `json:"order"`
 }
 
-type updateChatTitleRaw struct {
+type updateChatTitleJSON struct {
 	ChatID int64  `json:"chat_id"`
 	Title  string `json:"title"`
 }
 
-type updateChatPositionRaw struct {
+type updateChatPositionJSON struct {
 	ChatID   int64           `json:"chat_id"`
 	Position json.RawMessage `json:"position"`
 }
 
-type updateChatLastMessageRaw struct {
+type updateChatLastMessageJSON struct {
 	ChatID      int64           `json:"chat_id"`
 	LastMessage json.RawMessage `json:"last_message"`
 	Positions   json.RawMessage `json:"positions"`
 }
 
-type updateChatDraftMessageRaw struct {
+type updateChatDraftMessageJSON struct {
 	ChatID    int64           `json:"chat_id"`
 	Positions json.RawMessage `json:"positions"`
 }
 
-type updateChatReadInboxRaw struct {
+type updateChatReadInboxJSON struct {
 	ChatID      int64 `json:"chat_id"`
 	UnreadCount int   `json:"unread_count"`
 }
 
-// chatPositionsRaw mirrors TDLib's chatPositions object.
-type chatPositionsRaw struct {
-	Positions []chatPositionEntryRaw `json:"positions"`
-}
-
-type chatPositionEntryRaw struct {
-	Position chatPositionRaw `json:"position"`
-	ChatID   int64           `json:"chat_id"`
-}
-
+// chatPositionRaw mirrors chatPosition (td_api.tl:3545).
 type chatPositionRaw struct {
-	Source struct {
+	List struct {
 		Type string `json:"@type"`
-	} `json:"source"`
-	Order json.RawMessage `json:"order"`
+	} `json:"list"`
+	Order    json.RawMessage `json:"order"`
+	IsPinned bool            `json:"is_pinned"`
 }
 
-// mainChatList is the TDLib chat list source this store projects.
-const mainChatList = "chatListMain"
+// isMain reports whether the position is in the main chat list.
+func (p chatPositionRaw) isMain() bool {
+	return p.List.Type == mainChatList
+}
 
 // liveStateUpdateTypes are the update @types the main-list store
-// consumes. Every other type is ignored by applyLocked.
+// consumes. Every other type is ignored.
 var liveStateUpdateTypes = map[string]struct{}{
 	"updateNewChat":          {},
 	"updateChatTitle":        {},
@@ -303,186 +365,184 @@ func isLiveStateUpdate(raw RawMessage) bool {
 	return ok
 }
 
-// applyLocked applies one update. The caller holds the write lock.
+// decodeLivePatch decodes one update into the intent it expresses.
 //
-// An unknown update type is a no-op: the wire carries many objects that
-// the main chat list does not model, and ignoring them keeps the pump
-// free of errors for traffic it was never meant to interpret.
-func (l *LiveState) applyLocked(raw RawMessage) error {
+// The second result is false for an update type the store does not
+// consume: the wire carries many objects the main chat list does not
+// model, and ignoring them keeps the pump free of errors for traffic it
+// was never meant to interpret. Nothing is mutated here, so every error
+// is raised before the store is involved.
+func decodeLivePatch(raw RawMessage) (livePatch, bool, error) {
 	var envelope updateEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return fmt.Errorf("decode live update: %w", err)
+		return livePatch{}, false, fmt.Errorf("decode live update: %w", err)
 	}
 
 	switch envelope.Type {
 	case "updateNewChat":
-		return l.applyNewChat(raw)
+		return decodeNewChatPatch(raw)
 	case "updateChatTitle":
-		return l.applyChatTitle(raw)
+		return decodeChatTitlePatch(raw)
 	case "updateChatPosition":
-		return l.applyChatPosition(raw)
+		return decodeChatPositionPatch(raw)
 	case "updateChatLastMessage":
-		return l.applyChatLastMessage(raw)
+		return decodeChatLastMessagePatch(raw)
 	case "updateChatDraftMessage":
-		return l.applyChatDraftPositions(raw)
+		return decodeChatDraftPatch(raw)
 	case "updateChatReadInbox":
-		return l.applyChatReadInbox(raw)
+		return decodeChatReadInboxPatch(raw)
 	default:
-		return nil
+		return livePatch{}, false, nil
 	}
 }
 
-// applyNewChat records a chat, or replaces an existing record.
-//
-// TDLib sends updateNewChat once per chat, so a later update for a chat
-// this store has never seen cannot be interpreted: a title or a position
-// for an unknown chat would create a partial record that the list cannot
-// use. Only updateNewChat creates entries.
-func (l *LiveState) applyNewChat(raw RawMessage) error {
+func decodeNewChatPatch(raw RawMessage) (livePatch, bool, error) {
 	var update struct {
-		Chat liveChatRaw `json:"chat"`
+		Chat livePatchJSON `json:"chat"`
 	}
 	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateNewChat: %w", err)
+		return livePatch{}, false, fmt.Errorf("decode updateNewChat: %w", err)
 	}
-	if update.Chat.ID == 0 {
+	patch := livePatch{
+		chatID:      ChatID(update.Chat.ID),
+		create:      true,
+		setTitle:    true,
+		title:       update.Chat.Title,
+		setUnread:   true,
+		unreadCount: update.Chat.UnreadCount,
+		setMessage:  true,
+		message:     decodeLiveMessage(update.Chat.LastMessage),
+	}
+	if err := patch.applyPositions(update.Chat.Positions); err != nil {
+		return livePatch{}, false, err
+	}
+	return patch, true, nil
+}
+
+func decodeChatTitlePatch(raw RawMessage) (livePatch, bool, error) {
+	var update updateChatTitleJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode updateChatTitle: %w", err)
+	}
+	return livePatch{
+		chatID:   ChatID(update.ChatID),
+		setTitle: true,
+		title:    update.Title,
+	}, true, nil
+}
+
+func decodeChatReadInboxPatch(raw RawMessage) (livePatch, bool, error) {
+	var update updateChatReadInboxJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode updateChatReadInbox: %w", err)
+	}
+	return livePatch{
+		chatID:      ChatID(update.ChatID),
+		setUnread:   true,
+		unreadCount: update.UnreadCount,
+	}, true, nil
+}
+
+func decodeChatPositionPatch(raw RawMessage) (livePatch, bool, error) {
+	var update updateChatPositionJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode updateChatPosition: %w", err)
+	}
+	if isAbsentJSON(update.Position) {
+		return livePatch{chatID: ChatID(update.ChatID)}, true, nil
+	}
+
+	var position chatPositionRaw
+	if err := json.Unmarshal(update.Position, &position); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode chat position: %w", err)
+	}
+
+	// updateChatPosition carries one position in one specific list.
+	// TDLib documents "if new order is 0, then the chat needs to be
+	// removed from the list", meaning the list named in this position. A
+	// chat can sit in the main list and in folders at the same time, so a
+	// position for any other list says nothing about the main list and is
+	// ignored. Leaving the main list is reported by a separate
+	// chatListMain position with order 0.
+	if !position.isMain() {
+		return livePatch{chatID: ChatID(update.ChatID)}, true, nil
+	}
+
+	order, err := parsePositionOrder(position.Order)
+	if err != nil {
+		return livePatch{}, false, err
+	}
+	return livePatch{
+		chatID:  ChatID(update.ChatID),
+		setMain: true,
+		inMain:  true,
+		order:   order,
+	}, true, nil
+}
+
+func decodeChatLastMessagePatch(raw RawMessage) (livePatch, bool, error) {
+	var update updateChatLastMessageJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode updateChatLastMessage: %w", err)
+	}
+	patch := livePatch{
+		chatID:     ChatID(update.ChatID),
+		setMessage: true,
+		message:    decodeLiveMessage(update.LastMessage),
+	}
+	// The update carries the chat's whole position vector, so a missing
+	// chatListMain entry means the chat is not in the main list.
+	if err := patch.applyPositions(update.Positions); err != nil {
+		return livePatch{}, false, err
+	}
+	return patch, true, nil
+}
+
+// decodeChatDraftPatch applies only the positions of a draft update: the
+// draft text is not part of the main-list projection.
+func decodeChatDraftPatch(raw RawMessage) (livePatch, bool, error) {
+	var update updateChatDraftMessageJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf("decode updateChatDraftMessage: %w", err)
+	}
+	patch := livePatch{chatID: ChatID(update.ChatID)}
+	if err := patch.applyPositions(update.Positions); err != nil {
+		return livePatch{}, false, err
+	}
+	return patch, true, nil
+}
+
+// applyPositions reads main-list membership from a positions vector.
+func (p *livePatch) applyPositions(raw json.RawMessage) error {
+	if isAbsentJSON(raw) {
+		// No positions at all: the update says nothing about membership,
+		// so an existing position is kept.
 		return nil
 	}
 
-	entry := l.entryLocked(ChatID(update.Chat.ID))
-	entry.Title = update.Chat.Title
-	entry.UnreadCount = update.Chat.UnreadCount
-	entry.lastMessage = decodeLiveMessage(update.Chat.LastMessage)
-
-	order, inMain, err := mainPositionFromPositions(update.Chat.Positions)
-	if err != nil {
-		return err
+	var positions []chatPositionRaw
+	if err := json.Unmarshal(raw, &positions); err != nil {
+		return fmt.Errorf("decode chat positions: %w", err)
 	}
-	// A chat object also carries its own order. Positions win when they
-	// are present, because they are what decides list membership.
-	if !inMain && len(update.Chat.Order) > 0 {
-		if parsed, err := parsePositionOrder(update.Chat.Order); err != nil {
-			return err
-		} else if parsed != 0 {
-			entry.inMain = true
-			entry.Order = parsed
+
+	for _, position := range positions {
+		if !position.isMain() {
+			continue
 		}
-	} else if inMain {
-		entry.inMain = true
-		entry.Order = order
+		order, err := parsePositionOrder(position.Order)
+		if err != nil {
+			return err
+		}
+		p.setMain = true
+		p.inMain = true
+		p.order = order
+		return nil
 	}
+
+	// The vector is present but holds no main-list position.
+	p.setMain = true
+	p.inMain = false
 	return nil
-}
-
-func (l *LiveState) applyChatTitle(raw RawMessage) error {
-	var update updateChatTitleRaw
-	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateChatTitle: %w", err)
-	}
-	entry := l.existingLocked(update.ChatID)
-	if entry == nil {
-		return nil
-	}
-	entry.Title = update.Title
-	return nil
-}
-
-func (l *LiveState) applyChatPosition(raw RawMessage) error {
-	var update updateChatPositionRaw
-	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateChatPosition: %w", err)
-	}
-	entry := l.existingLocked(update.ChatID)
-	if entry == nil {
-		return nil
-	}
-
-	order, inMain, err := mainPositionFromPosition(update.Position)
-	if err != nil {
-		return err
-	}
-	// A position in another list, such as the archive, removes the chat
-	// from the main list.
-	entry.inMain = inMain
-	entry.Order = order
-	return nil
-}
-
-func (l *LiveState) applyChatLastMessage(raw RawMessage) error {
-	var update updateChatLastMessageRaw
-	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateChatLastMessage: %w", err)
-	}
-	entry := l.existingLocked(update.ChatID)
-	if entry == nil {
-		return nil
-	}
-
-	entry.lastMessage = decodeLiveMessage(update.LastMessage)
-	return l.applyPositions(entry, update.Positions)
-}
-
-// applyChatDraftPositions applies only the positions of a draft update:
-// the draft text itself is not part of the main list projection.
-func (l *LiveState) applyChatDraftPositions(raw RawMessage) error {
-	var update updateChatDraftMessageRaw
-	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateChatDraftMessage: %w", err)
-	}
-	entry := l.existingLocked(update.ChatID)
-	if entry == nil {
-		return nil
-	}
-	return l.applyPositions(entry, update.Positions)
-}
-
-func (l *LiveState) applyChatReadInbox(raw RawMessage) error {
-	var update updateChatReadInboxRaw
-	if err := json.Unmarshal(raw, &update); err != nil {
-		return fmt.Errorf("decode updateChatReadInbox: %w", err)
-	}
-	entry := l.existingLocked(update.ChatID)
-	if entry == nil {
-		return nil
-	}
-	entry.UnreadCount = update.UnreadCount
-	return nil
-}
-
-// applyPositions updates list membership from a chatPositions object.
-func (l *LiveState) applyPositions(entry *liveChatEntry, positions json.RawMessage) error {
-	order, inMain, err := mainPositionFromPositions(positions)
-	if err != nil {
-		return err
-	}
-	// An empty or absent positions object says nothing about membership,
-	// so an existing position is kept.
-	if !hasPositions(positions) {
-		return nil
-	}
-	entry.inMain = inMain
-	entry.Order = order
-	return nil
-}
-
-// entryLocked returns the mutable record for id, creating it if needed.
-// The caller holds the write lock.
-func (l *LiveState) entryLocked(id ChatID) *liveChatEntry {
-	if entry, exists := l.chats[id]; exists {
-		return entry
-	}
-	entry := &liveChatEntry{ID: id}
-	l.chats[id] = entry
-	return entry
-}
-
-// existingLocked returns the record for id, or nil when the chat is
-// unknown. A missing chat never creates an entry.
-func (l *LiveState) existingLocked(chatID int64) *liveChatEntry {
-	if chatID == 0 {
-		return nil
-	}
-	return l.chats[ChatID(chatID)]
 }
 
 // isAbsentJSON reports whether a raw JSON field carries no value at all.
@@ -490,63 +550,10 @@ func isAbsentJSON(raw json.RawMessage) bool {
 	return len(raw) == 0 || string(raw) == "null"
 }
 
-// hasPositions reports whether the payload carries a positions object at
-// all.
-func hasPositions(raw json.RawMessage) bool {
-	return !isAbsentJSON(raw)
-}
-
-// mainPositionFromPositions extracts the main-list order from a
-// chatPositions object.
-func mainPositionFromPositions(raw json.RawMessage) (int64, bool, error) {
-	if !hasPositions(raw) {
-		return 0, false, nil
-	}
-
-	var positions chatPositionsRaw
-	if err := json.Unmarshal(raw, &positions); err != nil {
-		return 0, false, fmt.Errorf("decode chat positions: %w", err)
-	}
-
-	for _, item := range positions.Positions {
-		if item.Position.Source.Type != mainChatList {
-			continue
-		}
-		order, err := parsePositionOrder(item.Position.Order)
-		if err != nil {
-			return 0, false, err
-		}
-		return order, true, nil
-	}
-	return 0, false, nil
-}
-
-// mainPositionFromPosition extracts list membership from a single
-// position object, as carried by updateChatPosition.
-func mainPositionFromPosition(raw json.RawMessage) (int64, bool, error) {
-	if !hasPositions(raw) {
-		return 0, false, nil
-	}
-
-	var position chatPositionRaw
-	if err := json.Unmarshal(raw, &position); err != nil {
-		return 0, false, fmt.Errorf("decode chat position: %w", err)
-	}
-	if position.Source.Type != mainChatList {
-		return 0, false, nil
-	}
-
-	order, err := parsePositionOrder(position.Order)
-	if err != nil {
-		return 0, false, err
-	}
-	return order, true, nil
-}
-
-// parsePositionOrder reads a position order, which TDLib carries as a
+// parsePositionOrder reads chatPosition.order, which TDLib carries as a
 // JSON string of an int64.
 func parsePositionOrder(raw json.RawMessage) (int64, error) {
-	if len(raw) == 0 || string(raw) == "null" {
+	if isAbsentJSON(raw) {
 		return 0, nil
 	}
 

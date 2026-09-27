@@ -580,10 +580,13 @@
     `updateChatOnlineMemberCount`, and answers `ChatPresence(chatID)`. A
     private or a secret chat answers with the status of its user, a group
     with its count
-  - the store keeps an identifier and a status and nothing else of a user:
-    no name, no phone number, no usernames. A user object is read by the
-    parser and dropped, and `userRecord` keeps two fields that are never
-    written so that a test can prove it
+  - the store keeps an identifier, a status and a bot flag and nothing
+    else of a user: no name, no phone number, no usernames, not even an
+    empty field shaped like one. `userRecord` has three fields, and the
+    privacy test prints the whole store and looks for the fixture's name,
+    phone, username and e-mail; a second test feeds the dump a chat title
+    the store does keep, and a third fails if the dump stops reading every
+    field of the struct
   - `updateUser` and `updateUserStatus` are **not** held during
     authorization. TDLib has no user data cached before the client is
     authorized, so there is nothing to hold; and holding `updateUser`

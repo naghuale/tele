@@ -72,6 +72,14 @@ type DispatcherConfig struct {
 	// Sender.
 	MaxAttempts int
 
+	// MaxConsecutiveScanErrors caps how many scans in a row may fail
+	// before Run gives up.
+	//
+	// Only failures before a send attempt (listing and claiming) are
+	// retried: they have no side effect, and a short SQLite lock must
+	// not stop delivery. Failures after a send started still end Run.
+	MaxConsecutiveScanErrors int
+
 	// Logger receives structured diagnostics. Message text is never
 	// logged; error strings are passed through SafeReason. When nil,
 	// slog.Default() is used.
@@ -91,7 +99,10 @@ func DefaultDispatcherConfig(
 		BatchSize:       16,
 		Backoff:         DefaultBackoff(),
 		MaxAttempts:     5,
-		Logger:          slog.Default(),
+
+		MaxConsecutiveScanErrors: 10,
+
+		Logger: slog.Default(),
 	}
 }
 
@@ -139,6 +150,9 @@ func NewDispatcher(
 	}
 	if cfg.MaxAttempts <= 0 {
 		cfg.MaxAttempts = 5
+	}
+	if cfg.MaxConsecutiveScanErrors <= 0 {
+		cfg.MaxConsecutiveScanErrors = 10
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -199,6 +213,8 @@ func (d *Dispatcher) Run(
 		)
 	}
 
+	scanErrors := 0
+
 	for {
 		if ctx.Err() != nil {
 			return nil
@@ -214,8 +230,34 @@ func (d *Dispatcher) Run(
 				return nil
 			}
 
-			return err
+			var scanErr *scanError
+			if !errors.As(err, &scanErr) {
+				return err
+			}
+
+			scanErrors++
+			if scanErrors >= d.cfg.MaxConsecutiveScanErrors {
+				return fmt.Errorf(
+					"outbox dispatcher: %d consecutive scan failures: %w",
+					scanErrors,
+					err,
+				)
+			}
+
+			d.cfg.Logger.Warn(
+				"outbox scan failed; retrying",
+				slog.Int("consecutive_failures", scanErrors),
+				slog.String("error", SafeReason(err)),
+			)
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-d.clock.After(d.scanRetryDelay(scanErrors)):
+			}
+			continue
 		}
+		scanErrors = 0
 
 		if processed {
 			continue
@@ -296,10 +338,10 @@ func (d *Dispatcher) scanOnce(
 		d.cfg.BatchSize,
 	)
 	if err != nil {
-		return false, fmt.Errorf(
+		return false, &scanError{err: fmt.Errorf(
 			"list ready: %w",
 			err,
-		)
+		)}
 	}
 	if len(ready) == 0 {
 		return false, nil
@@ -354,11 +396,11 @@ func (d *Dispatcher) dispatch(
 			return nil
 		}
 
-		return fmt.Errorf(
+		return &scanError{err: fmt.Errorf(
 			"claim %s: %w",
 			entry.ID,
 			err,
-		)
+		)}
 	}
 
 	// The claimed entry has already transitioned to dispatching.
@@ -497,11 +539,11 @@ func (d *Dispatcher) markAccepted(
 		messageID,
 		d.clock.Now(),
 	)
-	if err != nil &&
-		!errors.Is(
-			err,
-			ErrVersionConflict,
-		) {
+	if errors.Is(err, ErrVersionConflict) {
+		d.logLostFinalization(entry, OutcomeAccepted)
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf(
 			"mark accepted %s: %w",
 			entry.ID,
@@ -547,11 +589,11 @@ func (d *Dispatcher) markRetryable(
 		SafeReason(sendErr),
 		now,
 	)
-	if err != nil &&
-		!errors.Is(
-			err,
-			ErrVersionConflict,
-		) {
+	if errors.Is(err, ErrVersionConflict) {
+		d.logLostFinalization(entry, OutcomeRetryable)
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf(
 			"mark retryable %s: %w",
 			entry.ID,
@@ -583,11 +625,11 @@ func (d *Dispatcher) markPermanent(
 		SafeReason(sendErr),
 		d.clock.Now(),
 	)
-	if err != nil &&
-		!errors.Is(
-			err,
-			ErrVersionConflict,
-		) {
+	if errors.Is(err, ErrVersionConflict) {
+		d.logLostFinalization(entry, OutcomePermanent)
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf(
 			"mark permanent %s: %w",
 			entry.ID,
@@ -610,11 +652,11 @@ func (d *Dispatcher) markUncertain(
 		reason,
 		d.clock.Now(),
 	)
-	if err != nil &&
-		!errors.Is(
-			err,
-			ErrVersionConflict,
-		) {
+	if errors.Is(err, ErrVersionConflict) {
+		d.logLostFinalization(entry, OutcomeUncertain)
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf(
 			"mark uncertain %s: %w",
 			entry.ID,
@@ -623,6 +665,40 @@ func (d *Dispatcher) markUncertain(
 	}
 
 	return nil
+}
+
+// scanError marks a failure before any send attempt. It has no side
+// effect, so Run may retry it.
+type scanError struct {
+	err error
+}
+
+func (e *scanError) Error() string { return e.err.Error() }
+func (e *scanError) Unwrap() error { return e.err }
+
+// scanRetryDelay doubles the poll interval per consecutive failure, up
+// to one minute.
+func (d *Dispatcher) scanRetryDelay(failures int) time.Duration {
+	delay := d.cfg.PollInterval
+	for i := 1; i < failures && delay < time.Minute; i++ {
+		delay *= 2
+	}
+	return min(delay, time.Minute)
+}
+
+// logLostFinalization records an outcome that could not be persisted
+// because another writer changed the entry first. The outcome is known
+// here and nowhere else, so it must not vanish silently.
+func (d *Dispatcher) logLostFinalization(entry Entry, outcome Outcome) {
+	if d.cfg.Logger == nil {
+		return
+	}
+	d.cfg.Logger.Warn(
+		"outbox finalize lost to a concurrent update",
+		slog.String("entry_id", string(entry.ID)),
+		slog.Int("attempt", entry.AttemptCount),
+		slog.String("outcome", outcome.String()),
+	)
 }
 
 func (d *Dispatcher) logDispatch(

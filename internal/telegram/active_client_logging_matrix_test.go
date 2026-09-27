@@ -272,6 +272,9 @@ func runActiveMatrixCase(result *activeMatrixResult, caseName string) error {
 		_ = loaded.Native.Close()
 		return err
 	}
+	// The experiment observes TDLib before the policy is installed,
+	// which production Start no longer allows.
+	runtime.startWithoutLogPolicy = true
 
 	defer func() {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)

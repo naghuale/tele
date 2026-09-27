@@ -45,9 +45,14 @@ type Runtime struct {
 	// logSecured records that TDLib's verbosity was lowered, so later
 	// callers do not repeat the request.
 	logSecured atomic.Bool
-	closeOnce  sync.Once
-	startErr   error
-	closeErr   error
+
+	// startWithoutLogPolicy is set only by the active-client logging
+	// experiments, which must observe TDLib before the policy exists.
+	// Production code never sets it.
+	startWithoutLogPolicy bool
+	closeOnce             sync.Once
+	startErr              error
+	closeErr              error
 }
 
 type Client struct {
@@ -102,9 +107,11 @@ func (r *Runtime) Start(parent context.Context) error {
 		// before the loop's first receive, and startup fails closed when
 		// that is impossible. The runtime stays in the created state, so
 		// Close still releases the native handle.
-		if err := r.ConfigureSafeLogging(); err != nil {
-			r.startErr = err
-			return
+		if !r.startWithoutLogPolicy {
+			if err := r.ConfigureSafeLogging(); err != nil {
+				r.startErr = err
+				return
+			}
 		}
 
 		r.mu.Lock()

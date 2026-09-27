@@ -227,6 +227,9 @@ func runConfigureAfterActivation(result *activeLoggingR2Result) error {
 		_ = loaded.Native.Close()
 		return err
 	}
+	// The experiment observes TDLib before the policy is installed,
+	// which production Start no longer allows.
+	runtime.startWithoutLogPolicy = true
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

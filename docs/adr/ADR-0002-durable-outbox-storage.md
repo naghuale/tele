@@ -18,13 +18,22 @@ The data-encryption key is stored outside the database:
 
 Plaintext fallback is not allowed. If the platform key provider is
 unavailable, locked, or unsupported, production outbox activation
-fails closed and the existing PR-07 direct-send path remains active.
+fails closed.
 
 > **Amended 2026-09-27 by docs/TUI_SPEC.md, decision 1.** There is no
 > direct-send fallback. `durable` is the only production send mode.
-> When the outbox cannot be opened, the TUI starts in the "Durable
-> outbox unavailable" state and refuses to queue messages, keeping the
-> draft. Startup does not fail because of it.
+> When the outbox cannot be opened, the TUI starts with sending paused
+> and refuses to queue or send the message, keeping the draft. Startup
+> does not fail because of it. The screen shows the texts from decision 3
+> (`Sending paused`, the explanation, the reason hint and the
+> `Details:` link); the full cause goes to the log and to
+> `telecli doctor` only. The cause is matched to one of the five cases by
+> sentinel error with `errors.Is`, never by message text.
+>
+> A configuration that still says `mode = "direct"` is read as a
+> retired value: it starts on durable and `telecli doctor` reports it
+> every run. `telecli configure` no longer offers a mode and refuses
+> `--mode direct` with an explanation.
 
 Headless Linux remains unsupported for production outbox persistence
 until a separate explicit key-source policy is accepted.

@@ -3,12 +3,15 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"telecli/internal/config"
+	"telecli/internal/outbox"
 	"telecli/internal/telegram"
 )
 
@@ -250,7 +253,12 @@ func TestRunApplicationWiresDurableSubmitterInDurableMode(t *testing.T) {
 	}
 }
 
-func TestRunApplicationDoesNotFallbackAfterDurableOpenFails(t *testing.T) {
+// A durable outbox that cannot be opened must not stop the program and
+// must not fall back to a direct send. The TUI starts, the submitter
+// refuses, and the draft is left for the user.
+func TestRunApplicationStartsWithSendingPausedAfterDurableOpenFails(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	cfg := h5bConfig(t)
@@ -258,9 +266,12 @@ func TestRunApplicationDoesNotFallbackAfterDurableOpenFails(t *testing.T) {
 	session := &h5bSession{}
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	sentinel := errors.New("outbox unavailable")
+	sentinel := fmt.Errorf(
+		"%w: no keychain",
+		outbox.ErrOutboxKeyAccessDenied,
+	)
 
-	_, err := prepareDeliveryAuthResult(
+	result, err := prepareDeliveryAuthResult(
 		ctx,
 		cfg,
 		session,
@@ -274,14 +285,98 @@ func TestRunApplicationDoesNotFallbackAfterDurableOpenFails(t *testing.T) {
 		},
 		deliveryHealthSampling{},
 	)
-	if !errors.Is(err, sentinel) {
-		t.Fatalf("error = %v, want sentinel", err)
+	if err != nil {
+		t.Fatalf("startup must not fail because the outbox is closed: %v", err)
 	}
+
+	// No direct send: the whole point of the outbox is that a message
+	// which cannot be queued is not sent by another route.
 	if session.sendCalls.Load() != 0 {
 		t.Fatalf("direct send calls = %d, want 0", session.sendCalls.Load())
 	}
-	if session.closeCalls.Load() != 1 {
-		t.Fatalf("session close calls = %d, want 1", session.closeCalls.Load())
+
+	// The TUI must be usable, so the session stays open.
+	if result.Source == nil {
+		t.Fatal("Source is nil, want a working TUI source")
+	}
+	if result.Submitter == nil {
+		t.Fatal("Submitter is nil, want a submitter that refuses")
+	}
+	if result.MessageStatuses != nil {
+		t.Fatal("MessageStatuses is non-nil, want nil with no outbox to read")
+	}
+	if result.SendingPaused == nil {
+		t.Fatal("SendingPaused is nil, want the paused state")
+	}
+	if got := result.SendingPaused.Reason(); got != SendingPausedKeychainLocked {
+		t.Fatalf("reason = %v, want keychain locked", got)
+	}
+	if session.closeCalls.Load() != 0 {
+		t.Fatalf("session close calls = %d, want 0 while the TUI runs",
+			session.closeCalls.Load())
+	}
+
+	// Submitting must fail with the user-facing text and no cause detail.
+	if _, err := result.Submitter.SubmitMessage(
+		context.Background(), 42, "hello",
+	); err == nil {
+		t.Fatal("SubmitMessage() error = nil, want the paused error")
+	} else {
+		text := err.Error()
+		for _, want := range []string{
+			"Sending paused",
+			"Your message was not sent and is still here",
+			"Unlock your Keychain",
+			"Details: ",
+		} {
+			if !strings.Contains(text, want) {
+				t.Fatalf("paused text %q does not contain %q", text, want)
+			}
+		}
+		for _, forbidden := range []string{"no keychain", "ErrOutboxKey"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("paused text leaks the cause %q: %s", forbidden, text)
+			}
+		}
+	}
+}
+
+// The composer draft survives a refused submission, and nothing is
+// queued.
+func TestRunApplicationPausedSubmitterPreservesDraft(t *testing.T) {
+	t.Parallel()
+
+	cfg := h5bConfig(t)
+	cfg.MessageDelivery.Mode = config.MessageSendModeDurable
+	session := &h5bSession{}
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	result, err := prepareDeliveryAuthResult(
+		ctx,
+		cfg,
+		session,
+		cancel,
+		func(
+			context.Context,
+			MessageDeliveryRuntimeConfig,
+			MessageDeliveryRuntimeDeps,
+		) (MessageDeliveryRuntime, error) {
+			return nil, errors.New("outbox unavailable")
+		},
+		deliveryHealthSampling{},
+	)
+	if err != nil {
+		t.Fatalf("startup must not fail: %v", err)
+	}
+	if result.SendingPaused == nil {
+		t.Fatal("SendingPaused is nil, want the paused state")
+	}
+	if got := result.SendingPaused.Reason(); got != SendingPausedOther {
+		t.Fatalf("reason = %v, want other", got)
+	}
+	if session.sendCalls.Load() != 0 {
+		t.Fatalf("direct send calls = %d, want 0", session.sendCalls.Load())
 	}
 }
 

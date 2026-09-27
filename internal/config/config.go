@@ -47,6 +47,12 @@ type Config struct {
 	TDLib           TDLib                 `toml:"tdlib"`
 	Auth            AuthConfig            `toml:"auth"`
 	MessageDelivery MessageDeliveryConfig `toml:"message_delivery"`
+
+	// Warnings holds non-fatal notes produced while loading, such as a
+	// retired send mode that was normalised rather than rejected. It is
+	// never persisted: the file stays as the user wrote it, and the note
+	// is repeated by telecli doctor on every run.
+	Warnings []string `toml:"-"`
 }
 
 // ErrDataDirUnavailable reports that no data directory is configured

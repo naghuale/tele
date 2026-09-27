@@ -94,6 +94,11 @@ type Model struct {
 	sendOperation  uint64
 	lastSubmission *Submission
 
+	// pausedErr is set when the composition root reported that delivery
+	// cannot work at all. It outlives a per-chat send error, so the reason
+	// follows the user into every chat instead of being cleared on entry.
+	pausedErr error
+
 	composer []rune
 
 	authPrompt   AuthPromptKind
@@ -501,6 +506,11 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedMsg = 0
 		m.sendState = sendStateIdle
 		m.sendErr = nil
+		if m.pausedErr != nil {
+			// Sending is still impossible in this chat.
+			m.sendState = sendStateError
+			m.sendErr = m.pausedErr
+		}
 
 		// Entering a conversation starts a new history operation, so a page
 		// still in flight for a previous visit is discarded on arrival. The

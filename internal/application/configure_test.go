@@ -272,7 +272,7 @@ func newConfigureFixture(t *testing.T) *configureFixture {
 
 	fixture := &configureFixture{
 		prompter: &scriptedPrompter{
-			answers: []string{"123456", "+15550001234", "durable", "default"},
+			answers: []string{"123456", "+15550001234", "default"},
 		},
 		secrets:    &scriptedSecretReader{value: "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7"},
 		store:      newFakeConfigureStore(),
@@ -312,7 +312,6 @@ func TestConfigurePromptsForRequiredValues(t *testing.T) {
 	for _, fragment := range []string{
 		"Telegram API ID",
 		"Telegram phone",
-		"Delivery mode",
 		"Credential profile",
 	} {
 		if !fixture.prompter.askedFor(fragment) {
@@ -378,49 +377,43 @@ func TestConfigureRejectsInvalidInputs(t *testing.T) {
 	}{
 		{
 			name:    "empty api id",
-			answers: []string{"", "+1555", "durable", "default"},
+			answers: []string{"", "+1555", "default"},
 			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must not be empty",
 		},
 		{
 			name:    "non numeric api id",
-			answers: []string{"abc", "+1555", "durable", "default"},
+			answers: []string{"abc", "+1555", "default"},
 			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must be a number",
 		},
 		{
 			name:    "negative api id",
-			answers: []string{"-5", "+1555", "durable", "default"},
+			answers: []string{"-5", "+1555", "default"},
 			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "API ID must be positive",
 		},
 		{
 			name:    "empty phone",
-			answers: []string{"123", "", "durable", "default"},
+			answers: []string{"123", "", "default"},
 			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "phone must not be empty",
 		},
 		{
-			name:    "unknown mode",
-			answers: []string{"123", "+1555", "sideways", "default"},
-			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
-			want:    "unsupported message send mode",
-		},
-		{
 			name:    "invalid profile name",
-			answers: []string{"123", "+1555", "durable", "bad profile"},
+			answers: []string{"123", "+1555", "bad profile"},
 			secret:  "5ec7e7a5ec7e7a5ec7e7a5ec7e7a5ec7",
 			want:    "profile name",
 		},
 		{
 			name:    "malformed api hash",
-			answers: []string{"123", "+1555", "durable", "default"},
+			answers: []string{"123", "+1555", "default"},
 			secret:  "not-a-telegram-hash",
 			want:    "32 hexadecimal characters",
 		},
 		{
 			name:    "empty api hash",
-			answers: []string{"123", "+1555", "durable", "default"},
+			answers: []string{"123", "+1555", "default"},
 			secret:  "",
 			want:    "API hash must not be empty",
 		},
@@ -515,20 +508,56 @@ func TestConfigureWritesExpectedConfigShape(t *testing.T) {
 	}
 }
 
-func TestConfigureWritesDirectMode(t *testing.T) {
+// The retired mode must never reach a written configuration, whether it
+// comes from an old file or from a flag.
+func TestConfigureNeverWritesDirectMode(t *testing.T) {
 	fixture := newConfigureFixture(t)
-	fixture.prompter.answers[2] = "direct"
 
 	if _, err := fixture.run(t); err != nil {
 		t.Fatal(err)
+	}
+
+	raw, err := os.ReadFile(fixture.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "direct") {
+		t.Fatalf("configuration mentions the retired direct mode:\n%s", raw)
 	}
 
 	loaded, err := config.Load(fixture.configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.MessageDelivery.Mode != config.MessageSendModeDirect {
-		t.Fatalf("mode = %q, want direct", loaded.MessageDelivery.Mode)
+	if loaded.MessageDelivery.Mode != config.MessageSendModeDurable {
+		t.Fatalf("mode = %q, want durable", loaded.MessageDelivery.Mode)
+	}
+}
+
+// An explicit --mode direct is refused with an explanation rather than
+// silently ignored, so a script that still passes it fails loudly.
+func TestConfigureRejectsExplicitDirectFlag(t *testing.T) {
+	fixture := newConfigureFixture(t)
+	fixture.request.Options.Mode = "direct"
+
+	_, err := fixture.run(t)
+	if err == nil {
+		t.Fatal("expected an error for --mode direct")
+	}
+	if !strings.Contains(err.Error(), "direct") {
+		t.Fatalf("error = %v, want it to name the retired mode", err)
+	}
+	if !strings.Contains(err.Error(), "durable") {
+		t.Fatalf("error = %v, want it to say durable is used", err)
+	}
+}
+
+func TestConfigureAcceptsExplicitDurableFlag(t *testing.T) {
+	fixture := newConfigureFixture(t)
+	fixture.request.Options.Mode = "durable"
+
+	if _, err := fixture.run(t); err != nil {
+		t.Fatal(err)
 	}
 }
 

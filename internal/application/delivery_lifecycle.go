@@ -172,17 +172,10 @@ func prepareDeliveryAuthResult(
 		return AuthRunResult{}, errors.New("message delivery opener is required")
 	}
 
-	direct, err := NewDirectComposerSubmitter(session)
-	if err != nil {
-		return AuthRunResult{}, errors.Join(
-			fmt.Errorf("create direct message submitter: %w", err),
-			closeDeliverySession(session, cfg.TDLib.ShutdownTimeoutMS),
-		)
-	}
-
-	deps := MessageDeliveryRuntimeDeps{
-		DirectSubmitter: direct,
-	}
+	// No direct submitter is built here. Durable is the only send mode,
+	// so a composer submitter that can bypass the outbox is never
+	// constructed on a production path.
+	deps := MessageDeliveryRuntimeDeps{}
 	if cfg.MessageDelivery.Mode == config.MessageSendModeDurable {
 		deps.Durable = productionDurableRuntimeDeps(session, cfg)
 	}
@@ -193,10 +186,13 @@ func prepareDeliveryAuthResult(
 		deps,
 	)
 	if err != nil {
-		return AuthRunResult{}, errors.Join(
-			fmt.Errorf("open message delivery runtime: %w", err),
-			closeDeliverySession(session, cfg.TDLib.ShutdownTimeoutMS),
-		)
+		// The durable outbox could not be opened. That is not a startup
+		// failure: the session is usable, the user can read and write in
+		// the composer, and only sending is paused. Falling back to a
+		// direct send would lose messages silently, which is the thing
+		// the outbox exists to prevent, so the TUI starts with a
+		// submitter that refuses and keeps the draft.
+		return sendingPausedAuthResult(session, cfg, err), nil
 	}
 	if delivery == nil {
 		return AuthRunResult{}, errors.Join(
@@ -280,6 +276,55 @@ func prepareDeliveryAuthResult(
 			)
 		},
 	}, nil
+}
+
+// sendingPausedAuthResult builds the result for a session whose durable
+// outbox could not be opened.
+//
+// The TUI is fully usable: chats, history and the composer all work. Only
+// sending is paused, and the submitter refuses rather than falling back to
+// a direct send. MessageStatuses is nil because there is no outbox to read
+// delivery state from.
+func sendingPausedAuthResult(
+	session deliverySession,
+	cfg config.Config,
+	openErr error,
+) AuthRunResult {
+	reason := classifySendingPaused(openErr)
+	paused := &SendingPausedError{reason: reason, cause: openErr}
+
+	accountKey := deliveryAccountKey(cfg)
+
+	tuiSubmitter, err := NewTUISubmitter(
+		NewUnavailableComposerSubmitter(reason),
+		accountKey,
+	)
+	if err != nil {
+		// Unreachable: the submitter and account key are both present.
+		// Returning a nil submitter here would be worse than panicking,
+		// so fall back to a submitter that always refuses.
+		tuiSubmitter = &TUISubmitter{
+			delegate:   NewUnavailableComposerSubmitter(reason),
+			accountKey: accountKey,
+		}
+	}
+
+	return AuthRunResult{
+		Source:          NewTelegramChatService(session),
+		Submitter:       tuiSubmitter,
+		AccountKey:      accountKey,
+		MessageStatuses: nil,
+		SendingPaused:   paused,
+		Close: func(shutdownCtx context.Context) error {
+			if shutdownCtx == nil {
+				shutdownCtx = context.Background()
+			}
+			return wrapCloseError(
+				"close Telegram session",
+				session.Close(shutdownCtx),
+			)
+		},
+	}
 }
 
 func closeDeliverySession(

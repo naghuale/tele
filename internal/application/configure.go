@@ -521,32 +521,33 @@ func validTelegramAPIHash(value string) bool {
 }
 
 // collectMode resolves the delivery mode.
+//
+// There is nothing to ask: durable is the only send mode, because direct
+// send loses messages when the process exits between Enter and TDLib's
+// answer. The question is removed rather than answered with a default,
+// so nobody is offered a mode that does not exist.
+//
+// An explicit --mode direct is refused with an explanation instead of
+// being silently ignored, so a script that still passes it fails loudly
+// rather than quietly changing behaviour.
 func collectMode(
 	req ConfigureRequest,
 	existing config.Config,
 ) (config.MessageSendMode, error) {
-	answer := req.Options.Mode
+	answer := strings.TrimSpace(req.Options.Mode)
 	if answer == "" {
-		var err error
-
-		answer, err = req.Prompter.Ask(fmt.Sprintf(
-			"Delivery mode [direct|durable] (%s): ",
-			existing.MessageDelivery.Mode,
-		))
-		if err != nil {
-			return "", err
-		}
+		return config.MessageSendModeDurable, nil
 	}
 
-	if strings.TrimSpace(answer) == "" {
-		if existing.MessageDelivery.Mode != "" {
-			return existing.MessageDelivery.Mode, nil
-		}
-
-		return config.DefaultMessageSendMode, nil
+	if strings.EqualFold(answer, string(config.MessageSendModeDirect)) {
+		return "", fmt.Errorf(
+			"%w: --mode direct is no longer supported; "+
+				"durable delivery is always used",
+			ErrConfigureInput,
+		)
 	}
 
-	mode, err := config.ParseMessageSendMode(answer)
+	mode, _, err := config.ParseMessageSendMode(answer)
 	if err != nil {
 		return "", fmt.Errorf("%w: %w", ErrConfigureInput, err)
 	}

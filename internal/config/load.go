@@ -63,9 +63,16 @@ func loadFile(path string) (Config, error) {
 		return Config{}, fmt.Errorf("unknown config keys: %v", undecoded)
 	}
 
-	mode, err := ParseMessageSendMode(string(cfg.MessageDelivery.Mode))
+	mode, legacy, err := ParseMessageSendMode(string(cfg.MessageDelivery.Mode))
 	if err != nil {
 		return Config{}, fmt.Errorf("parse message delivery mode: %w", err)
+	}
+	if legacy {
+		cfg.Warnings = append(
+			cfg.Warnings,
+			`message_delivery.mode = "direct" is no longer supported; `+
+				"durable delivery is used instead",
+		)
 	}
 	cfg.MessageDelivery.Mode = mode
 

@@ -78,71 +78,25 @@ func h4FactoryWithRuntime(
 	}
 }
 
-func TestOpenMessageDeliveryRuntimeSelectsDirectMode(t *testing.T) {
+// Durable is the only send mode. A retired "direct" must be refused here
+// rather than quietly served, so no production caller can reach a
+// direct-send runtime.
+func TestOpenMessageDeliveryRuntimeRejectsDirectMode(t *testing.T) {
 	t.Parallel()
 
 	submitter := &h4RecordingComposerSubmitter{}
 	var durableCalls atomic.Int64
-	runtime, err := openMessageDeliveryRuntime(
+	_, err := openMessageDeliveryRuntime(
 		context.Background(),
 		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDirect},
 		MessageDeliveryRuntimeDeps{DirectSubmitter: submitter},
 		h4FactoryWithRuntime(nil, &durableCalls),
 	)
-	if err != nil {
-		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
-	}
-	direct, ok := runtime.(*DirectMessageDeliveryRuntime)
-	if !ok {
-		t.Fatalf("runtime type = %T, want *DirectMessageDeliveryRuntime", runtime)
-	}
-	if direct.Submitter() != submitter {
-		t.Fatal("direct runtime did not retain submitter")
+	if err == nil {
+		t.Fatal("openMessageDeliveryRuntime() error = nil, want non-nil for direct mode")
 	}
 	if durableCalls.Load() != 0 {
 		t.Fatalf("durable factory calls = %d, want 0", durableCalls.Load())
-	}
-}
-
-func TestOpenMessageDeliveryRuntimeSelectsDurableMode(t *testing.T) {
-	t.Parallel()
-
-	submitter := &h4RecordingComposerSubmitter{}
-	stub := &h4StubRuntime{submitter: submitter}
-	var durableCalls atomic.Int64
-	runtime, err := openMessageDeliveryRuntime(
-		context.Background(),
-		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDurable},
-		MessageDeliveryRuntimeDeps{},
-		h4FactoryWithRuntime(stub, &durableCalls),
-	)
-	if err != nil {
-		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
-	}
-	if runtime != stub {
-		t.Fatalf("runtime = %#v, want factory runtime", runtime)
-	}
-	if durableCalls.Load() != 1 {
-		t.Fatalf("durable factory calls = %d, want 1", durableCalls.Load())
-	}
-}
-
-func TestOpenMessageDeliveryRuntimeDirectModeHasNoStatusSource(t *testing.T) {
-	t.Parallel()
-
-	runtime, err := openMessageDeliveryRuntime(
-		context.Background(),
-		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDirect},
-		MessageDeliveryRuntimeDeps{
-			DirectSubmitter: &h4RecordingComposerSubmitter{},
-		},
-		h4FactoryWithRuntime(nil, nil),
-	)
-	if err != nil {
-		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
-	}
-	if source := runtime.StatusSource(); source != nil {
-		t.Fatalf("StatusSource() = %#v, want nil", source)
 	}
 }
 
@@ -195,8 +149,8 @@ func TestOpenMessageDeliveryRuntimePropagatesCanceledContext(t *testing.T) {
 	cancel()
 	_, err := openMessageDeliveryRuntime(
 		ctx,
-		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDirect},
-		MessageDeliveryRuntimeDeps{DirectSubmitter: &h4RecordingComposerSubmitter{}},
+		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDurable},
+		MessageDeliveryRuntimeDeps{},
 		h4FactoryWithRuntime(nil, &durableCalls),
 	)
 	if !errors.Is(err, context.Canceled) {
@@ -240,24 +194,6 @@ func TestDirectMessageDeliveryRuntimeIsPassive(t *testing.T) {
 	}
 	if err := runtime.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
-	}
-}
-
-func TestOpenMessageDeliveryRuntimeDoesNotOpenDurableRuntimeInDirectMode(t *testing.T) {
-	t.Parallel()
-
-	var durableCalls atomic.Int64
-	_, err := openMessageDeliveryRuntime(
-		context.Background(),
-		MessageDeliveryRuntimeConfig{Mode: config.MessageSendModeDirect},
-		MessageDeliveryRuntimeDeps{DirectSubmitter: &h4RecordingComposerSubmitter{}},
-		h4FactoryWithRuntime(nil, &durableCalls),
-	)
-	if err != nil {
-		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
-	}
-	if durableCalls.Load() != 0 {
-		t.Fatalf("durable factory calls = %d, want 0", durableCalls.Load())
 	}
 }
 

@@ -52,6 +52,11 @@ type AuthRunResult struct {
 	// runtime can report durable delivery status metadata.
 	MessageStatuses tui.MessageStatusSource
 
+	// SendingPaused is non-nil when the durable outbox could not be
+	// opened. The TUI still starts: only sending is paused, and the
+	// submitter refuses rather than sending by another route.
+	SendingPaused *SendingPausedError
+
 	Close func(context.Context) error
 }
 
@@ -105,6 +110,36 @@ type App struct {
 	runAuth             func(ctx context.Context) (AuthRunResult, error)
 	runTUI              func(tui.ChatSource) error
 	runTUIWithSubmitter func(context.Context, tui.Dependencies) error
+
+	// diagnostics receives the reasons that must not reach the screen,
+	// such as why the message queue could not be opened. It is a field
+	// rather than os.Stderr so tests can read it.
+	diagnostics io.Writer
+}
+
+// WithDiagnostics returns a copy of the app that writes operational
+// reasons to w.
+//
+// Only reasons that are unsafe or unhelpful on screen go here: the TUI
+// shows user-facing text, and this stream carries the cause.
+func (a *App) WithDiagnostics(w io.Writer) *App {
+	if a == nil {
+		return nil
+	}
+	copied := *a
+	if w == nil {
+		w = os.Stderr
+	}
+	copied.diagnostics = w
+	return &copied
+}
+
+// diagnosticsWriter returns the configured stream or os.Stderr.
+func (a *App) diagnosticsWriter() io.Writer {
+	if a == nil || a.diagnostics == nil {
+		return os.Stderr
+	}
+	return a.diagnostics
 }
 
 // New is the PR-02-compatible constructor without Telegram lifecycle.
@@ -190,6 +225,21 @@ func (a *App) RunTUI(ctx context.Context) error {
 			if a.runTUIWithSubmitter == nil {
 				runErr = errMissingTUIRunner
 			} else {
+				// The paused state travels to the TUI as the send-error
+				// text, so the reason is on screen without the raw cause.
+				var sendError error
+				if authResult.SendingPaused != nil {
+					sendError = authResult.SendingPaused
+					// The cause goes to the diagnostic stream only. It
+					// can name files and keychain services, and it must
+					// never carry message text.
+					fmt.Fprintf(
+						a.diagnosticsWriter(),
+						"message queue unavailable (%s): %v\n",
+						authResult.SendingPaused.Reason(),
+						authResult.SendingPaused.Cause(),
+					)
+				}
 				runErr = a.runTUIWithSubmitter(
 					ctx,
 					tui.Dependencies{
@@ -197,6 +247,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						MessageSubmitter: authResult.Submitter,
 						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
+						SendError:        sendError,
 					},
 				)
 			}
@@ -368,6 +419,13 @@ func runDoctor(args []string, env Environment) int {
 		runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(env.Stdout, "Config: OK (data_dir=%s, log_level=%s)\n",
 		cfg.DataDir, cfg.LogLevel)
+	writeConfigWarnings(env.Stdout, cfg.Warnings)
+	reportOutboxStatus(
+		env.Stdout,
+		context.Background(),
+		cfg,
+		nil,
+	)
 
 	resolver := NewTelegramCredentialResolver(env.telegramCredentialStore())
 	resolved, resolveErr := resolver.ResolveTelegramCredentials(

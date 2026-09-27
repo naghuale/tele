@@ -41,6 +41,15 @@ type Dependencies struct {
 	// A nil source is the direct delivery mode and disables durable status
 	// polling; a non-nil source enables it.
 	MessageStatuses MessageStatusSource
+
+	// SendError, when non-nil, is shown in the send-error slot from the
+	// start instead of only after a failed attempt.
+	//
+	// It is how a composer whose delivery is paused states the reason
+	// before the user has tried to send anything. The message is
+	// user-facing text: the tui package imports nothing, so the reason is
+	// already resolved to a safe string by the composition root.
+	SendError error
 }
 
 type composerSubmissionMsg struct {
@@ -69,6 +78,15 @@ func NewModelWithDependencies(
 	model.submitter = deps.MessageSubmitter
 	model.accountKey = strings.TrimSpace(deps.AccountKey)
 	model.messageStatuses = deps.MessageStatuses
+	if deps.SendError != nil {
+		// Sending is already known to be impossible. Showing it now
+		// means the user is not invited to press Enter to find out, and
+		// keeping it on the model means the reason is still there in the
+		// next chat.
+		model.pausedErr = deps.SendError
+		model.sendState = sendStateError
+		model.sendErr = deps.SendError
+	}
 	return model, nil
 }
 

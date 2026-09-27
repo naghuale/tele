@@ -205,21 +205,6 @@ func TestMessageDeliveryRuntimeForwardsHealthSource(t *testing.T) {
 		t.Fatalf("NewOutboxMessageStatusSource() error = %v", err)
 	}
 
-	direct, err := openMessageDeliveryRuntime(
-		context.Background(),
-		MessageDeliveryRuntimeConfig{Mode: "direct"},
-		MessageDeliveryRuntimeDeps{
-			DirectSubmitter: &h4RecordingComposerSubmitter{},
-		},
-		h4FactoryWithRuntime(nil, nil),
-	)
-	if err != nil {
-		t.Fatalf("openMessageDeliveryRuntime() error = %v", err)
-	}
-	if direct.HealthSource() != nil {
-		t.Fatal("direct runtime forwarded a health source")
-	}
-
 	stub := &h4StubRuntime{
 		submitter:    &h4RecordingComposerSubmitter{},
 		statusSource: statusSource,

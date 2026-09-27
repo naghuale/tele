@@ -9,13 +9,25 @@ import (
 
 var (
 	// ErrOutboxKeyUnavailable is returned when a key is missing for
-	// an existing database, when the platform key provider is locked
-	// or otherwise unavailable, or when a stored key is malformed.
+	// an existing database, or when a stored key is malformed.
 	//
 	// The caller must treat this as a fail-closed condition: a new
 	// key is never created as a fallback.
 	ErrOutboxKeyUnavailable = errors.New(
 		"outbox: key unavailable",
+	)
+
+	// ErrOutboxKeyAccessDenied is returned when the platform key
+	// provider holds the key but refused to hand it over: the Keychain
+	// is locked, or the user denied access.
+	//
+	// It is deliberately distinct from ErrOutboxKeyUnavailable so the
+	// user can be told to unlock or grant access, instead of being told
+	// the key is gone. The native bridge already separates a missing item
+	// from an unavailable one; collapsing them here would throw that away
+	// and force callers to match on message text.
+	ErrOutboxKeyAccessDenied = errors.New(
+		"outbox: key access denied",
 	)
 
 	// ErrOutboxKeyProviderUnsupported is returned when the current

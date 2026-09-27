@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -226,8 +227,14 @@ func TestLoadDefaultConfigWhenNoFileExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg != Default() {
-		t.Fatal("a missing config must yield the built-in defaults")
+	// Config carries Warnings, a slice, so it is compared by value
+	// rather than with ==.
+	if !reflect.DeepEqual(cfg, Default()) {
+		t.Fatalf(
+			"a missing config must yield the built-in defaults:\n got %#v\nwant %#v",
+			cfg,
+			Default(),
+		)
 	}
 }
 

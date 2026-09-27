@@ -105,15 +105,24 @@ func (p *darwinKeyProvider) LoadKey(
 
 		return validated, nil
 
-	case secItemNotFound, secItemUnavailable:
+	case secItemNotFound:
+		// The item is absent: a missing key. Distinct from a refusal
+		// below, because the user must be told different things.
 		clearBytes(key)
 		return nil, ErrOutboxKeyUnavailable
+
+	case secItemUnavailable:
+		// The item may well exist, but the Keychain is locked or
+		// access was denied. Reporting this as a missing key would send
+		// the user looking for a key that is still there.
+		clearBytes(key)
+		return nil, ErrOutboxKeyAccessDenied
 
 	default:
 		clearBytes(key)
 		return nil, fmt.Errorf(
 			"%w: keychain read failed",
-			ErrOutboxKeyUnavailable,
+			ErrOutboxKeyAccessDenied,
 		)
 	}
 }

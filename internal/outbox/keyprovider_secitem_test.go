@@ -162,9 +162,10 @@ func TestDarwinKeyProviderLoadMissing(
 	}
 }
 
-func TestDarwinKeyProviderLoadUnavailable(
-	t *testing.T,
-) {
+// A locked or denied Keychain is not the same as a missing key, and the
+// user is told different things, so the two must not collapse into one
+// sentinel.
+func TestDarwinKeyProviderLoadAccessDenied(t *testing.T) {
 	client := &fakeSecItemClient{
 		copyResult: secItemUnavailable,
 	}
@@ -178,14 +179,33 @@ func TestDarwinKeyProviderLoadUnavailable(
 		context.Background(),
 		"database-1",
 	)
-	if !errors.Is(
-		err,
-		ErrOutboxKeyUnavailable,
-	) {
-		t.Fatalf(
-			"error = %v, want ErrOutboxKeyUnavailable",
-			err,
-		)
+	if !errors.Is(err, ErrOutboxKeyAccessDenied) {
+		t.Fatalf("error = %v, want ErrOutboxKeyAccessDenied", err)
+	}
+	if errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatal("a denied Keychain must not be reported as a missing key")
+	}
+}
+
+func TestDarwinKeyProviderLoadNotFound(t *testing.T) {
+	client := &fakeSecItemClient{
+		copyResult: secItemNotFound,
+	}
+
+	provider := newDarwinKeyProvider(
+		client,
+		fixedReader{},
+	)
+
+	_, err := provider.LoadKey(
+		context.Background(),
+		"database-1",
+	)
+	if !errors.Is(err, ErrOutboxKeyUnavailable) {
+		t.Fatalf("error = %v, want ErrOutboxKeyUnavailable", err)
+	}
+	if errors.Is(err, ErrOutboxKeyAccessDenied) {
+		t.Fatal("a missing key must not be reported as a denied Keychain")
 	}
 }
 

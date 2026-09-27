@@ -38,7 +38,7 @@ func runConfigure(args []string, env Environment) int {
 		mode = fs.String(
 			"mode",
 			"",
-			"delivery mode: direct or durable",
+			"delivery mode: durable is the only supported value",
 		)
 		profile = fs.String(
 			"profile",

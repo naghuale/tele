@@ -287,6 +287,36 @@
     profile store and must use the environment
 - Headless fallback: none; without a key provider the durable outbox
   fails closed and never creates a replacement key
+- Send mode (internal/config/message_send_mode.go):
+  - `durable` is the only mode; it is also the default, because direct
+    send lost messages when the process exited between Enter and TDLib's
+    answer
+  - a configured `direct` is a retired value: it loads as durable and
+    adds a `Config.Warnings` note that `telecli doctor` prints on every
+    run; the file itself is not rewritten
+  - an unknown value is a configuration error
+  - `telecli configure` asks no mode question and refuses `--mode
+    direct` with an explanation
+- Sending paused (internal/application/sending_paused.go):
+  - a durable outbox that cannot be opened does not fail startup; the
+    TUI starts and only sending is paused
+  - the submitter refuses, so nothing is queued and nothing is sent by
+    another route; the draft and composer focus survive
+  - the screen shows `Sending paused`, the explanation, the reason hint
+    and the `Details:` link; the cause never appears there
+  - the cause is matched to one of five cases by `errors.Is` on outbox
+    sentinels: `ErrOutboxKeyAccessDenied` (locked or denied),
+    `ErrOutboxKeyUnavailable` (key missing),
+    `ErrOutboxKeyProviderUnsupported` (no secure storage),
+    `ErrOutboxDataDirInsecure` (folder reachable by others), otherwise
+    other
+  - `ErrOutboxKeyAccessDenied` was added because the Keychain bridge
+    already separated a missing item from a refusal and the provider
+    collapsed them, which would have forced string matching
+  - `telecli doctor` probes the queue and prints the case, the data
+    folder and the full cause
+  - exact layout of the status and composer blocks is PR-10A.4; here the
+    existing send-error slot is reused
 - Secret logging policy: never log secrets
 - TDLib credentials source (internal/application/auth_credentials.go):
   exactly one source per run, never mixed

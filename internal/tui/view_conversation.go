@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"strings"
-
 	"telecli/internal/tui/theme"
 )
 
@@ -68,15 +66,17 @@ func (m Model) conversationRegion(
 	history := m.olderPageLines(layout, width)
 	lines = append(lines, history...)
 
-	statuses := m.viewMessageStatuses()
-
-	if rows := m.timelineRows(layout, width); rows > 0 {
+	// The history takes what the pending messages do not need. They are
+	// below it because they are newer than anything in it, and they are in
+	// the timeline rather than in a block of their own because a message
+	// that is still leaving the program looks like every other message of
+	// the conversation.
+	pending := m.pendingMessageLines(layout, width)
+	if rows := m.historyRows(layout, width); rows > 0 {
 		lines = append(lines, m.timelineLines(layout, width, rows)...)
 	}
 
-	if statuses != "" {
-		lines = append(lines, strings.Split(statuses, "\n")...)
-	}
+	lines = append(lines, pending...)
 
 	return m.renderRegion(
 		styles.conversation,
@@ -252,7 +252,7 @@ func (m Model) shortMessageLines(
 	styles viewStyles,
 ) []string {
 	indent := m.messageIndent(message)
-	inset := spaces(contentInsetWidth + indent)
+	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
 	textWidth := messageTextWidth(indent, width)
 
 	wrapped := wrapCells(messageAuthor(message)+": "+message.Text, textWidth)
@@ -284,7 +284,10 @@ func (m Model) messageBodyLines(
 		return nil
 	}
 
-	inset := spaces(contentInsetWidth + indent)
+	// The text starts in the column the author's name starts in (§4.4), so
+	// the marker column is spent on the text rows as well: a message whose
+	// name is one column to the left of its own text reads as two messages.
+	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
 	wrapped := wrapCells(message.Text, textWidth)
 	lines := make([]string, 0, len(wrapped))
 

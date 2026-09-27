@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -85,6 +86,15 @@ type Model struct {
 	// history. It is cleared by the next attempt.
 	historyMoreErr error
 
+	// pendingMessages is the source of the outgoing messages that the
+	// history does not have yet, and pending is what the timeline draws.
+	//
+	// pending holds more than the source's own list: a message this session
+	// queued stays on the screen after the queue has accepted it, so that
+	// the user sees it go out. It leaves when the history brings it back.
+	pendingMessages PendingMessageSource
+	pending         []PendingMessage
+
 	// timelineTop is the index of the first message the conversation shows.
 	//
 	// It is the scroll position of §10.5: the message a user scrolled to
@@ -100,10 +110,19 @@ type Model struct {
 	// for a previous entry is discarded instead of appended.
 	historyOperation uint64
 
-	sendState      sendState
-	sendErr        error
-	sendOperation  uint64
-	lastSubmission *Submission
+	sendState     sendState
+	sendErr       error
+	sendOperation uint64
+
+	// lastSubmission is what the last durable submission answered, or nil,
+	// and lastSubmittedText is the text that submission carried.
+	//
+	// The text is kept beside the submission and not inside it because a
+	// submission is a queue fact and this is what the user wrote: the
+	// timeline needs the text to draw the message, and the queue has it
+	// only until the entry is accepted.
+	lastSubmission    *Submission
+	lastSubmittedText string
 
 	// pausedErr is set when the composition root reported that delivery
 	// cannot work at all. It outlives a per-chat send error, so the reason
@@ -563,6 +582,18 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 
 	m.sendState = sendStateIdle
 	m.sendErr = nil
+
+	// The message is in the timeline before the draft is gone: a user who
+	// pressed Enter has to see where the message went, and the history does
+	// not have it yet — Telegram has not seen it at all (§4.4).
+	m.noteQueuedMessage(
+		msg.submission.ID,
+		msg.chatID,
+		string(m.lastSubmittedText),
+		deliveryStateOfSubmission(msg.submission.State),
+		time.Now(),
+	)
+
 	// The draft is cleared only now, after the queue has taken it (§7.1),
 	// and the cursor goes with it: the next draft starts at its beginning.
 	m.composer = nil
@@ -570,6 +601,20 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 	submission := msg.submission
 	m.lastSubmission = &submission
 	return m, nil
+}
+
+// deliveryStateOfSubmission maps what the queue answered onto the state the
+// timeline draws.
+//
+// The queue answers queued or sent; anything else is drawn as queued,
+// because a message the queue has not accepted yet is a message the
+// dispatcher owns, and the first read that follows will say more.
+func deliveryStateOfSubmission(state SubmissionState) MessageDeliveryState {
+	if state == SubmissionSent {
+		return MessageDeliverySent
+	}
+
+	return MessageDeliveryQueued
 }
 
 // appendMessageByID puts a message at the end of a conversation, replacing
@@ -1152,6 +1197,7 @@ func (m Model) handleComposerEnter() (tea.Model, tea.Cmd) {
 	m.sendOperation++
 	operation := m.sendOperation
 	m.lastSubmission = nil
+	m.lastSubmittedText = text
 	m.sendState = sendStateSending
 	m.sendErr = nil
 

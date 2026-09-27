@@ -256,6 +256,7 @@ func prepareDeliveryAuthResult(
 		Submitter:       tuiSubmitter,
 		AccountKey:      accountKey,
 		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
+		PendingMessages: newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)
 			if shutdownCtx == nil {

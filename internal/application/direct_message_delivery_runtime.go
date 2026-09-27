@@ -27,6 +27,12 @@ func (r *DirectMessageDeliveryRuntime) StatusSource() MessageStatusSource {
 	return nil
 }
 
+// PendingMessages reports that direct submission has no queue: a message is
+// in the history as soon as TDLib has it, so nothing is ever pending.
+func (r *DirectMessageDeliveryRuntime) PendingMessages() PendingMessageSource {
+	return nil
+}
+
 // HealthSource reports that direct submission has no durable runtime health.
 func (r *DirectMessageDeliveryRuntime) HealthSource() MessageDeliveryHealthSource {
 	return nil

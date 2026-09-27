@@ -25,10 +25,11 @@ type DurableOutboxRuntimeDeps struct {
 }
 
 type DurableOutboxRuntime struct {
-	submitter    ComposerMessageSubmitter
-	statusSource MessageStatusSource
-	healthSource MessageDeliveryHealthSource
-	opened       *outbox.Outbox
+	submitter      ComposerMessageSubmitter
+	statusSource   MessageStatusSource
+	pendingSources PendingMessageSource
+	healthSource   MessageDeliveryHealthSource
+	opened         *outbox.Outbox
 
 	dispatcherCancel context.CancelFunc
 	dispatcherDone   chan struct{}
@@ -183,8 +184,21 @@ func openDurableOutboxRuntime(
 		return cleanup(err)
 	}
 
+	// The timeline needs the text of what is still in the queue, and the
+	// status reader has none of it: that reader is payload-free on purpose.
+	// This one is the only reader of the text and the only one the
+	// interface sees it through.
+	pendingSource, err := NewOutboxPendingMessageSource(opened.Store, 0)
+	if err != nil {
+		return cleanup(fmt.Errorf(
+			"durable outbox runtime: pending message source: %w",
+			err,
+		))
+	}
+
 	runtime := &DurableOutboxRuntime{
 		statusSource:   statusSource,
+		pendingSources: pendingSource,
 		opened:         opened,
 		dispatcherDone: make(chan struct{}),
 		closed:         make(chan struct{}),
@@ -298,6 +312,15 @@ func (r *DurableOutboxRuntime) StatusSource() MessageStatusSource {
 		return nil
 	}
 	return r.statusSource
+}
+
+// PendingMessages returns the queue as the timeline reads it: every entry of
+// a chat that Telegram has not accepted yet, with the text the user wrote.
+func (r *DurableOutboxRuntime) PendingMessages() PendingMessageSource {
+	if r == nil {
+		return nil
+	}
+	return r.pendingSources
 }
 
 func (r *DurableOutboxRuntime) HealthSource() MessageDeliveryHealthSource {

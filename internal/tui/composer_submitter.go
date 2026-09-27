@@ -38,6 +38,14 @@ type Dependencies struct {
 	// status reads. Status polling stays disabled while it is empty.
 	AccountKey string
 
+	// PendingMessages is optional.
+	//
+	// It lists the outgoing messages that are not in the history yet, with
+	// their text, so that the timeline can show them. A nil source is
+	// direct delivery mode: every message is in the history as soon as it
+	// is sent and nothing is pending.
+	PendingMessages PendingMessageSource
+
 	// MessageStatuses is optional.
 	//
 	// A nil source is the direct delivery mode and disables durable status
@@ -95,6 +103,7 @@ func NewModelWithDependencies(
 	model.submitter = deps.MessageSubmitter
 	model.accountKey = strings.TrimSpace(deps.AccountKey)
 	model.messageStatuses = deps.MessageStatuses
+	model.pendingMessages = deps.PendingMessages
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile
 	// The renderer is built here, where the profile is known, rather than

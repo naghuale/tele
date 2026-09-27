@@ -497,6 +497,39 @@
     folder and the full cause
   - exact layout of the status and composer blocks is PR-10A.4; here the
     existing send-error slot is reused
+- Outgoing messages in the timeline (internal/tui/pending_message.go,
+  internal/tui/pending_message_model.go,
+  internal/application/pending_message_source.go, PR-10A.4a, §4.4, §6)
+  - a message the history does not have yet is drawn in the timeline as an
+    outgoing message with the state of its delivery under the text; there
+    is no separate delivery block between the timeline and the composer
+  - `tui.PendingMessage` is the one type that carries message text outside
+    the history, and it goes to `View()` and nowhere else: `String()` and
+    `GoString()` print the entry and the state only, so `%v`, `%+v` and
+    `%#v` of a value on its way to a log cannot carry it
+  - `PendingMessageSource` is a separate source from
+    `MessageStatusSource` on purpose. The status list stays payload-free for
+    #21's privacy tests; the timeline asks a second source that has the
+    text, and both are read on the same poll tick so the text and the state
+    of a message never come from two reads that disagree
+  - `OutboxPendingMessageSource` depends on a narrow `entryLister`
+    (ListAll) and not on the whole store: a source that could enqueue or
+    claim could send a message from a read the screen asked for
+  - accepted entries are not pending: Telegram has the message, and the
+    entry holds the temporary identifier of the sendMessage response, not
+    the one the history returns (ADR-0003 §6)
+  - a message queued in this session appears at once, from the draft and
+    the entry the queue returned, and stays with `✓ Sent` until the
+    history brings it back; re-entering a chat clears it
+  - the states use the theme's status vocabulary (`theme.StatusState`),
+    so a state is a symbol and a word and the word carries the meaning in
+    every profile. Uncertain adds "Message may already have been sent"
+    and never borrows the wording of a failure; a retry names the
+    absolute time of the next attempt, never a countdown
+  - `MessageDeliveryState.IsTerminal()` no longer counts `uncertain` as
+    terminal: §6.2 keeps it open until the user decides, and the outbox
+    keeps its own narrower notion for the dispatcher, which must never
+    send the same entry twice
 - Secret logging policy: never log secrets
 - TDLib credentials source (internal/application/auth_credentials.go):
   exactly one source per run, never mixed
@@ -623,8 +656,10 @@
   - PR-10A.2b chronological timeline and conversation keys: accepted
   - PR-10A.3 multi-line composer with a cursor and readline keys:
     accepted
-  - PR-10A.4 delivery and status block, 10A.5 action sheet, 10A.6 chat
-    search, 10A.7 snapshots: pending
+  - PR-10A.4a outgoing messages in the timeline with their delivery
+    state: accepted
+  - PR-10A.4b status line, conversation header, empty states, loading,
+    10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

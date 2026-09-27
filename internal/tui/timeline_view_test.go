@@ -301,3 +301,62 @@ func TestAMessageTallerThanTheTimelineKeepsTheComposer(t *testing.T) {
 		}
 	}
 }
+
+// The sender's name and the text of a message start in the same column,
+// as §4.4 draws them. A body one column to the left of its own name reads
+// as a second message with the name of the first.
+func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
+	for name, model := range map[string]Model{
+		"history": openedProgramModel(t, theme.ProfileNoColor, 60, 24),
+		"pending": deliveredFor(t, &pendingSource{messages: []PendingMessage{{
+			EntryID: "entry-1",
+			ChatID:  7,
+			Text:    "текст сообщения",
+			State:   MessageDeliveryQueued,
+		}}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			layout := LayoutFor(model.width, model.height)
+			width := layout.ChatContentWidth()
+			styles := model.styles()
+
+			var rows []string
+			if name == "history" {
+				rows = model.messageLines(
+					model.selected().Messages[0],
+					false,
+					layout,
+					width,
+					styles,
+				)
+			} else {
+				rows = model.pendingMessageRows(
+					model.pending[0],
+					layout,
+					width,
+					styles,
+				)
+			}
+
+			head := indentOf(rows[0])
+			for index, row := range rows[1:] {
+				if got := indentOf(row); got != head {
+					t.Fatalf(
+						"row %d starts at column %d, the sender's name at %d: %q",
+						index+1,
+						got,
+						head,
+						plain(row),
+					)
+				}
+			}
+		})
+	}
+}
+
+// indentOf returns how many spaces a rendered row starts with.
+func indentOf(rendered string) int {
+	row := plain(rendered)
+
+	return len(row) - len(strings.TrimLeft(row, " "))
+}

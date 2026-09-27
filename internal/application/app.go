@@ -54,6 +54,11 @@ type AuthRunResult struct {
 	// runtime can report durable delivery status metadata.
 	MessageStatuses tui.MessageStatusSource
 
+	// PendingMessages is nil in direct delivery mode and non-nil when the
+	// runtime has a queue to read. It is the only path by which the text of
+	// an outgoing message reaches the interface.
+	PendingMessages tui.PendingMessageSource
+
 	// SendingPaused is non-nil when the durable outbox could not be
 	// opened. The TUI still starts: only sending is paused, and the
 	// submitter refuses rather than sending by another route.
@@ -311,6 +316,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						MessageSubmitter: authResult.Submitter,
 						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
+						PendingMessages:  authResult.PendingMessages,
 						SendError:        sendError,
 						Theme:            a.interfaceTheme(),
 						ColorProfile:     a.colorProfile,

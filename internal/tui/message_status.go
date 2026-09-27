@@ -87,19 +87,24 @@ func (s MessageDeliveryState) IsKnown() bool {
 // IsTerminal reports whether no further automatic delivery transition is
 // expected for the state.
 //
-// Uncertain is terminal for automatic processing because retrying the same
-// entry could create a duplicate.
+// Uncertain is not terminal. §6.2 keeps it open until the user decides
+// what to do with it, and the interface is that decision: a state it calls
+// terminal is a state it stops watching, and a message nobody is watching
+// is a message that stays uncertain forever because nothing ever looked at
+// it again. The outbox keeps its own narrower notion, where uncertain is
+// terminal for the dispatcher alone, because a dispatcher must never send
+// the same entry twice.
 func (s MessageDeliveryState) IsTerminal() bool {
 	switch s {
 	case MessageDeliveryFailed,
-		MessageDeliveryUncertain,
 		MessageDeliverySent,
 		MessageDeliveryCanceled:
 		return true
 
 	case MessageDeliveryQueued,
 		MessageDeliverySending,
-		MessageDeliveryRetrying:
+		MessageDeliveryRetrying,
+		MessageDeliveryUncertain:
 		return false
 
 	default:

@@ -57,7 +57,10 @@ func TestMessageDeliveryStateTerminalClassification(t *testing.T) {
 		{name: "sending", state: MessageDeliverySending, terminal: false},
 		{name: "retrying", state: MessageDeliveryRetrying, terminal: false},
 		{name: "failed", state: MessageDeliveryFailed, terminal: true},
-		{name: "uncertain", state: MessageDeliveryUncertain, terminal: true},
+		// Uncertain is not terminal: §6.2 keeps it open until the user
+		// decides, and the interface is that decision. A state the interface
+		// calls terminal is a state it stops watching.
+		{name: "uncertain", state: MessageDeliveryUncertain, terminal: false},
 		{name: "sent", state: MessageDeliverySent, terminal: true},
 		{name: "canceled", state: MessageDeliveryCanceled, terminal: true},
 		{name: "unknown", state: MessageDeliveryState("unknown"), terminal: false},

@@ -11,6 +11,11 @@ import (
 type MessageDeliveryRuntime interface {
 	Submitter() ComposerMessageSubmitter
 	StatusSource() MessageStatusSource
+
+	// PendingMessages lists the outgoing messages the history does not have
+	// yet. It is nil in direct delivery mode, where a message is in the
+	// history as soon as it is sent.
+	PendingMessages() PendingMessageSource
 	HealthSource() MessageDeliveryHealthSource
 	Done() <-chan struct{}
 	Err() error

@@ -9,6 +9,13 @@ import (
 var (
 	ErrMessageDeliveryUnavailable = errors.New("message delivery runtime is unavailable")
 	ErrMessageStatusUnavailable   = errors.New("message status is unavailable")
+
+	// ErrPendingMessageUnavailable is returned when the timeline asks for
+	// the outgoing messages that are not in the history yet and there is
+	// nothing to ask.
+	ErrPendingMessageUnavailable = errors.New(
+		"pending messages are unavailable",
+	)
 )
 
 type MessageDeliveryState string

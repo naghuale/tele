@@ -45,9 +45,17 @@ func (m Model) timelinePageSize() int {
 func (m Model) timelineRows(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - 1
 	rows -= m.olderPageLineCount()
-	rows -= m.messageStatusLineCount()
 
 	return maxInt(rows, 0)
+}
+
+// historyRows returns the rows the messages of the history get, which is
+// the timeline without what the pending messages below it take.
+func (m Model) historyRows(layout Layout, width int) int {
+	return maxInt(
+		m.timelineRows(layout, width)-m.pendingMessageRowCount(layout, width),
+		0,
+	)
 }
 
 // conversationRegionHeight returns how many rows the conversation has: the
@@ -68,16 +76,6 @@ func (m Model) olderPageLineCount() int {
 	}
 
 	return 0
-}
-
-// messageStatusLineCount returns the rows the durable delivery block takes.
-func (m Model) messageStatusLineCount() int {
-	statuses := m.viewMessageStatuses()
-	if statuses == "" {
-		return 0
-	}
-
-	return lineCount(statuses)
 }
 
 // scrollToNewest puts the cursor on the newest message and the view at the

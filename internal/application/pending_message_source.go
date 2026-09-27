@@ -1,0 +1,174 @@
+package application
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"telecli/internal/outbox"
+)
+
+// PendingMessage is an outgoing message the history does not have yet, with
+// the text the user wrote.
+//
+// It is the only delivery projection in this package that carries a payload,
+// and it exists because the timeline has to show a message the user has just
+// queued (§4.4). The text goes to the interface and nowhere else, which is
+// why String and GoString leave it out: a value on its way to a log line or
+// a crash report must not carry what somebody wrote (§19).
+type PendingMessage struct {
+	EntryID       string
+	ChatID        int64
+	Text          string
+	State         MessageDeliveryState
+	Attempt       int
+	NextAttemptAt time.Time
+	CreatedAt     time.Time
+}
+
+// String returns the entry and the state, and never the text.
+func (m PendingMessage) String() string {
+	return fmt.Sprintf(
+		"entry %s state %s attempt %d",
+		m.EntryID,
+		m.State,
+		m.Attempt,
+	)
+}
+
+// GoString returns the entry and the state, and never the text.
+func (m PendingMessage) GoString() string {
+	return m.String()
+}
+
+// PendingMessageSource lists the outgoing messages of one chat that the
+// history does not have yet.
+//
+// It is a separate source from MessageStatusSource on purpose: the status
+// list is payload-free, is read by everything that only needs to know where
+// a message is, and must stay that way.
+type PendingMessageSource interface {
+	ListPendingMessages(
+		ctx context.Context,
+		accountKey string,
+		chatID int64,
+	) ([]PendingMessage, error)
+}
+
+// entryLister is the part of a durable store this source needs: the entries
+// of the queue, with the text they hold.
+//
+// It is a narrow interface on purpose. A source that could also enqueue or
+// claim could send a message from a read that the screen asked for, and a
+// read is the one place on this path where nothing should be able to write.
+type entryLister interface {
+	ListAll(ctx context.Context) ([]outbox.Entry, error)
+}
+
+// OutboxPendingMessageSource lists the queue entries of a chat with the text
+// they hold.
+type OutboxPendingMessageSource struct {
+	store entryLister
+	limit int
+}
+
+// NewOutboxPendingMessageSource returns a source over a durable store.
+func NewOutboxPendingMessageSource(
+	store entryLister,
+	limit int,
+) (*OutboxPendingMessageSource, error) {
+	if store == nil {
+		return nil, fmt.Errorf(
+			"outbox pending message source: store is required",
+		)
+	}
+	if limit < 0 {
+		return nil, fmt.Errorf(
+			"outbox pending message source: limit must not be negative",
+		)
+	}
+
+	return &OutboxPendingMessageSource{store: store, limit: limit}, nil
+}
+
+// ListPendingMessages returns the entries of one chat that the history does
+// not have yet, oldest first.
+//
+// An accepted entry is not one of them: Telegram has that message, and the
+// entry that sent it holds the temporary identifier of the sendMessage
+// response, not the identifier the history will come back with. Drawing it
+// here as well would show the user their own message twice (ADR-0003 §6).
+func (s *OutboxPendingMessageSource) ListPendingMessages(
+	ctx context.Context,
+	accountKey string,
+	chatID int64,
+) ([]PendingMessage, error) {
+	if s == nil || s.store == nil {
+		return nil, fmt.Errorf(
+			"outbox pending message source: store is required",
+		)
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf(
+			"outbox pending message source: context is required",
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	entries, err := s.store.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list outbox entries: %w", err)
+	}
+
+	messages := make([]PendingMessage, 0, len(entries))
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.AccountKey != accountKey || entry.ChatID != chatID {
+			continue
+		}
+		if entry.State == outbox.StateAccepted {
+			continue
+		}
+
+		projected, err := projectPendingMessage(entry)
+		if err != nil {
+			return nil, fmt.Errorf("project pending message: %w", err)
+		}
+
+		messages = append(messages, projected)
+		if s.limit > 0 && len(messages) >= s.limit {
+			break
+		}
+	}
+
+	return messages, nil
+}
+
+var _ PendingMessageSource = (*OutboxPendingMessageSource)(nil)
+
+// projectPendingMessage maps a queue entry onto the projection the
+// timeline draws.
+func projectPendingMessage(entry outbox.Entry) (PendingMessage, error) {
+	state, err := projectMessageState(entry.State)
+	if err != nil {
+		return PendingMessage{}, fmt.Errorf(
+			"project pending message for entry %q: %w",
+			entry.ID,
+			err,
+		)
+	}
+
+	return PendingMessage{
+		EntryID:       string(entry.ID),
+		ChatID:        entry.ChatID,
+		Text:          entry.Text,
+		State:         state,
+		Attempt:       entry.AttemptCount,
+		NextAttemptAt: entry.NextAttempt,
+		CreatedAt:     entry.CreatedAt,
+	}, nil
+}

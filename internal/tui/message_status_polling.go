@@ -20,6 +20,13 @@ type messageStatusesLoadedMsg struct {
 	accountKey string
 	chatID     int64
 	statuses   []MessageStatus
+
+	// pending is the outgoing messages of the chat with their text, and it
+	// is nil when there is no pending source. It travels with the statuses
+	// because the two are read together and drawn together: a read that
+	// delivered one without the other would draw a message with the state
+	// of another.
+	pending []PendingMessage
 }
 
 type messageStatusesFailedMsg struct {
@@ -67,6 +74,10 @@ func (m *Model) resetMessageStatusPolling(
 	m.messageStatusErr = nil
 	m.deliveryStatuses = []MessageStatus{}
 
+	// A new chat has a new set of pending messages, and a message this
+	// session queued for another chat is not on this screen.
+	m.pending = nil
+
 	return m.loadMessageStatuses()
 }
 
@@ -92,7 +103,7 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 		return nil
 	}
 	if m.quitting ||
-		m.messageStatuses == nil ||
+		(m.messageStatuses == nil && m.pendingMessages == nil) ||
 		m.messageStatusLoading ||
 		m.messageStatusAccountKey == "" ||
 		m.messageStatusChatID == 0 {
@@ -104,7 +115,8 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 	generation := m.messageStatusGeneration
 	accountKey := m.messageStatusAccountKey
 	chatID := m.messageStatusChatID
-	source := m.messageStatuses
+	statuses := m.messageStatuses
+	pending := m.pendingMessages
 	ctx := m.ctx
 
 	return func() tea.Msg {
@@ -117,23 +129,55 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 			}
 		}
 
-		statuses, err := source.ListMessageStatuses(ctx, accountKey, chatID)
-		if err != nil {
-			return messageStatusesFailedMsg{
-				generation: generation,
-				accountKey: accountKey,
-				chatID:     chatID,
-				err:        err,
+		var (
+			readStatuses []MessageStatus
+			readPending  []PendingMessage
+		)
+
+		if statuses != nil {
+			read, err := statuses.ListMessageStatuses(ctx, accountKey, chatID)
+			if err != nil {
+				return messageStatusesFailedMsg{
+					generation: generation,
+					accountKey: accountKey,
+					chatID:     chatID,
+					err:        err,
+				}
 			}
+			readStatuses = cloneMessageStatuses(read)
+		}
+
+		if pending != nil {
+			read, err := pending.ListPendingMessages(ctx, accountKey, chatID)
+			if err != nil {
+				return messageStatusesFailedMsg{
+					generation: generation,
+					accountKey: accountKey,
+					chatID:     chatID,
+					err:        err,
+				}
+			}
+			readPending = clonePendingMessages(read)
 		}
 
 		return messageStatusesLoadedMsg{
 			generation: generation,
 			accountKey: accountKey,
 			chatID:     chatID,
-			statuses:   cloneMessageStatuses(statuses),
+			statuses:   readStatuses,
+			pending:    readPending,
 		}
 	}
+}
+
+// clonePendingMessages copies a snapshot so the model never aliases a
+// slice a source owns.
+func clonePendingMessages(messages []PendingMessage) []PendingMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	return append([]PendingMessage{}, messages...)
 }
 
 // isCurrentMessageStatusResponse reports whether a response still belongs to
@@ -168,6 +212,7 @@ func (m Model) handleMessageStatusesLoaded(
 	m.messageStatusLoading = false
 	m.messageStatusErr = nil
 	m.deliveryStatuses = cloneMessageStatuses(msg.statuses)
+	m.mergePendingMessages(msg.pending, m.deliveryStatuses)
 
 	if m.quitting {
 		return m, nil

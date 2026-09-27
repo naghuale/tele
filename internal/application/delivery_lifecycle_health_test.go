@@ -82,6 +82,12 @@ func (r *h7c2bRuntime) StatusSource() MessageStatusSource {
 	return r.statusSource
 }
 
+// PendingMessages reports that this runtime has no queue to read. It is the
+// direct-mode answer, and it is what a lifecycle test wants: a screen with
+// no pending messages is the state these tests are about.
+func (r *h7c2bRuntime) PendingMessages() PendingMessageSource {
+	return nil
+}
 func (r *h7c2bRuntime) HealthSource() MessageDeliveryHealthSource {
 	return r.healthSource
 }

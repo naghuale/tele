@@ -44,6 +44,12 @@ func (r *h4StubRuntime) StatusSource() MessageStatusSource {
 	return r.statusSource
 }
 
+// PendingMessages reports that this runtime has no queue to read. It is the
+// direct-mode answer, and it is what a lifecycle test wants: a screen with
+// no pending messages is the state these tests are about.
+func (r *h4StubRuntime) PendingMessages() PendingMessageSource {
+	return nil
+}
 func (r *h4StubRuntime) HealthSource() MessageDeliveryHealthSource {
 	return r.healthSource
 }

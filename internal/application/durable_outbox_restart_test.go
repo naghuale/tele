@@ -924,11 +924,68 @@ func TestDurableLifecycleClosesStoreBeforeSessionAfterRestart(t *testing.T) {
 	}
 }
 
+// h7dHoldingSession returns a session whose sends do not complete until
+// release is closed or the caller's context is cancelled.
+//
+// Both runtimes in the restart test need it. An earlier version held only
+// the reopened runtime's send, which left the first runtime free to
+// deliver the message before Close: the first runtime's dispatcher then
+// raced Close, and the entry was sometimes already accepted and sometimes
+// still queued, which is what made the assertion flaky.
+func h7dHoldingSession(release <-chan struct{}) *h7dSession {
+	return newH7dSession(func(
+		ctx context.Context,
+		_ telegram.ChatID,
+		_ string,
+	) (telegram.Message, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			// Close cancels the runtime context; a send that ignores it
+			// would hang Close instead of unwinding.
+			return telegram.Message{}, ctx.Err()
+		}
+		return telegram.Message{
+			ID:     telegram.MessageID(1),
+			ChatID: telegram.ChatID(42),
+		}, nil
+	})
+}
+
+// h7dAssertOneUndelivered checks the aggregate the test actually depends
+// on: exactly one entry survived the restart and it has not been accepted.
+//
+// The state is deliberately not pinned to a single counter. A live
+// dispatcher moves a record from Queued to Dispatching while it works, so
+// asserting on Queued alone races it. Queued plus Dispatching is the
+// set of records that exist and are not finished, and Accepted must be
+// zero, which is the property that matters: nothing was delivered.
+func h7dAssertOneUndelivered(t *testing.T, health MessageDeliveryHealth) {
+	t.Helper()
+
+	if health.Queued+health.Dispatching != 1 {
+		t.Fatalf(
+			"health queued=%d dispatching=%d, want their sum to be 1",
+			health.Queued,
+			health.Dispatching,
+		)
+	}
+	if health.Accepted != 0 {
+		t.Fatalf("health accepted = %d, want 0: the message must not be delivered", health.Accepted)
+	}
+}
+
 func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 	t.Parallel()
 
 	fixture := newH7dFixture(t)
-	first := fixture.mustOpen(context.Background(), newH7dSession(nil))
+
+	// The first runtime must not deliver the message: if it does, nothing
+	// is left to survive the restart and there is nothing to assert.
+	firstRelease := make(chan struct{})
+	first := fixture.mustOpen(
+		context.Background(), h7dHoldingSession(firstRelease),
+	)
 	if _, err := first.Submitter().SubmitMessage(
 		context.Background(),
 		fixture.accountKey,
@@ -940,28 +997,14 @@ func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
+	close(firstRelease)
 
-	// A successful reopen must not expose the payload through metadata.
-	//
-	// The reopened runtime starts a live dispatcher, and a session that
-	// answers immediately lets it drain the recovered entry before the
-	// health snapshot below is read. Holding the send keeps the entry
-	// observably queued, so the assertion tests the state it names
-	// instead of racing the dispatcher.
+	// The reopened runtime also holds its send, so the record is present
+	// but never finished while the assertions run.
 	release := make(chan struct{})
-	held := newH7dSession(func(
-		context.Context,
-		telegram.ChatID,
-		string,
-	) (telegram.Message, error) {
-		<-release
-		return telegram.Message{
-			ID:     telegram.MessageID(1),
-			ChatID: telegram.ChatID(42),
-		}, nil
-	})
-
-	second := fixture.mustOpen(context.Background(), held)
+	second := fixture.mustOpen(
+		context.Background(), h7dHoldingSession(release),
+	)
 	t.Cleanup(func() {
 		if err := second.Close(); err != nil {
 			t.Errorf("Close() error = %v", err)
@@ -999,9 +1042,7 @@ func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 	) {
 		t.Fatal("health snapshot contains message text")
 	}
-	if health.Queued != 1 {
-		t.Fatalf("health queued = %d, want 1", health.Queued)
-	}
+	h7dAssertOneUndelivered(t, health)
 	if err := second.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}

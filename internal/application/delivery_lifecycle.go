@@ -19,6 +19,7 @@ import (
 type deliverySession interface {
 	TelegramChats
 	TelegramSender
+	TelegramChatLifecycle
 
 	// LiveState is the store TDLib updates are applied to, and the only
 	// place the connection state exists. It is a required capability
@@ -171,6 +172,7 @@ func prepareDeliveryAuthResult(
 	cancel context.CancelCauseFunc,
 	openDelivery deliveryOpenFunc,
 	sampling deliveryHealthSampling,
+	ownUserID int64,
 ) (AuthRunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return AuthRunResult{}, err
@@ -278,6 +280,7 @@ func prepareDeliveryAuthResult(
 		summarySource, err := NewLiveStatusSummarySource(
 			session.LiveState(),
 			health,
+			ownUserID,
 		)
 		if err != nil {
 			return AuthRunResult{}, errors.Join(
@@ -296,6 +299,7 @@ func prepareDeliveryAuthResult(
 		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
 		PendingMessages: newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
 		StatusSummaries: statusSummaries,
+		PresenceOpener:  &TelegramChatPresenceOpener{session: session},
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)
 			if shutdownCtx == nil {

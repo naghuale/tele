@@ -61,6 +61,12 @@ type Model struct {
 	// an empty one.
 	statusSummaries StatusSummarySource
 
+	// presenceOpener is told which chat the user is looking at, and
+	// openedChat is the one it was last told about. It is nil in a program
+	// built without Telegram.
+	presenceOpener ChatPresenceOpener
+	openedChat     int64
+
 	// summary is the last accepted status summary, and summaryErr the last
 	// failure to read one.
 	//
@@ -217,6 +223,16 @@ type Model struct {
 	width  int
 	height int
 
+	// now is the clock the views read a time from, and location the zone
+	// they read it in.
+	//
+	// They are fields rather than calls into the time package because a
+	// presence line says "last seen at 14:05" and a test of that sentence
+	// has to know both the moment and the zone. A user reads the time in
+	// their own zone, which is what the default is.
+	now      func() time.Time
+	location *time.Location
+
 	quitting bool
 }
 
@@ -250,6 +266,8 @@ func NewModel() Model {
 		sendState:    sendStateIdle,
 		theme:        theme.DefaultTheme(),
 		colorProfile: theme.ProfileNoColor,
+		now:          time.Now,
+		location:     time.Local,
 	}.withRenderer(theme.ProfileNoColor)
 }
 
@@ -268,6 +286,8 @@ func NewModelWithSource(source ChatSource) Model {
 		historyState: loadStateIdle,
 		sendState:    sendStateIdle,
 		colorProfile: theme.ProfileNoColor,
+		now:          time.Now,
+		location:     time.Local,
 	}.withRenderer(theme.ProfileNoColor)
 }
 
@@ -341,6 +361,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatsLoadDeadlineMsg:
 		return m.updateChatsLoadDeadline(msg)
 
+	case presenceExpiredMsg:
+		return m.handlePresenceExpired(msg)
+
 	case composerPlaceholderExpiredMsg:
 		m.composerPlaceholderLit = false
 		return m, nil
@@ -394,6 +417,25 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 		m.selectedChat = len(m.chats) - 1
 	}
 	return m, nil
+}
+
+// clock returns the model's clock, building a default one for a model that
+// was constructed as a value rather than by a constructor.
+func (m Model) clock() func() time.Time {
+	if m.now == nil {
+		return time.Now
+	}
+
+	return m.now
+}
+
+// timeZone returns the zone the views read times in.
+func (m Model) timeZone() *time.Location {
+	if m.location == nil {
+		return time.Local
+	}
+
+	return m.location
 }
 
 // updateChatsLoadDeadline announces a chat list load that has taken
@@ -726,7 +768,7 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 		msg.chatID,
 		string(m.lastSubmittedText),
 		deliveryStateOfSubmission(msg.submission.State),
-		time.Now(),
+		m.clock()(),
 	)
 
 	// The draft is cleared only now, after the queue has taken it (§7.1),
@@ -778,7 +820,10 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.quitting = true
 		m.invalidateMessageStatusPolling()
-		return m, tea.Quit
+		// A chat that is still open when the program quits is closed on
+		// the way out, or TDLib keeps counting a chat nobody is looking
+		// at until the process is gone.
+		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
 	}
 
 	switch m.screen {
@@ -807,7 +852,9 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case isQuit(msg):
 		m.quitting = true
 		m.invalidateMessageStatusPolling()
-		return m, tea.Quit
+		// A chat that is still open when the program quits is closed on
+		// the way out.
+		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
 
 	case isReloadChats(msg):
 		// §18: the waiting is over and the load is asked again. R is a
@@ -923,6 +970,14 @@ func (m Model) openSelectedChat(
 		m.chats[m.selectedChat].ID,
 	)
 
+	// TDLib only counts the online members of a chat that has been opened,
+	// so the chat the user is looking at is the chat TDLib is told about.
+	openCmd := m.switchConversationChat(m.chats[m.selectedChat].ID)
+
+	if openCmd != nil {
+		statusCmd = tea.Batch(openCmd, statusCmd)
+	}
+
 	if m.source != nil {
 		if len(m.chats[m.selectedChat].Messages) == 0 {
 			m.historyState = loadStateLoading
@@ -962,7 +1017,7 @@ func (m Model) openSelectedChat(
 func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyEsc:
-		return m.leaveConversationRegion(), nil
+		return m.leaveConversationRegion()
 
 	case isTab(msg):
 		return m.cycleFocus(1), nil
@@ -986,26 +1041,27 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// leaveConversationRegion applies one step of the Esc hierarchy.
+// leaveConversationRegion applies one step of the Esc hierarchy and the
+// command that came with it.
 //
 // Leaving the conversation for good is not one of its steps: the
 // hierarchy ends at the chat list, and a screen with two panes puts the
 // chat list next to the conversation rather than behind it. Only a
 // single-pane screen returns to the list screen, and only the chat list
 // stops there.
-func (m Model) leaveConversationRegion() Model {
+func (m Model) leaveConversationRegion() (Model, tea.Cmd) {
 	switch m.focus {
 	case FocusComposer:
 		// The draft stays. §8.5 says the composer is left without a loss,
 		// and losing what someone typed to look at the messages is not
 		// what they asked for.
 		m.focus = FocusHistory
-		return m
+		return m, nil
 
 	case FocusHistory:
 		if LayoutFor(m.width, m.height).TwoPane() {
 			m.focus = FocusChatList
-			return m
+			return m, nil
 		}
 
 		return m.leaveConversation()
@@ -1013,13 +1069,16 @@ func (m Model) leaveConversationRegion() Model {
 	default:
 		// The chat list, with a conversation open beside it: there is
 		// nothing above it to go back to.
-		return m
+		return m, nil
 	}
 }
 
 // leaveConversation returns to the chat list screen, invalidating any
 // work in flight for the conversation being left.
-func (m Model) leaveConversation() Model {
+//
+// The chat is closed on the way out: TDLib counts the members of an open
+// chat, and a user who has left it is not one of them.
+func (m Model) leaveConversation() (Model, tea.Cmd) {
 	// Invalidate any in-flight send: a late result for the same chat must
 	// not be applied to a newer conversation state.
 	m.sendOperation++
@@ -1032,7 +1091,7 @@ func (m Model) leaveConversation() Model {
 	m.screen = ScreenChats
 	m.focus = FocusChatList
 
-	return m
+	return m, m.closeConversationChat()
 }
 
 // cycleFocus moves the focus by delta positions among the visible

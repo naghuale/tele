@@ -101,6 +101,20 @@ func (m Model) statusParts() []string {
 	}
 
 	var parts []string
+	// The presence comes first because it is the only part of the line
+	// that is about a person rather than about the program, and a user
+	// reading a header wants to know who is there before they want to know
+	// how the queue is doing. It is also the part that is dropped last
+	// when the line does not fit: the queue can be read again in two
+	// seconds, and a person cannot.
+	if presence := presenceText(
+		m.summary.Presence,
+		m.clock()(),
+		m.timeZone(),
+	); presence != "" {
+		parts = append(parts, presence)
+	}
+
 	if connection := connectionStatusText(m.summary.Connection); connection != "" {
 		parts = append(parts, connection)
 	}
@@ -171,6 +185,11 @@ func (m Model) statusStyle() lipgloss.Style {
 	switch {
 	case m.pausedErr != nil:
 		return m.styles().text(m.tokens().StatusError)
+	case presenceText(m.summary.Presence, m.clock()(), m.timeZone()) != "":
+		// A presence line is a status about somebody, and the status
+		// vocabulary of the theme says a status is a colour that repeats
+		// the word rather than one that carries it.
+		return m.styles().text(m.tokens().StatusSuccess)
 	case m.summary.Connection != ConnectionReady &&
 		m.summary.Connection != ConnectionUnknown:
 		return m.styles().text(m.tokens().StatusWarning)

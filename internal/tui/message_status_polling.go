@@ -141,6 +141,7 @@ func (m *Model) loadStatusSummary() tea.Cmd {
 	read := m.summaryReadSeq
 	known := m.summary
 	source := m.statusSummaries
+	chatID := m.messageStatusChatID
 	ctx := m.ctx
 
 	return func() tea.Msg {
@@ -148,7 +149,7 @@ func (m *Model) loadStatusSummary() tea.Cmd {
 			return statusSummaryFailedMsg{generation: generation, read: read, err: err}
 		}
 
-		summary, err := source.ReadStatusSummary(ctx)
+		summary, err := source.ReadStatusSummary(ctx, chatID)
 		if err != nil {
 			return statusSummaryFailedMsg{generation: generation, read: read, err: err}
 		}
@@ -191,6 +192,37 @@ func (m Model) handleStatusSummaryLoaded(
 	m.summaryErr = nil
 	m.summary = msg.summary
 
+	return m, m.armPresenceDeadline()
+}
+
+// armPresenceDeadline schedules the repaint that ends an online presence.
+//
+// An online status carries the moment it runs out and TDLib sends nothing
+// at that moment, so the word has to change without an update. One message
+// at the moment of the change is the whole of it; the view still reads the
+// clock, because a message that stored the expired state would be a second
+// copy of a fact the clock already has.
+func (m Model) armPresenceDeadline() tea.Cmd {
+	expires := m.summary.Presence.ExpiresAt
+	if m.summary.Presence.Kind != PresenceUser || expires.IsZero() {
+		return nil
+	}
+
+	remaining := expires.Sub(m.clock()())
+	if remaining <= 0 {
+		return nil
+	}
+
+	return tea.Tick(remaining, func(time.Time) tea.Msg {
+		return presenceExpiredMsg{expires: expires}
+	})
+}
+
+// handlePresenceExpired repaints the screen.
+//
+// The data is not changed: the presence still says when it expires and the
+// view reads the clock, so what changed is only what the user reads.
+func (m Model) handlePresenceExpired(msg presenceExpiredMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 

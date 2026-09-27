@@ -21,6 +21,7 @@ type summarySourceStub struct{}
 
 func (summarySourceStub) ReadStatusSummary(
 	context.Context,
+	int64,
 ) (tui.StatusSummary, error) {
 	return tui.StatusSummary{Connection: tui.ConnectionReady}, nil
 }
@@ -111,16 +112,56 @@ func TestAStatusSummarySourceWithoutAStoreReads(t *testing.T) {
 			State:  MessageDeliveryHealthRunning,
 			Queued: 1,
 		}},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("ReadStatusSummary: %v", err)
 	}
 	if summary.Connection != tui.ConnectionUnknown {
 		t.Fatalf("connection = %q, want unknown", summary.Connection)
+	}
+}
+
+// The presence opener has to reach the interface: without it a group header
+// says nothing about its members, because TDLib only counts a chat that has
+// been opened.
+func TestThePresenceOpenerReachesTheTUIDependencies(t *testing.T) {
+	opener := &TelegramChatPresenceOpener{}
+	var captured tui.Dependencies
+
+	app := NewWithAuthAndSubmitter(
+		config.Default(),
+		nil,
+		nil,
+		func(context.Context) (AuthRunResult, error) {
+			return AuthRunResult{
+				Submitter:      noopComposerSubmitter{},
+				PresenceOpener: opener,
+			}, nil
+		},
+		func(tui.ChatSource) error { return nil },
+		func(_ context.Context, deps tui.Dependencies) error {
+			captured = deps
+			return nil
+		},
+	)
+
+	if err := app.RunTUI(context.Background()); err != nil {
+		t.Fatalf("RunTUI: %v", err)
+	}
+
+	if captured.PresenceOpener == nil {
+		t.Fatal("the presence opener did not reach the interface")
+	}
+	if captured.PresenceOpener != opener {
+		t.Fatalf(
+			"presence opener = %T, want the one the auth step built",
+			captured.PresenceOpener,
+		)
 	}
 }

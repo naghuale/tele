@@ -36,12 +36,16 @@ func TestEveryTDLibConnectionStateReachesTheStatusLine(t *testing.T) {
 				fixedHealthSource{health: MessageDeliveryHealth{
 					State: MessageDeliveryHealthRunning,
 				}},
+				0,
 			)
 			if err != nil {
 				t.Fatalf("NewLiveStatusSummarySource: %v", err)
 			}
 
-			summary, err := source.ReadStatusSummary(context.Background())
+			summary, err := source.ReadStatusSummary(
+				context.Background(),
+				0,
+			)
 			if err != nil {
 				t.Fatalf("ReadStatusSummary: %v", err)
 			}
@@ -73,12 +77,13 @@ func TestTheQueueCountsComeFromTheHealthSnapshot(t *testing.T) {
 			Uncertain:       5,
 			Canceled:        6,
 		}},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("ReadStatusSummary: %v", err)
 	}
@@ -106,12 +111,13 @@ func TestAStartingDeliveryRuntimeIsRecovering(t *testing.T) {
 			State:  MessageDeliveryHealthStarting,
 			Queued: 3,
 		}},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("ReadStatusSummary: %v", err)
 	}
@@ -127,12 +133,13 @@ func TestAQueueThatCannotBeReadIsNotAnEmptyQueue(t *testing.T) {
 	source, err := NewLiveStatusSummarySource(
 		fixedConnectionState{state: telegram.ConnectionStateReady},
 		fixedHealthSource{err: ErrMessageDeliveryHealthUnavailable},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(context.Background(), 0)
 	if !errors.Is(err, ErrMessageDeliveryHealthUnavailable) {
 		t.Fatalf("err = %v, want the health error", err)
 	}
@@ -154,12 +161,13 @@ func TestWithoutASessionTheConnectionIsUnknown(t *testing.T) {
 			State:  MessageDeliveryHealthRunning,
 			Queued: 1,
 		}},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(context.Background(), 0)
 	if err != nil {
 		t.Fatalf("ReadStatusSummary: %v", err)
 	}
@@ -180,12 +188,13 @@ func TestTheSummaryPrintsWithoutSecrets(t *testing.T) {
 		fixedHealthSource{err: fmt.Errorf(
 			"read health: ERROR 400 +1 555 0100 api_hash 0123456789abcdef",
 		)},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("NewLiveStatusSummarySource: %v", err)
 	}
 
-	summary, _ := source.ReadStatusSummary(context.Background())
+	summary, _ := source.ReadStatusSummary(context.Background(), 0)
 	for _, secret := range []string{
 		"+1 555 0100",
 		"api_hash 0123456789abcdef",
@@ -204,6 +213,7 @@ func TestTheStatusSummarySourceNeedsAQueue(t *testing.T) {
 	if _, err := NewLiveStatusSummarySource(
 		fixedConnectionState{state: telegram.ConnectionStateReady},
 		nil,
+		0,
 	); err == nil {
 		t.Fatal("a source without a queue must be refused")
 	}
@@ -213,11 +223,18 @@ var _ tui.StatusSummarySource = (*LiveStatusSummarySource)(nil)
 
 // fixedConnectionState is a live state that always answers the same.
 type fixedConnectionState struct {
-	state telegram.ConnectionState
+	state    telegram.ConnectionState
+	presence telegram.Presence
 }
 
 func (s fixedConnectionState) ConnectionState() telegram.ConnectionState {
 	return s.state
+}
+
+func (s fixedConnectionState) ChatPresence(
+	telegram.ChatID,
+) telegram.Presence {
+	return s.presence
 }
 
 // fixedHealthSource is a health source that answers what a test puts in it.

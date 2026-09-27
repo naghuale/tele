@@ -69,6 +69,15 @@ type liveChatEntry struct {
 	inMain      bool
 	UnreadCount int
 	lastMessage *Message
+
+	// chatKind, peerUserID and onlineMemberCount are what the presence of
+	// the other side is read from. They are on the chat record because a
+	// chat's type arrives with the chat and never changes afterwards, and
+	// because a presence read that had to look the type up somewhere else
+	// would be two lookups where one is enough.
+	chatKind          chatKind
+	peerUserID        int64
+	onlineMemberCount int64
 }
 
 // listable reports whether the chat belongs in the main chat list.
@@ -94,6 +103,11 @@ type LiveState struct {
 	// It lives under the same lock as the chat list because it is applied
 	// from the same pump, and a status read is a single read of one word.
 	connection ConnectionState
+
+	// users holds the presence of the users the store has been told about,
+	// and nothing else about them: no names, no phone numbers, no
+	// usernames. See live_state_presence.go.
+	users map[int64]userRecord
 }
 
 // NewLiveState returns an empty store.
@@ -101,6 +115,7 @@ func NewLiveState() *LiveState {
 	return &LiveState{
 		chats:    make(map[ChatID]*liveChatEntry),
 		messages: make(map[ChatID]*chatMessages),
+		users:    make(map[int64]userRecord),
 		changed:  make(chan struct{}, 1),
 	}
 }
@@ -179,10 +194,21 @@ func (l *LiveState) apply(raw RawMessage) (bool, error) {
 		return false, fmt.Errorf("decode live update: %w", err)
 	}
 
-	// The connection state is the one update that is not about a chat. It
-	// is routed before the chat-list decoders, which have no place for it.
-	if envelope.Type == updateConnectionStateType {
+	// The connection state and the presence updates are the ones that are
+	// not about a chat list row. They are routed before the chat-list
+	// decoders, which have no place for them.
+	switch envelope.Type {
+	case updateConnectionStateType:
 		return l.applyConnectionState(raw)
+
+	case updateUserType:
+		return l.applyUser(raw)
+
+	case updateUserStatusType:
+		return l.applyUserStatus(raw)
+
+	case updateChatOnlineMemberCountType:
+		return l.applyOnlineMemberCount(raw)
 	}
 
 	if _, isMessageUpdate := messageUpdateTypes[envelope.Type]; isMessageUpdate {
@@ -259,6 +285,12 @@ type livePatch struct {
 	setMain bool
 	inMain  bool
 	order   int64
+
+	// setChatType carries the type of a chat and the user on the other
+	// side of it, which is what its presence is read from.
+	setChatType bool
+	chatKind    chatKind
+	peerUserID  int64
 }
 
 // entry returns the patch as a fresh store record.
@@ -283,6 +315,10 @@ func (p livePatch) applyTo(base *liveChatEntry) *liveChatEntry {
 		after.inMain = p.inMain
 		after.Order = p.order
 	}
+	if p.setChatType {
+		after.chatKind = p.chatKind
+		after.peerUserID = p.peerUserID
+	}
 	return &after
 }
 
@@ -291,7 +327,10 @@ func (e *liveChatEntry) equal(other *liveChatEntry) bool {
 	if e.Title != other.Title ||
 		e.Order != other.Order ||
 		e.inMain != other.inMain ||
-		e.UnreadCount != other.UnreadCount {
+		e.UnreadCount != other.UnreadCount ||
+		e.chatKind != other.chatKind ||
+		e.peerUserID != other.peerUserID ||
+		e.onlineMemberCount != other.onlineMemberCount {
 		return false
 	}
 	switch {
@@ -334,6 +373,7 @@ type livePatchJSON struct {
 	UnreadCount int             `json:"unread_count"`
 	LastMessage json.RawMessage `json:"last_message"`
 	Positions   json.RawMessage `json:"positions"`
+	Type        chatTypeJSON    `json:"type"`
 }
 
 type updateChatTitleJSON struct {
@@ -388,9 +428,13 @@ var liveStateUpdateTypes = map[string]struct{}{
 	updateConnectionStateType: {},
 }
 
-// updateConnectionStateType is the update the store applies to the
-// connection state instead of to a chat.
-const updateConnectionStateType = "updateConnectionState"
+// The updates the store applies to something other than a chat-list row.
+const (
+	updateConnectionStateType       = "updateConnectionState"
+	updateUserType                  = "updateUser"
+	updateUserStatusType            = "updateUserStatus"
+	updateChatOnlineMemberCountType = "updateChatOnlineMemberCount"
+)
 
 // isLiveStateUpdate reports whether raw is an update the store consumes.
 //
@@ -458,6 +502,11 @@ func decodeNewChatPatch(raw RawMessage) (livePatch, bool, error) {
 		unreadCount: update.Chat.UnreadCount,
 		setMessage:  true,
 		message:     decodeLiveMessage(update.Chat.LastMessage),
+	}
+	if kind, userID := chatTypePatch(update.Chat.Type); kind != chatKindUnknown {
+		patch.setChatType = true
+		patch.chatKind = kind
+		patch.peerUserID = userID
 	}
 	if err := patch.applyPositions(update.Chat.Positions); err != nil {
 		return livePatch{}, false, err

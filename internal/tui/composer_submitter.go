@@ -69,6 +69,14 @@ type Dependencies struct {
 	// safe string.
 	SendError error
 
+	// PresenceOpener is optional.
+	//
+	// It is told which chat the user is looking at, because TDLib only
+	// sends the online member count of a chat that has been opened
+	// (td_api.tl:10613). A nil opener draws no presence and opens
+	// nothing.
+	PresenceOpener ChatPresenceOpener
+
 	// Diagnostics, when non-nil, receives the causes the screen must not
 	// show: why a message could not be queued, why the chat list could not
 	// be read.
@@ -123,6 +131,7 @@ func NewModelWithDependencies(
 	model.messageStatuses = deps.MessageStatuses
 	model.pendingMessages = deps.PendingMessages
 	model.statusSummaries = deps.StatusSummaries
+	model.presenceOpener = deps.PresenceOpener
 	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile

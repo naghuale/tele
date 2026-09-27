@@ -23,6 +23,15 @@ import (
 type LiveStatusSummarySource struct {
 	live   LiveConnectionState
 	health MessageDeliveryHealthSource
+
+	// ownUserID is the user this client is authorized as, or zero when it
+	// was not resolved.
+	//
+	// It is what tells a chat with oneself from a chat with a contact:
+	// TDLib sends the current user as an ordinary user, so the presence in
+	// Saved Messages is the user's own status and would be drawn as
+	// "Online" over a conversation with nobody.
+	ownUserID int64
 }
 
 // LiveConnectionState is the part of the Telegram live state the status
@@ -33,6 +42,7 @@ type LiveStatusSummarySource struct {
 // the store cannot silently change what the interface is told.
 type LiveConnectionState interface {
 	ConnectionState() telegram.ConnectionState
+	ChatPresence(chatID telegram.ChatID) telegram.Presence
 }
 
 // NewLiveStatusSummarySource builds the source.
@@ -44,14 +54,16 @@ type LiveConnectionState interface {
 func NewLiveStatusSummarySource(
 	live LiveConnectionState,
 	health MessageDeliveryHealthSource,
+	ownUserID int64,
 ) (*LiveStatusSummarySource, error) {
 	if health == nil {
 		return nil, errors.New("status summary source: health source is required")
 	}
 
 	return &LiveStatusSummarySource{
-		live:   live,
-		health: health,
+		live:      live,
+		health:    health,
+		ownUserID: ownUserID,
 	}, nil
 }
 
@@ -64,6 +76,7 @@ func NewLiveStatusSummarySource(
 // summary never carries it.
 func (s *LiveStatusSummarySource) ReadStatusSummary(
 	ctx context.Context,
+	chatID int64,
 ) (tui.StatusSummary, error) {
 	if s == nil || s.health == nil {
 		return tui.StatusSummary{}, ErrMessageDeliveryHealthUnavailable
@@ -72,7 +85,10 @@ func (s *LiveStatusSummarySource) ReadStatusSummary(
 		return tui.StatusSummary{}, err
 	}
 
-	summary := tui.StatusSummary{Connection: tuiConnectionState(s.liveState())}
+	summary := tui.StatusSummary{
+		Connection: tuiConnectionState(s.liveState()),
+		Presence:   s.presence(chatID),
+	}
 
 	health, err := s.health.ReadMessageDeliveryHealth(ctx)
 	if err != nil {
@@ -90,6 +106,64 @@ func (s *LiveStatusSummarySource) ReadStatusSummary(
 	}
 
 	return summary, nil
+}
+
+// presence returns what the store knows about the other side of a chat.
+//
+// A zero chatID is a program with no conversation open, and the presence of
+// no chat is nothing. A presence the store does not have is nothing too, and
+// the interface has no word for "I do not know" about a person.
+func (s *LiveStatusSummarySource) presence(chatID int64) tui.Presence {
+	if s == nil || s.live == nil || chatID == 0 {
+		return tui.Presence{}
+	}
+
+	return tuiPresence(
+		s.live.ChatPresence(telegram.ChatID(chatID)),
+		s.ownUserID,
+	)
+}
+
+// tuiPresence maps what the store keeps onto what the header draws.
+//
+// The times come through as they are: whether an online status has run out
+// is a question about the clock, and the clock is the view's.
+func tuiPresence(presence telegram.Presence, ownUserID int64) tui.Presence {
+	switch presence.Kind {
+	case telegram.PresenceGroup:
+		return tui.Presence{
+			Kind:          tui.PresenceGroup,
+			OnlineMembers: int(presence.OnlineMemberCount),
+		}
+
+	case telegram.PresenceOneUser:
+		out := tui.Presence{
+			Kind: tui.PresenceUser,
+			Bot:  presence.Bot,
+			// A zero own id means the question was never answered, and a
+			// zero id belongs to no user, so nothing is a chat with
+			// oneself by accident.
+			Self: ownUserID != 0 && presence.UserID == ownUserID,
+		}
+
+		switch presence.Status.Kind {
+		case telegram.UserStatusOnline:
+			out.ExpiresAt = presence.Status.Expires
+		case telegram.UserStatusOffline:
+			out.LastSeenAt = presence.Status.WasOnline
+		case telegram.UserStatusRecently:
+			out.Recency = tui.RecencyRecently
+		case telegram.UserStatusLastWeek:
+			out.Recency = tui.RecencyLastWeek
+		case telegram.UserStatusLastMonth:
+			out.Recency = tui.RecencyLastMonth
+		}
+
+		return out
+
+	default:
+		return tui.Presence{}
+	}
 }
 
 // liveState returns the connection the Telegram store last heard about.

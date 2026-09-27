@@ -59,10 +59,17 @@ type AuthRunResult struct {
 	// an outgoing message reaches the interface.
 	PendingMessages tui.PendingMessageSource
 
-	// StatusSummaries reads the connection and the queue counters the
-	// status line shows. It is nil in direct delivery mode, which has no
-	// queue to count, and then the interface draws no status line.
+	// StatusSummaries reads the connection, the queue counters and the
+	// presence of the open chat, which is what the status line shows. It
+	// is nil in direct delivery mode, which has no queue to count, and then
+	// the interface draws no status line.
 	StatusSummaries tui.StatusSummarySource
+
+	// PresenceOpener tells Telegram which chat the user is looking at.
+	//
+	// TDLib counts the online members of a chat only while it is open, so
+	// without it a group header says nothing about its members.
+	PresenceOpener tui.ChatPresenceOpener
 
 	// SendingPaused is non-nil when the durable outbox could not be
 	// opened. The TUI still starts: only sending is paused, and the
@@ -323,6 +330,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						MessageStatuses:  authResult.MessageStatuses,
 						PendingMessages:  authResult.PendingMessages,
 						StatusSummaries:  authResult.StatusSummaries,
+						PresenceOpener:   authResult.PresenceOpener,
 						SendError:        sendError,
 						// The causes the screen must not show go here:
 						// why a message could not be queued and why the
@@ -677,6 +685,19 @@ func runTUI(args []string, env Environment) int {
 			)
 		}
 
+		// Which user this client is, so that a chat with oneself is not
+		// drawn with a presence. A refusal is a line in the log and not a
+		// reason to refuse to start: the interface shows no presence for
+		// Saved Messages instead of showing the user's own.
+		ownUserID, err := resolveOwnUserID(authCtx, session)
+		if err != nil {
+			fmt.Fprintf(
+				env.Stderr,
+				"telegram own user unavailable: %v\n",
+				err,
+			)
+		}
+
 		return prepareDeliveryAuthResult(
 			authCtx,
 			cfg,
@@ -684,6 +705,7 @@ func runTUI(args []string, env Environment) int {
 			cancel,
 			openDelivery,
 			deliveryHealthSampling{Recorder: tuiHealthRecorder},
+			ownUserID,
 		)
 	}
 

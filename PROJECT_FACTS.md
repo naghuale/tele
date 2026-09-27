@@ -572,6 +572,47 @@
     diagnostic stream and the draft text goes nowhere at all
   - `tui.Dependencies.Diagnostics` is that stream. It is the same one the
     paused queue writes its cause to
+- Peer presence in the conversation header (PR-10A.4c, §3.1, §4.3:
+  `Online · Connected · 2 queued`)
+  - `internal/telegram/live_state_presence.go` keeps the chat type from
+    `updateNewChat`, the status of a user from `updateUser` and
+    `updateUserStatus`, and the online member count from
+    `updateChatOnlineMemberCount`, and answers `ChatPresence(chatID)`. A
+    private or a secret chat answers with the status of its user, a group
+    with its count
+  - the store keeps an identifier and a status and nothing else of a user:
+    no name, no phone number, no usernames. A user object is read by the
+    parser and dropped, and `userRecord` keeps two fields that are never
+    written so that a test can prove it
+  - `updateUser` and `updateUserStatus` are **not** held during
+    authorization. TDLib has no user data cached before the client is
+    authorized, so there is nothing to hold; and holding `updateUser`
+    would hold a name and a phone number
+  - a presence constructor the pinned schema does not have is ignored
+    rather than guessed, and the last known status stays: it is what
+    Telegram said last
+  - `AuthorizedSession.OpenChat`, `CloseChat` and `GetMeUserID` are the
+    session's side. `updateChatOnlineMemberCount` arrives only for a chat
+    that has been opened, so the interface says which chat it is looking
+    at
+  - the own identifier comes from one `getMe` with a five second bound, and
+    it is what tells a chat with oneself from a chat with a contact:
+    TDLib sends the current user as an ordinary user. A refusal is a line
+    in the log, and the interface then shows no presence in Saved Messages
+  - `internal/tui/presence.go` and `view_presence.go` draw it. An online
+    status carries the deadline Telegram gave and the view decides from
+    the model's clock whether it has run out, because TDLib sends nothing
+    at that moment; one message at the moment the word changes repaints the
+    screen and is not a repaint loop
+  - times are drawn in the model's own zone, and a test pins both the
+    moment and the zone
+  - the presence is the first part of the status line and the last one
+    dropped when the line does not fit: the queue can be read again in two
+    seconds, and a person cannot
+  - a presence prints as a kind and never as a status, in every verb a
+    value takes on its way to a log. A presence is a fact about somebody
+    who did not ask to be followed, and a log file is read by people who
+    are not in the conversation
 - Secret logging policy: never log secrets
 - TDLib credentials source (internal/application/auth_credentials.go):
   exactly one source per run, never mixed
@@ -702,6 +743,8 @@
     state: accepted
   - PR-10A.4b status line, connection state, empty states §17, loading
     §18, enqueue error §12.1: accepted
+  - PR-10A.4c peer presence in the conversation header, open/close of the
+    open chat: accepted
   - 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05

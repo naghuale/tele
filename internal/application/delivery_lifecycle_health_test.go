@@ -601,6 +601,7 @@ func TestPrepareDeliveryAuthResultPassesSamplingToDurableRuntime(t *testing.T) {
 			return runtime, nil
 		},
 		h7c2bSampling(h7c2bApplicationRecorder(t, sink), newH7c2ManualClock()),
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -630,6 +631,7 @@ func TestPrepareDeliveryAuthResultSkipsSamplerInDirectMode(t *testing.T) {
 			return &h5bRuntime{submitter: &h5bComposerStub{}}, nil
 		},
 		h7c2bSampling(h7c2bApplicationRecorder(t, recorder), newH7c2ManualClock()),
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)

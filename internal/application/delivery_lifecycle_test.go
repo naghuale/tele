@@ -21,6 +21,8 @@ type h5bSession struct {
 	order      *[]string
 	closeErr   error
 	live       *telegram.LiveState
+	openErr    error
+	closeChats atomic.Int32
 }
 
 func (s *h5bSession) GetChats(
@@ -46,6 +48,15 @@ func (s *h5bSession) SendTextMessage(
 ) (telegram.Message, error) {
 	s.sendCalls.Add(1)
 	return telegram.Message{}, nil
+}
+
+func (s *h5bSession) OpenChat(context.Context, telegram.ChatID) error {
+	return s.openErr
+}
+
+func (s *h5bSession) CloseChat(context.Context, telegram.ChatID) error {
+	s.closeChats.Add(1)
+	return nil
 }
 
 func (s *h5bSession) LiveState() *telegram.LiveState {
@@ -171,6 +182,7 @@ func TestRunApplicationWiresDirectSubmitterInDirectMode(t *testing.T) {
 			return runtime, nil
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -229,6 +241,7 @@ func TestRunApplicationWiresDurableSubmitterInDurableMode(t *testing.T) {
 			return runtime, nil
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -295,6 +308,7 @@ func TestRunApplicationStartsWithSendingPausedAfterDurableOpenFails(
 			return nil, sentinel
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("startup must not fail because the outbox is closed: %v", err)
@@ -376,6 +390,7 @@ func TestRunApplicationPausedSubmitterPreservesDraft(t *testing.T) {
 			return nil, errors.New("outbox unavailable")
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("startup must not fail: %v", err)
@@ -420,6 +435,7 @@ func TestRunApplicationReturnsDispatcherFailure(t *testing.T) {
 			return runtime, nil
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -464,6 +480,7 @@ func TestRunApplicationClosesDeliveryBeforeSession(t *testing.T) {
 			return runtime, nil
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
@@ -501,6 +518,7 @@ func TestRunApplicationDoesNotCancelForNormalClose(t *testing.T) {
 			return runtime, nil
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)

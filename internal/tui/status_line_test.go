@@ -347,19 +347,31 @@ func profileName(profile theme.Profile) string {
 	return "no color"
 }
 
-// summarySource answers with whatever a test puts in it.
+// summarySource answers with whatever a test puts in it, and records which
+// chat it was asked about so that a test can check that the presence of a
+// closed chat is not read.
 type summarySource struct {
-	summary StatusSummary
-	err     error
-	calls   int
+	summary   StatusSummary
+	err       error
+	calls     int
+	requested []int64
 }
 
 func (s *summarySource) ReadStatusSummary(
 	_ context.Context,
+	chatID int64,
 ) (StatusSummary, error) {
 	s.calls++
+	s.requested = append(s.requested, chatID)
+
 	if s.err != nil {
 		return StatusSummary{}, s.err
+	}
+	if chatID == 0 {
+		summary := s.summary
+		summary.Presence = Presence{}
+
+		return summary, nil
 	}
 
 	return s.summary, nil
@@ -468,7 +480,10 @@ func (m Model) statusRefresh(t *testing.T, source StatusSummarySource) tea.Msg {
 	t.Helper()
 
 	msg := statusSummaryLoadedMsg{generation: m.messageStatusGeneration}
-	summary, err := source.ReadStatusSummary(context.Background())
+	summary, err := source.ReadStatusSummary(
+		context.Background(),
+		m.messageStatusChatID,
+	)
 	if err != nil {
 		return statusSummaryFailedMsg{generation: m.messageStatusGeneration, err: err}
 	}

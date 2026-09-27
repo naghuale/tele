@@ -144,12 +144,14 @@ var _ outbox.Clock = (*h7dClock)(nil)
 
 // h7dSession is a controllable Telegram session.
 type h7dSession struct {
-	mu       sync.Mutex
-	texts    []string
-	calls    atomic.Int64
-	send     func(ctx context.Context, chatID telegram.ChatID, text string) (telegram.Message, error)
-	closed   atomic.Bool
-	sendCall chan struct{}
+	mu          sync.Mutex
+	texts       []string
+	calls       atomic.Int64
+	send        func(ctx context.Context, chatID telegram.ChatID, text string) (telegram.Message, error)
+	closed      atomic.Bool
+	sendCall    chan struct{}
+	openedChats atomic.Int32
+	closedChats atomic.Int32
 }
 
 func newH7dSession(
@@ -203,6 +205,16 @@ func (s *h7dSession) GetChatHistory(
 	int,
 ) (telegram.HistoryPage, error) {
 	return telegram.HistoryPage{}, nil
+}
+
+func (s *h7dSession) OpenChat(context.Context, telegram.ChatID) error {
+	s.openedChats.Add(1)
+	return nil
+}
+
+func (s *h7dSession) CloseChat(context.Context, telegram.ChatID) error {
+	s.closedChats.Add(1)
+	return nil
 }
 
 func (s *h7dSession) LiveState() *telegram.LiveState {
@@ -908,6 +920,7 @@ func TestDurableLifecycleClosesStoreBeforeSessionAfterRestart(t *testing.T) {
 			)
 		},
 		deliveryHealthSampling{},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)

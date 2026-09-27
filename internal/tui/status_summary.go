@@ -67,6 +67,11 @@ type QueueSummary struct {
 type StatusSummary struct {
 	Connection ConnectionState
 	Queue      QueueSummary
+
+	// Presence is what is known about the other side of the open chat, and
+	// it is empty when no chat is open or when the store has not been told
+	// anything yet.
+	Presence Presence
 }
 
 // StatusSummarySource reads the data of the status line.
@@ -79,5 +84,11 @@ type StatusSummary struct {
 // A nil source means the interface has nothing to say: a program built
 // without Telegram draws no status line rather than an empty one.
 type StatusSummarySource interface {
-	ReadStatusSummary(ctx context.Context) (StatusSummary, error)
+	// ReadStatusSummary reads the summary for the open chat.
+	//
+	// chatID is zero when no conversation is open, and the presence is
+	// then empty: the presence of no chat is nothing, and a summary
+	// carrying the presence of a chat the user left would be a fact about
+	// somebody on a screen that is not about them.
+	ReadStatusSummary(ctx context.Context, chatID int64) (StatusSummary, error)
 }

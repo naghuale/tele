@@ -70,6 +70,30 @@ type Model struct {
 	historyState loadState
 	loadErr      error
 
+	// historyNextFrom is the inclusive boundary for the next older page.
+	// Zero means no request can be made yet: either nothing is loaded or
+	// the last page reported no boundary.
+	historyNextFrom int64
+
+	// historyExhausted records that a page added no new message, which is
+	// the only reliable end-of-history signal. HistoryPage.HasMore cannot
+	// be used: it is a len(messages) == limit heuristic that reports
+	// false on a short first page while older messages still exist.
+	historyExhausted bool
+
+	// historyMoreLoading reports that an older page request is in flight,
+	// so repeated ↓ presses do not start a second request.
+	historyMoreLoading bool
+
+	// historyMoreErr is the last older-page failure, rendered below the
+	// history. It is cleared by the next attempt.
+	historyMoreErr error
+
+	// historyOperation identifies the current history load. It is bumped
+	// on every entry into a conversation so that a page still in flight
+	// for a previous entry is discarded instead of appended.
+	historyOperation uint64
+
 	sendState      sendState
 	sendErr        error
 	sendOperation  uint64
@@ -198,13 +222,25 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 
 // updateHistoryLoaded applies a history response.
 //
-// A response whose chatID does not match the currently selected chat is
-// treated as stale and ignored.
+// A response is discarded when it belongs to another chat, or when it
+// belongs to a previous entry into the current chat.
+//
+// A response for fromMessageID == 0 is the first page and replaces the
+// chat's messages. A response for a non-zero boundary is an older page
+// and is appended, keeping the selection where it is.
 func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.selectedChat < 0 ||
 		m.selectedChat >= len(m.chats) ||
 		m.chats[m.selectedChat].ID != msg.chatID {
 		return m, nil
+	}
+
+	if msg.operation != m.historyOperation {
+		return m, nil
+	}
+
+	if msg.fromMessageID != 0 {
+		return m.appendOlderHistory(msg)
 	}
 
 	if msg.err != nil {
@@ -216,6 +252,12 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.loadErr = nil
 	m.chats[m.selectedChat].Messages = msg.page.Messages
 	m.selectedMsg = 0
+	m.historyNextFrom = msg.page.NextFrom
+
+	// A new first page re-opens the history: nothing is known to be
+	// missing from it yet.
+	m.historyExhausted = false
+	m.historyMoreErr = nil
 
 	if len(msg.page.Messages) == 0 {
 		m.historyState = loadStateEmpty
@@ -223,6 +265,104 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 		m.historyState = loadStateLoaded
 	}
 	return m, nil
+}
+
+// appendOlderHistory appends a page of older messages to the ones already
+// loaded.
+//
+// NextFrom is inclusive, so the boundary message of the previous page is
+// repeated here and is dropped by ID. A page that adds nothing means the
+// history is exhausted, whatever HistoryPage.HasMore claims.
+//
+// A failure keeps the loaded messages and the cursor, so the next ↓
+// repeats the same request.
+func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
+	m.historyMoreLoading = false
+
+	if msg.err != nil {
+		m.historyMoreErr = msg.err
+		return m, nil
+	}
+
+	m.historyMoreErr = nil
+
+	existing := m.chats[m.selectedChat].Messages
+	merged := appendMessagesByID(existing, msg.page.Messages)
+	m.chats[m.selectedChat].Messages = merged
+	m.historyNextFrom = msg.page.NextFrom
+
+	// The page is appended at the older end, so the selection index still
+	// points at the same message. Clamp anyway in case a page arrived
+	// shorter than the selection.
+	if m.selectedMsg >= len(merged) {
+		m.selectedMsg = maxInt(len(merged)-1, 0)
+	}
+
+	if len(merged) == len(existing) {
+		m.historyExhausted = true
+	}
+	return m, nil
+}
+
+// appendMessagesByID appends older to messages, dropping every entry
+// whose ID is already present.
+//
+// Both slices are newest-first, so the result stays ordered from the
+// newest message to the oldest.
+func appendMessagesByID(messages []Message, older []Message) []Message {
+	if len(older) == 0 {
+		return messages
+	}
+
+	seen := make(map[int64]struct{}, len(messages)+len(older))
+	for _, current := range messages {
+		seen[current.ID] = struct{}{}
+	}
+
+	result := make([]Message, 0, len(messages)+len(older))
+	result = append(result, messages...)
+	for _, candidate := range older {
+		if _, duplicate := seen[candidate.ID]; duplicate {
+			continue
+		}
+		seen[candidate.ID] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+// loadOlderMessages requests the next older page of the open chat's
+// history.
+//
+// It returns no command when the request is not applicable: mock mode,
+// an exhausted history, a request already in flight, a history that has
+// not loaded yet, or no cursor to continue from.
+func (m Model) loadOlderMessages() (tea.Model, tea.Cmd) {
+	if m.source == nil {
+		return m, nil
+	}
+	if m.historyExhausted || m.historyMoreLoading {
+		return m, nil
+	}
+	if m.historyState != loadStateLoaded && m.historyState != loadStateEmpty {
+		return m, nil
+	}
+
+	chat := m.selected()
+	if len(chat.Messages) == 0 || chat.ID == 0 || m.historyNextFrom == 0 {
+		return m, nil
+	}
+
+	m.historyMoreLoading = true
+	m.historyMoreErr = nil
+
+	return m, loadHistoryCmd(
+		m.source,
+		chat.ID,
+		m.historyNextFrom,
+		historyPageSize,
+		m.historyOperation,
+	)
 }
 
 // updateMessageSent applies an outbound send result.
@@ -353,6 +493,15 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sendState = sendStateIdle
 		m.sendErr = nil
 
+		// Entering a conversation starts a new history operation, so a page
+		// still in flight for a previous visit is discarded on arrival. The
+		// pagination cursor and its flags belong to the chat being left.
+		m.historyOperation++
+		m.historyNextFrom = 0
+		m.historyExhausted = false
+		m.historyMoreLoading = false
+		m.historyMoreErr = nil
+
 		statusCmd := m.setMessageStatusTarget(
 			m.accountKey,
 			m.chats[m.selectedChat].ID,
@@ -365,7 +514,9 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				loadHistoryCmd(
 					m.source,
 					m.chats[m.selectedChat].ID,
+					0,
 					historyPageSize,
+					m.historyOperation,
 				),
 				statusCmd,
 			)
@@ -459,7 +610,11 @@ func (m Model) updateHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case isDown(msg):
 		if m.selectedMsg < msgs-1 {
 			m.selectedMsg++
+			return m, nil
 		}
+		// The selection is on the oldest loaded message. History runs
+		// newest-first, so ↓ is the gesture for reaching further back.
+		return m.loadOlderMessages()
 	}
 	return m, nil
 }

@@ -322,7 +322,7 @@
   - PR-06D.1 ChatSource interface and telegram adapter: accepted
   - PR-06D.2 application source plumbing and close ownership:
     accepted
-  - history pagination UI: pending
+  - history pagination UI: accepted
   - live chat-list updates: pending
   - lossless update/resync policy: pending
 - PR-07: text message sending

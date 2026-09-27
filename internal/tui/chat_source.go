@@ -13,7 +13,10 @@ import (
 // TDLib page. Code that concatenates multiple pages must de-duplicate
 // messages by ID.
 //
-// PR-06D.1 loads only the first page.
+// HasMore is a len(messages) == limit heuristic, so a short page reports
+// false even when older messages exist. Callers must not treat it as the
+// end of the history; the model detects the end from a page that adds no
+// new message instead.
 type HistoryPage struct {
 	Messages []Message
 	NextFrom int64
@@ -75,10 +78,23 @@ type chatsLoadedMsg struct {
 }
 
 // historyLoadedMsg is delivered by loadHistoryCmd.
+//
+// chatID identifies the target chat.
+//
+// fromMessageID is the boundary the request was made with. Zero means
+// the first page, which replaces the chat's messages. A non-zero value
+// means an older page, which is appended to them.
+//
+// operation identifies the history load the response belongs to. It
+// protects against a late page being applied to a newer model state,
+// for example after the user left the chat and re-entered it. It plays
+// the same role for history that sendOperation plays for sending.
 type historyLoadedMsg struct {
-	chatID int64
-	page   HistoryPage
-	err    error
+	chatID        int64
+	fromMessageID int64
+	operation     uint64
+	page          HistoryPage
+	err           error
 }
 
 // messageSentMsg is delivered by sendMessageCmd.
@@ -108,15 +124,36 @@ func listChatsCmd(src ChatSource) tea.Cmd {
 	}
 }
 
-// loadHistoryCmd returns a command that loads the first history page
-// through src.
-func loadHistoryCmd(src ChatSource, chatID int64, limit int) tea.Cmd {
+// loadHistoryCmd returns a command that loads one history page through
+// src.
+//
+// fromMessageID is the inclusive boundary to start from; zero requests
+// the newest page. operation is echoed back on the resulting
+// historyLoadedMsg so the model can discard a response that has been
+// superseded.
+func loadHistoryCmd(
+	src ChatSource,
+	chatID int64,
+	fromMessageID int64,
+	limit int,
+	operation uint64,
+) tea.Cmd {
 	return func() tea.Msg {
-		page, err := src.LoadHistory(context.Background(), chatID, 0, limit)
+		page, err := src.LoadHistory(context.Background(), chatID, fromMessageID, limit)
 		if err != nil {
-			return historyLoadedMsg{chatID: chatID, err: err}
+			return historyLoadedMsg{
+				chatID:        chatID,
+				fromMessageID: fromMessageID,
+				operation:     operation,
+				err:           err,
+			}
 		}
-		return historyLoadedMsg{chatID: chatID, page: page}
+		return historyLoadedMsg{
+			chatID:        chatID,
+			fromMessageID: fromMessageID,
+			operation:     operation,
+			page:          page,
+		}
 	}
 }
 

@@ -37,6 +37,16 @@ func (m Model) viewConversation() string {
 		}
 	}
 
+	// Progress of the older-page request, below the loaded messages. The
+	// messages stay on screen while it runs, and a failure leaves them
+	// intact for the next ↓ to retry.
+	switch {
+	case m.historyMoreLoading:
+		b.WriteString("Loading older messages...\n")
+	case m.historyMoreErr != nil:
+		fmt.Fprintf(&b, "Failed to load older messages: %v\n", m.historyMoreErr)
+	}
+
 	// Durable delivery statuses of the open chat, between history and
 	// composer. The block is empty in direct mode and reads snapshot state
 	// only.

@@ -354,7 +354,7 @@ func TestLoadHistoryCmdReturnsPage(t *testing.T) {
 		NextFrom: 1,
 		HasMore:  true,
 	}}
-	msg := runCmd(t, loadHistoryCmd(source, 42, 25))
+	msg := runCmd(t, loadHistoryCmd(source, 42, 0, 25, 3))
 	loaded, ok := msg.(historyLoadedMsg)
 	if !ok {
 		t.Fatalf("cmd returned %T", msg)
@@ -364,6 +364,12 @@ func TestLoadHistoryCmdReturnsPage(t *testing.T) {
 	}
 	if loaded.chatID != 42 {
 		t.Fatalf("chatID = %d, want 42", loaded.chatID)
+	}
+	if loaded.operation != 3 {
+		t.Fatalf("operation = %d, want 3", loaded.operation)
+	}
+	if source.historyCall.fromMessageID != 0 {
+		t.Fatalf("fromMessageID = %d, want 0", source.historyCall.fromMessageID)
 	}
 	if source.historyCall.limit != 25 {
 		t.Fatalf("limit = %d, want 25", source.historyCall.limit)

@@ -202,6 +202,91 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 		assertReady(now.Add(time.Hour), "op-next", "op-other-chat", "op-other-account")
 	})
 
+	t.Run("PurgeFinishedRemovesOnlyOldDeliveredAndCanceled", func(t *testing.T) {
+		store := factory(t)
+		ctx := context.Background()
+		t0 := time.Unix(1700000000, 0).UTC()
+		lease := t0.Add(time.Hour)
+
+		enqueue := func(id ID, chatID int64) Entry {
+			t.Helper()
+			entry := queuedEntryAt(id, chatID, "x", t0)
+			if err := store.Enqueue(ctx, entry); err != nil {
+				t.Fatal(err)
+			}
+			return entry
+		}
+		claim := func(id ID, at time.Time) Entry {
+			t.Helper()
+			entry, err := store.Get(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimed, err := store.Claim(ctx, id, entry.Version, "d1", lease, at)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return claimed
+		}
+
+		// Each entry lives in its own chat so ordering never blocks a
+		// claim.
+		enqueue("old-accepted", 1)
+		enqueue("new-accepted", 2)
+		enqueue("old-canceled", 3)
+		enqueue("old-uncertain", 4)
+		enqueue("old-permanent", 5)
+		enqueue("old-queued", 6)
+
+		old := t0.Add(time.Minute)
+		recent := t0.Add(48 * time.Hour)
+
+		c := claim("old-accepted", old)
+		if _, err := store.MarkAccepted(ctx, c.ID, c.Version, 1, old); err != nil {
+			t.Fatal(err)
+		}
+		c = claim("new-accepted", old)
+		if _, err := store.MarkAccepted(ctx, c.ID, c.Version, 2, recent); err != nil {
+			t.Fatal(err)
+		}
+		queued, err := store.Get(ctx, "old-canceled")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.Cancel(ctx, queued.ID, queued.Version, old); err != nil {
+			t.Fatal(err)
+		}
+		c = claim("old-uncertain", old)
+		if _, err := store.MarkUncertain(ctx, c.ID, c.Version, "lost", old); err != nil {
+			t.Fatal(err)
+		}
+		c = claim("old-permanent", old)
+		if _, err := store.MarkPermanentFailure(ctx, c.ID, c.Version, 400, "rejected", old); err != nil {
+			t.Fatal(err)
+		}
+
+		purged, err := store.PurgeFinished(ctx, t0.Add(24*time.Hour))
+		if err != nil {
+			t.Fatalf("PurgeFinished: %v", err)
+		}
+		if purged != 2 {
+			t.Fatalf("purged = %d, want 2", purged)
+		}
+
+		for _, id := range []ID{"old-accepted", "old-canceled"} {
+			if _, err := store.Get(ctx, id); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Get(%s) err = %v, want ErrNotFound", id, err)
+			}
+		}
+		// Recent deliveries, and entries that still need the user's
+		// attention or a send, are kept.
+		for _, id := range []ID{"new-accepted", "old-uncertain", "old-permanent", "old-queued"} {
+			if _, err := store.Get(ctx, id); err != nil {
+				t.Fatalf("Get(%s) err = %v, want kept", id, err)
+			}
+		}
+	})
+
 	t.Run("ListReadySkipsNonReady", func(t *testing.T) {
 		store := factory(t)
 		t0 := time.Unix(1700000000, 0).UTC()

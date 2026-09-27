@@ -125,4 +125,11 @@ type Store interface {
 	// after dispatch started cannot prove whether TDLib accepted the
 	// request.
 	RecoverInterrupted(ctx context.Context, now time.Time) (int, error)
+
+	// PurgeFinished deletes accepted and canceled entries last updated
+	// before cutoff and returns how many were removed.
+	//
+	// Uncertain and permanently failed entries are kept: they still
+	// need a decision from the user.
+	PurgeFinished(ctx context.Context, cutoff time.Time) (int, error)
 }

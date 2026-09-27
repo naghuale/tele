@@ -105,7 +105,10 @@ func sqliteDSN(
 		"&_pragma=busy_timeout(" +
 		strconv.FormatInt(busy.Milliseconds(), 10) +
 		")" +
-		"&_pragma=journal_mode(WAL)"
+		"&_pragma=journal_mode(WAL)" +
+		// Deleted rows hold encrypted message text; overwrite them
+		// instead of leaving the pages in the free list.
+		"&_pragma=secure_delete(1)"
 }
 
 // Close releases the underlying database handle.
@@ -592,6 +595,30 @@ func (s *sqliteStore) Cancel(
 	return s.mutate(ctx, id, expectedVersion, func(entry Entry) (Entry, error) {
 		return entry.Cancel(now)
 	})
+}
+
+// PurgeFinished implements Store.
+func (s *sqliteStore) PurgeFinished(
+	ctx context.Context,
+	cutoff time.Time,
+) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+DELETE FROM outbox_entries
+WHERE state IN ('accepted', 'canceled')
+  AND updated_at_ns < ?
+`, cutoff.UnixNano())
+	if err != nil {
+		return 0, fmt.Errorf("outbox: purge finished: %w", err)
+	}
+	purged, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("outbox: purge finished: %w", err)
+	}
+	return int(purged), nil
 }
 
 // RecoverInterrupted implements Store.

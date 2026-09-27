@@ -235,6 +235,10 @@
 - Embedded database: TBD
 - Payload encryption: TBD
 - Schema migration: TBD
+- Outbox retention: accepted and canceled entries are purged 7 days
+  after their last update (DispatcherConfig.Retention; negative
+  disables); uncertain and permanently failed entries are kept for the
+  user; SQLite runs with secure_delete so purged rows are overwritten
 - Data directory: ~/.local/share/telecli
 - TDLib database directory: ~/.local/share/telecli/tdlib/database
 - TDLib files directory: ~/.local/share/telecli/tdlib/files

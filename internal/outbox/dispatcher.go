@@ -80,6 +80,14 @@ type DispatcherConfig struct {
 	// not stop delivery. Failures after a send started still end Run.
 	MaxConsecutiveScanErrors int
 
+	// Retention is how long accepted and canceled entries are kept
+	// before Run deletes them. Zero selects the default; a negative
+	// value disables purging.
+	Retention time.Duration
+
+	// PurgeInterval is how often Run purges while it keeps running.
+	PurgeInterval time.Duration
+
 	// Logger receives structured diagnostics. Message text is never
 	// logged; error strings are passed through SafeReason. When nil,
 	// slog.Default() is used.
@@ -101,6 +109,9 @@ func DefaultDispatcherConfig(
 		MaxAttempts:     5,
 
 		MaxConsecutiveScanErrors: 10,
+
+		Retention:     7 * 24 * time.Hour,
+		PurgeInterval: time.Hour,
 
 		Logger: slog.Default(),
 	}
@@ -157,6 +168,12 @@ func NewDispatcher(
 	}
 	if cfg.MaxConsecutiveScanErrors <= 0 {
 		cfg.MaxConsecutiveScanErrors = 10
+	}
+	if cfg.Retention == 0 {
+		cfg.Retention = 7 * 24 * time.Hour
+	}
+	if cfg.PurgeInterval <= 0 {
+		cfg.PurgeInterval = time.Hour
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -229,10 +246,17 @@ func (d *Dispatcher) Run(
 	}
 
 	scanErrors := 0
+	var lastPurge time.Time
 
 	for {
 		if ctx.Err() != nil {
 			return nil
+		}
+
+		if now := d.clock.Now(); lastPurge.IsZero() ||
+			now.Sub(lastPurge) >= d.cfg.PurgeInterval {
+			d.purgeFinished(ctx, now)
+			lastPurge = now
 		}
 
 		processed, err := d.scanOnce(ctx)
@@ -682,6 +706,28 @@ func (d *Dispatcher) markUncertain(
 	}
 
 	return nil
+}
+
+// purgeFinished deletes delivered and canceled entries past the
+// retention period. It is housekeeping: a failure is logged and never
+// stops delivery.
+func (d *Dispatcher) purgeFinished(ctx context.Context, now time.Time) {
+	if d.cfg.Retention < 0 {
+		return
+	}
+	purged, err := d.store.PurgeFinished(ctx, now.Add(-d.cfg.Retention))
+	if err != nil {
+		if ctx.Err() == nil {
+			d.cfg.Logger.Warn(
+				"outbox purge failed",
+				slog.String("error", SafeReason(err)),
+			)
+		}
+		return
+	}
+	if purged > 0 {
+		d.cfg.Logger.Info("outbox purge", slog.Int("purged", purged))
+	}
 }
 
 // scanError marks a failure before any send attempt. It has no side

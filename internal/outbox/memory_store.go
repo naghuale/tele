@@ -275,6 +275,32 @@ func (s *MemoryStore) Cancel(
 	})
 }
 
+// PurgeFinished implements Store.
+func (s *MemoryStore) PurgeFinished(
+	ctx context.Context,
+	cutoff time.Time,
+) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	purged := 0
+	for id, entry := range s.entries {
+		if entry.State != StateAccepted && entry.State != StateCanceled {
+			continue
+		}
+		if !entry.UpdatedAt.Before(cutoff) {
+			continue
+		}
+		delete(s.entries, id)
+		purged++
+	}
+	return purged, nil
+}
+
 // RecoverInterrupted implements Store.
 func (s *MemoryStore) RecoverInterrupted(
 	ctx context.Context,

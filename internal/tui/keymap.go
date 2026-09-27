@@ -53,3 +53,13 @@ func isShiftTab(msg tea.KeyMsg) bool {
 func isClearComposer(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyCtrlU
 }
+
+// isQuit reports the one single-letter key that leaves the program.
+//
+// `q` belongs to the chat list and to nothing else. In the composer it is
+// a letter, and in the timeline the hint bar does not offer it, so a user
+// who types `q` while reading a conversation must not lose their place
+// over it. Ctrl+C is the deliberate way out and works everywhere.
+func isQuit(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q'
+}

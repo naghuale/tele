@@ -36,33 +36,88 @@ func TestVisibleRangeWindowKeepsSelection(t *testing.T) {
 	}
 }
 
-func TestTruncateRunesEmpty(t *testing.T) {
-	if got := truncateRunes("abc", 0); got != "" {
-		t.Fatalf("truncateRunes(_, 0) = %q, want empty", got)
+// Truncation is measured in terminal columns, not in runes: "привет" is
+// six columns wide and an emoji is two, so a layout counted in runes
+// overflows as soon as the content is not ASCII.
+func TestTruncateCellsCountsColumns(t *testing.T) {
+	cases := map[string]struct {
+		value string
+		width int
+		want  string
+	}{
+		"ascii":          {value: "abcdef", width: 4, want: "abc…"},
+		"cyrillic":       {value: "привет", width: 3, want: "пр…"},
+		"fits":           {value: "привет", width: 6, want: "привет"},
+		"one column":     {value: "abcdef", width: 1, want: "a"},
+		"emoji is two":   {value: "🌍🌍🌍", width: 4, want: "🌍…"},
+		"emoji fits two": {value: "🌍", width: 2, want: "🌍"},
+		"emoji in one":   {value: "🌍", width: 1, want: ""},
+		"a lone mark":    {value: "abcdef", width: 1, want: "a"},
+		"nothing fits":   {value: "abc", width: 0, want: ""},
+		"negative":       {value: "abc", width: -1, want: ""},
 	}
-	if got := truncateRunes("abc", -1); got != "" {
-		t.Fatalf("truncateRunes(_, -1) = %q, want empty", got)
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := truncateCells(testCase.value, testCase.width)
+			if got != testCase.want {
+				t.Fatalf(
+					"truncateCells(%q, %d) = %q, want %q",
+					testCase.value,
+					testCase.width,
+					got,
+					testCase.want,
+				)
+			}
+			if width := cellWidth(got); width > testCase.width && testCase.width > 0 {
+				t.Fatalf(
+					"truncateCells(%q, %d) is %d columns wide",
+					testCase.value,
+					testCase.width,
+					width,
+				)
+			}
+		})
 	}
 }
 
-func TestTruncateRunesFits(t *testing.T) {
-	if got := truncateRunes("abc", 5); got != "abc" {
-		t.Fatalf("truncateRunes = %q, want %q", got, "abc")
+func TestCellWidthCountsColumns(t *testing.T) {
+	cases := map[string]struct {
+		value string
+		want  int
+	}{
+		"ascii":    {value: "abc", want: 3},
+		"cyrillic": {value: "привет", want: 6},
+		"emoji":    {value: "🌍", want: 2},
+		"mixed":    {value: "a🌍б", want: 4},
+		"accent":   {value: "café", want: 4},
 	}
-	if got := truncateRunes("привет", 6); got != "привет" {
-		t.Fatalf("truncateRunes = %q, want %q", got, "привет")
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := cellWidth(testCase.value); got != testCase.want {
+				t.Fatalf(
+					"cellWidth(%q) = %d, want %d",
+					testCase.value,
+					got,
+					testCase.want,
+				)
+			}
+		})
 	}
 }
 
-func TestTruncateRunesTruncates(t *testing.T) {
-	if got := truncateRunes("abcdef", 4); got != "abc…" {
-		t.Fatalf("truncateRunes = %q, want %q", got, "abc…")
+// Every line of a region is padded to the same number of columns, which
+// is what keeps a pane rectangular and its background continuous.
+func TestFitCellsPadsToWidth(t *testing.T) {
+	if got := fitCells("abc", 6); cellWidth(got) != 6 {
+		t.Fatalf("fitCells(\"abc\", 6) = %q, %d columns", got, cellWidth(got))
 	}
-	if got := truncateRunes("привет", 3); got != "пр…" {
-		t.Fatalf("truncateRunes = %q, want %q", got, "пр…")
+	if got := fitCells("привет", 4); cellWidth(got) != 4 {
+		t.Fatalf("fitCells(\"привет\", 4) = %q, %d columns", got, cellWidth(got))
 	}
-	if got := truncateRunes("abcdef", 1); got != "a" {
-		t.Fatalf("truncateRunes = %q, want %q", got, "a")
+	if got := fitCells("abcdefgh", 3); cellWidth(got) != 3 {
+		t.Fatalf("fitCells(\"abcdefgh\", 3) = %q, %d columns", got, cellWidth(got))
 	}
 }
 
@@ -74,7 +129,7 @@ func TestTooSmallViewContainsRequiredAndCurrentSize(t *testing.T) {
 	if !strings.Contains(v, "too small") {
 		t.Fatalf("missing 'too small': %q", v)
 	}
-	if !strings.Contains(v, "40x12") {
+	if !strings.Contains(v, "40x5") {
 		t.Fatalf("missing minimum size: %q", v)
 	}
 	if !strings.Contains(v, "10x5") {
@@ -82,12 +137,18 @@ func TestTooSmallViewContainsRequiredAndCurrentSize(t *testing.T) {
 	}
 }
 
-func TestChatsViewMarksSelectedChat(t *testing.T) {
+// The selected chat is marked with the attributes of the theme, not with
+// a colour and not with a prefix. A prefix would put a character in front
+// of every name and shift the column of the second line, and a colour
+// would say nothing at all where the terminal shows no colour.
+func TestChatsViewMarksSelectedChatWithThemeAttributes(t *testing.T) {
 	m := NewModel()
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	v := m.View()
-	if !strings.Contains(v, "> Alice") {
-		t.Fatalf("expected '> Alice' marker:\n%s", v)
+
+	marked := m.styles().selected(true).Render("Alice")
+	if !strings.Contains(v, marked) {
+		t.Fatalf("view does not mark the selected chat:\n%s", v)
 	}
 }
 
@@ -106,7 +167,7 @@ func TestConversationViewShowsComposer(t *testing.T) {
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 80, Height: 24})
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
 	v := m.View()
-	if !strings.Contains(v, "Composer:") {
+	if !strings.Contains(v, composerPlaceholder) {
 		t.Fatalf("missing composer:\n%s", v)
 	}
 }

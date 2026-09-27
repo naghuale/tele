@@ -684,7 +684,7 @@ func TestMessageStatusViewPlacesBlockAboveComposer(t *testing.T) {
 
 	view := model.View()
 	delivery := strings.Index(view, messageStatusHeaderText)
-	composer := strings.Index(view, "> ")
+	composer := strings.Index(view, composerPlaceholder)
 	if delivery < 0 || composer < 0 {
 		t.Fatalf("view = %q, want delivery block and composer", view)
 	}

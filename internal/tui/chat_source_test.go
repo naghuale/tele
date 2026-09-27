@@ -787,7 +787,10 @@ func TestEscapeInvalidatesInFlightOperation(t *testing.T) {
 
 	operation := m.sendOperation
 
+	// Esc hands the keys to the timeline first and leaves the
+	// conversation on the next one, so leaving takes two of them.
 	updated, _ := m.Update(press(tea.KeyEsc))
+	updated, _ = updated.(Model).Update(press(tea.KeyEsc))
 	mm := updated.(Model)
 
 	if mm.screen != ScreenChats {

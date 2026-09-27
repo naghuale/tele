@@ -985,6 +985,9 @@ func TestMessageStatusPollingStopsOnConversationExit(t *testing.T) {
 
 	model := newPollingTestModel(&h6c2bStatusSource{})
 	model.screen = ScreenConversation
+	// Leaving the conversation is Esc from the timeline; the composer
+	// hands the keys there first.
+	model.focus = FocusHistory
 	model.messageStatusAccountKey = "account-1"
 	model.messageStatusChatID = 42
 	model.messageStatusGeneration = 5

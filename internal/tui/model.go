@@ -2,10 +2,10 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"telecli/internal/tui/theme"
 )
@@ -107,11 +107,18 @@ type Model struct {
 	authCanceled bool
 
 	// theme and colorProfile are the resolved interface theme and the
-	// profile it was built for. The views do not read them yet; they are
-	// carried from the composition root so that PR-10A.2 has one place to
-	// take the theme from instead of resolving it per screen.
-	theme        theme.Theme
-	colorProfile theme.Profile
+	// profile it was built for, and rendererForProfile is the Lip Gloss
+	// renderer the views draw through.
+	//
+	// The renderer is built from the profile rather than from the
+	// terminal, so a `color = "always"` from the configuration file is
+	// what decides the colours. It is built once, where the profile is
+	// resolved. A model that was constructed without a resolution has
+	// none and gets one when it is asked to draw, which keeps a zero
+	// model drawable rather than nil.
+	theme              theme.Theme
+	colorProfile       theme.Profile
+	rendererForProfile *lipgloss.Renderer
 
 	width  int
 	height int
@@ -122,10 +129,8 @@ type Model struct {
 // Theme returns the interface theme the model draws with and the colour
 // profile it was built for.
 //
-// The views read it when they start drawing with the theme in PR-10A.2.
-// Until then it is how a caller tells which theme a model will use, and
-// the reason the theme is carried on the model rather than resolved per
-// screen.
+// The views read it as they draw, and it is how a caller tells which theme
+// a model uses without looking at the screen.
 func (m Model) Theme() (theme.Theme, theme.Profile) {
 	return m.theme, m.colorProfile
 }
@@ -151,7 +156,7 @@ func NewModel() Model {
 		sendState:    sendStateIdle,
 		theme:        theme.DefaultTheme(),
 		colorProfile: theme.ProfileNoColor,
-	}
+	}.withRenderer(theme.ProfileNoColor)
 }
 
 // NewModelWithSource returns a model that loads chats and history from
@@ -168,7 +173,20 @@ func NewModelWithSource(source ChatSource) Model {
 		chatsState:   loadStateLoading,
 		historyState: loadStateIdle,
 		sendState:    sendStateIdle,
-	}
+		colorProfile: theme.ProfileNoColor,
+	}.withRenderer(theme.ProfileNoColor)
+}
+
+// withRenderer returns the model with a renderer for a profile.
+//
+// The renderer is built once per model rather than per frame: a view that
+// built its own would be deciding for itself what the terminal can show,
+// which is the one decision the composition root already made.
+func (m Model) withRenderer(profile theme.Profile) Model {
+	m.colorProfile = profile
+	m.rendererForProfile = newRenderer(profile)
+
+	return m
 }
 
 // Init implements tea.Model.
@@ -220,7 +238,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	return m, nil
+
+	// The focus follows the screen: a size that took a region away must
+	// not leave the keys on a region that is no longer drawn.
+	return m.normalizeFocus(), nil
 }
 
 func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
@@ -517,9 +538,18 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// updateChatsKey handles the chat list screen.
+//
+// Esc does nothing here. §8.5 ends the Esc hierarchy at the chat list,
+// and leaving the program is `q`, which is the one key the hint bar names:
+// a key that quits is a key a user presses by accident, and there is
+// Ctrl+C for the deliberate case.
 func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyEsc:
+		return m, nil
+
+	case isQuit(msg):
 		m.quitting = true
 		m.invalidateMessageStatusPolling()
 		return m, tea.Quit
@@ -528,112 +558,150 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.chats) == 0 {
 			return m, nil
 		}
-		m.screen = ScreenConversation
-		m.focus = FocusHistory
-		m.selectedMsg = 0
-		m.sendState = sendStateIdle
-		m.sendErr = nil
-		if m.pausedErr != nil {
-			// Sending is still impossible in this chat.
-			m.sendState = sendStateError
-			m.sendErr = m.pausedErr
-		}
-
-		// Entering a conversation starts a new history operation, so a page
-		// still in flight for a previous visit is discarded on arrival. The
-		// pagination flags belong to the chat being left; the boundary
-		// itself is derived from the messages, not stored.
-		m.historyOperation++
-		m.historyExhausted = false
-		m.historyMoreLoading = false
-		m.historyMoreErr = nil
-
-		statusCmd := m.setMessageStatusTarget(
-			m.accountKey,
-			m.chats[m.selectedChat].ID,
-		)
-
-		if m.source != nil {
-			if len(m.chats[m.selectedChat].Messages) == 0 {
-				m.historyState = loadStateLoading
-				m.loadErr = nil
-				return m, tea.Batch(
-					loadHistoryCmd(
-						m.source,
-						m.chats[m.selectedChat].ID,
-						0,
-						historyPageSize,
-						m.historyOperation,
-					),
-					statusCmd,
-				)
-			}
-			// The messages are already cached, so this chat is loaded even
-			// though nothing was requested. Without this the previous
-			// chat's loadStateError would block pagination here.
-			m.historyState = loadStateLoaded
-			m.loadErr = nil
-		}
-		return m, statusCmd
+		// Enter opens the selected chat and puts the cursor where the
+		// next message is written. Every mock screen of §3.1 to §3.3
+		// shows an open conversation with the composer focused, and a
+		// user who opened a chat is about to write in it.
+		return m.openSelectedChat(true)
 
 	case isUp(msg):
-		if m.selectedChat > 0 {
-			m.selectedChat--
-		}
-		return m, nil
+		return m.moveChatSelection(-1)
 
 	case isDown(msg):
-		if m.selectedChat < len(m.chats)-1 {
-			m.selectedChat++
-		}
-		return m, nil
+		return m.moveChatSelection(1)
 
 	case isFirst(msg):
-		m.selectedChat = 0
-		return m, nil
+		return m.selectChatAt(0)
 
 	case isLast(msg):
-		if len(m.chats) > 0 {
-			m.selectedChat = len(m.chats) - 1
-		}
-		return m, nil
+		return m.selectChatAt(len(m.chats) - 1)
 	}
+
 	return m, nil
 }
 
+// moveChatSelection moves the selected chat by delta, clamped to the
+// list.
+//
+// On a two-pane screen the conversation follows the selection, because it
+// is drawn from it. On a single-pane screen nothing is opened, so the
+// selection is all that moves.
+func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
+	target := m.selectedChat + delta
+	if target < 0 {
+		target = 0
+	}
+	if target > len(m.chats)-1 {
+		target = len(m.chats) - 1
+	}
+
+	return m.selectChatAt(target)
+}
+
+// selectChatAt makes chatIndex the selected chat.
+//
+// An open conversation follows the selection without the focus moving to
+// the composer: the user is still walking the list, and Tab or Enter says
+// where they want the keys to go.
+func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
+	if chatIndex < 0 || chatIndex >= len(m.chats) {
+		return m, nil
+	}
+
+	moved := chatIndex != m.selectedChat
+	m.selectedChat = chatIndex
+
+	// The conversation is only drawn from the selection where the list and
+	// the conversation share the screen. Everywhere else the selection is
+	// only a selection, and nothing is opened behind the user's back.
+	if moved &&
+		m.screen == ScreenConversation &&
+		LayoutFor(m.width, m.height).TwoPane() {
+		return m.openSelectedChat(false)
+	}
+
+	return m, nil
+}
+
+// openSelectedChat opens the selected chat in the conversation pane.
+//
+// focusComposer says where the keys go afterwards. The two callers differ
+// in nothing else: opening a chat from the list and following the
+// selection into another chat are the same operation, and the focus is the
+// only difference between them.
+func (m Model) openSelectedChat(
+	focusComposer bool,
+) (tea.Model, tea.Cmd) {
+	if len(m.chats) == 0 {
+		return m, nil
+	}
+
+	m.screen = ScreenConversation
+	if focusComposer {
+		m.focus = FocusComposer
+	}
+	m.selectedMsg = 0
+	m.sendState = sendStateIdle
+	m.sendErr = nil
+	if m.pausedErr != nil {
+		// Sending is still impossible in this chat.
+		m.sendState = sendStateError
+		m.sendErr = m.pausedErr
+	}
+
+	// Opening a conversation starts a new history operation, so a page
+	// still in flight for a previous visit is discarded on arrival. The
+	// pagination flags belong to the chat being left; the boundary itself
+	// is derived from the messages, not stored.
+	m.historyOperation++
+	m.historyExhausted = false
+	m.historyMoreLoading = false
+	m.historyMoreErr = nil
+
+	statusCmd := m.setMessageStatusTarget(
+		m.accountKey,
+		m.chats[m.selectedChat].ID,
+	)
+
+	if m.source != nil {
+		if len(m.chats[m.selectedChat].Messages) == 0 {
+			m.historyState = loadStateLoading
+			m.loadErr = nil
+			return m, tea.Batch(
+				loadHistoryCmd(
+					m.source,
+					m.chats[m.selectedChat].ID,
+					0,
+					historyPageSize,
+					m.historyOperation,
+				),
+				statusCmd,
+			)
+		}
+		// The messages are already cached, so this chat is loaded even
+		// though nothing was requested. Without this the previous
+		// chat's loadStateError would block pagination here.
+		m.historyState = loadStateLoaded
+		m.loadErr = nil
+	}
+	return m, statusCmd
+}
+
+// updateConversationKey handles the conversation pane.
+//
+// Esc follows the hierarchy of §8.5: composer to timeline, timeline to
+// the chat list, and then it stops. It never leaves the program, and it
+// never discards a draft.
 func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyEsc:
-		// Invalidate any in-flight send: a late result for the same
-		// chat must not be applied to a newer conversation state.
-		m.sendOperation++
-		m.sendState = sendStateIdle
-		m.sendErr = nil
-		// Leaving the conversation stops status polling and discards the
-		// in-flight response of the chat that is no longer active.
-		m.invalidateMessageStatusPolling()
-
-		m.screen = ScreenChats
-		m.focus = FocusChatList
-		return m, nil
+		return m.leaveConversationRegion(), nil
 
 	case isTab(msg):
-		switch m.focus {
-		case FocusHistory:
-			m.focus = FocusComposer
-		case FocusComposer:
-			m.focus = FocusHistory
-		}
-		return m, nil
+		return m.cycleFocus(1), nil
 
 	case isShiftTab(msg):
-		switch m.focus {
-		case FocusHistory:
-			m.focus = FocusComposer
-		case FocusComposer:
-			m.focus = FocusHistory
-		}
-		return m, nil
+		return m.cycleFocus(-1), nil
 
 	case isClearComposer(msg):
 		if m.focus == FocusComposer && m.sendState != sendStateSending {
@@ -650,6 +718,12 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A two-pane screen shows the chat list beside the conversation, so
+	// the list keeps its own keys while the focus is on it.
+	if m.focus == FocusChatList {
+		return m.updateChatsKey(msg)
+	}
+
 	switch m.focus {
 	case FocusHistory:
 		return m.updateHistoryKey(msg)
@@ -657,6 +731,132 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateComposerKey(msg)
 	}
 	return m, nil
+}
+
+// leaveConversationRegion applies one step of the Esc hierarchy.
+//
+// Leaving the conversation for good is not one of its steps: the
+// hierarchy ends at the chat list, and a screen with two panes puts the
+// chat list next to the conversation rather than behind it. Only a
+// single-pane screen returns to the list screen, and only the chat list
+// stops there.
+func (m Model) leaveConversationRegion() Model {
+	switch m.focus {
+	case FocusComposer:
+		// The draft stays. §8.5 says the composer is left without a loss,
+		// and losing what someone typed to look at the messages is not
+		// what they asked for.
+		m.focus = FocusHistory
+		return m
+
+	case FocusHistory:
+		if LayoutFor(m.width, m.height).TwoPane() {
+			m.focus = FocusChatList
+			return m
+		}
+
+		return m.leaveConversation()
+
+	default:
+		// The chat list, with a conversation open beside it: there is
+		// nothing above it to go back to.
+		return m
+	}
+}
+
+// leaveConversation returns to the chat list screen, invalidating any
+// work in flight for the conversation being left.
+func (m Model) leaveConversation() Model {
+	// Invalidate any in-flight send: a late result for the same chat must
+	// not be applied to a newer conversation state.
+	m.sendOperation++
+	m.sendState = sendStateIdle
+	m.sendErr = nil
+	// Leaving the conversation stops status polling and discards the
+	// in-flight response of the chat that is no longer active.
+	m.invalidateMessageStatusPolling()
+
+	m.screen = ScreenChats
+	m.focus = FocusChatList
+
+	return m
+}
+
+// cycleFocus moves the focus by delta positions among the visible
+// regions.
+//
+// The order is the one of §5: chat list, timeline, composer. A region
+// that is not on screen is not in the order, which is what makes a narrow
+// conversation screen cycle between the timeline and the composer alone.
+func (m Model) cycleFocus(delta int) Model {
+	regions := m.visibleFocusRegions()
+	if len(regions) == 0 {
+		return m
+	}
+
+	next := 0
+	for index, region := range regions {
+		if region == m.focus {
+			next = index + delta
+			break
+		}
+	}
+
+	// A focus that is not in the order starts at its first region rather
+	// than at itself: the invariant is that exactly one region is
+	// focused, and an invisible one is not it.
+	m.focus = regions[((next%len(regions))+len(regions))%len(regions)]
+
+	return m
+}
+
+// normalizeFocus puts the focus on a region the screen is drawing.
+//
+// A resize can take a region away. A terminal squeezed from wide to
+// narrow loses the chat list pane, and a screen too short for messages
+// loses the timeline, and a focus left on a region that is not drawn is
+// worse than no focus at all: every key would go to a region the user
+// cannot see highlighted.
+func (m Model) normalizeFocus() Model {
+	layout := LayoutFor(m.width, m.height)
+
+	// A screen that shows nothing but the composer has one region, and it
+	// is the composer (§3.4).
+	if m.screen == ScreenConversation && layout.ComposerOnly() {
+		m.focus = FocusComposer
+		return m
+	}
+
+	for _, region := range m.visibleFocusRegions() {
+		if region == m.focus {
+			return m
+		}
+	}
+
+	// The focus was on a region this size does not draw. The composer is
+	// where a conversation is written, so a conversation lands there and
+	// every other screen on the only region it has.
+	if m.screen == ScreenConversation {
+		m.focus = FocusComposer
+		return m
+	}
+
+	m.focus = FocusChatList
+
+	return m
+}
+
+// visibleFocusRegions returns the regions Tab visits, in order.
+func (m Model) visibleFocusRegions() []Focus {
+	if m.screen != ScreenConversation {
+		return []Focus{FocusChatList}
+	}
+
+	if !LayoutFor(m.width, m.height).TwoPane() {
+		return []Focus{FocusHistory, FocusComposer}
+	}
+
+	return []Focus{FocusChatList, FocusHistory, FocusComposer}
 }
 
 func (m Model) updateHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -786,51 +986,9 @@ func (m Model) updateAuthKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View implements tea.Model.
-func (m Model) View() string {
-	if m.quitting {
-		return ""
-	}
-
-	if m.width < minWidth || m.height < minHeight {
-		return m.viewTooSmall()
-	}
-
-	switch m.screen {
-	case ScreenChats:
-		switch m.chatsState {
-		case loadStateLoading:
-			return "Loading chats...\n"
-		case loadStateError:
-			return fmt.Sprintf("Failed to load chats: %v\n", m.loadErr)
-		case loadStateEmpty:
-			return "No chats\n"
-		}
-		return m.viewChats()
-
-	case ScreenConversation:
-		switch m.historyState {
-		case loadStateLoading:
-			return "Loading history...\n"
-		case loadStateError:
-			return fmt.Sprintf("Failed to load history: %v\n", m.loadErr)
-		}
-		return m.viewConversation()
-
-	case ScreenAuth:
-		return m.viewAuth()
-
-	default:
-		return "telecli: invalid screen\n"
-	}
-}
-
-func (m Model) viewTooSmall() string {
-	return fmt.Sprintf(
-		"Terminal is too small\nMinimum: %dx%d\nCurrent: %dx%d\n",
-		minWidth, minHeight, m.width, m.height,
-	)
-}
+// The view itself lives in view.go: View has to answer for the whole
+// screen, and splitting it between the model state and a pane renderer
+// would put half of every layout decision in two files.
 
 func (m Model) selected() Chat {
 	if len(m.chats) == 0 || m.selectedChat < 0 || m.selectedChat >= len(m.chats) {

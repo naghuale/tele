@@ -97,6 +97,11 @@ func NewModelWithDependencies(
 	model.messageStatuses = deps.MessageStatuses
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile
+	// The renderer is built here, where the profile is known, rather than
+	// per frame: it is the one object that decides how a colour is
+	// printed, and a view that built its own would be a view deciding
+	// what the terminal can show.
+	model.rendererForProfile = newRenderer(deps.ColorProfile)
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now
 		// means the user is not invited to press Enter to find out, and

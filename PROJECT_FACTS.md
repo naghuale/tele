@@ -24,11 +24,15 @@
 ## CLI and TUI
 - CLI framework: standard library flag
 - TUI framework: github.com/charmbracelet/bubbletea v1.3.10
-- Styling library: github.com/charmbracelet/lipgloss v1.1.0, used only to
-  detect what the terminal can show and to reduce a colour to it; the
-  theme itself imports no Lip Gloss style and changes no global state
+- Styling library: github.com/charmbracelet/lipgloss v1.1.0, through a
+  private renderer built for the resolved colour profile; the theme
+  package itself imports no Lip Gloss style and changes no global state
   (github.com/muesli/termenv is a direct dependency for the same
   reason: Lip Gloss reports its profile as a termenv value)
+- Terminal cell measurement: github.com/charmbracelet/x/ansi v0.10.1
+  (direct since PR-10A.2), for StringWidth and Truncate: every width in
+  the layout is counted in terminal columns, and a rune count overflows
+  the screen on the first non-ASCII chat name
 - Configuration library: github.com/BurntSushi/toml
 - Configuration format: TOML
 - Logging library: standard library log/slog (outbox dispatcher)
@@ -283,6 +287,32 @@
     idle/loading/loaded/empty/error
   - stale history and send responses are filtered by chat ID and by
     a monotonically increasing sendOperation
+- Layout and focus: internal/tui (PR-10A.2, docs/TUI_SPEC.md §1, §3,
+  §4, §5, §10)
+  - layout.go: every number that decides a shape, and nothing else
+    decides one. Width classes are wide >= 100, medium 72-99 and
+    narrow below; the chat list pane is a fixed 24 columns when wide
+    and 16 when medium, never a share of the terminal, and the two
+    panes are separated by one column of space and no line
+  - height rules: below 20 rows the previews and the extra status
+    lines go, below 10 the hint bar is not drawn, below 6 the
+    conversation is the composer alone, and below 40x5 the screen says
+    it is too small instead of drawing something that does not fit
+  - one focus at a time: the focus is a bar in the first column of a
+    region, drawn with BorderLeft and the theme's FocusBar, and an
+    unfocused region reserves the same column with MarginLeft, so
+    moving the focus changes no cell to its right. Styles: styles.go
+  - Esc hierarchy (§8.5): composer to timeline, timeline to the chat
+    list, and then it stops. On a two-pane screen the third step
+    focuses the list beside the conversation instead of throwing the
+    conversation away. A draft is never discarded
+  - `q` leaves the program from the chat list and is a letter in the
+    composer; Esc in the list does nothing. Ctrl+C quits everywhere
+  - Enter in the list opens the chat and focuses the composer, and the
+    conversation follows the selection while it is beside the list
+  - widths are terminal columns (truncateCells, fitCells, wrapCells),
+    never runes, and a line is padded rather than left ragged so a
+    surface covers its whole pane
 - Composer: internal/tui/model.go
   - Enter starts a send only with non-nil source, non-empty
     TrimSpace(text), no send in flight, and a selected chat
@@ -514,9 +544,11 @@
   - delivery-state update tracking: deferred
 - PR-10A: interface rewrite per docs/TUI_SPEC.md
   - PR-10A.1 semantic theme engine with three dark presets: accepted
-  - PR-10A.2 layout and focus, 10A.3 composer, 10A.4 delivery and status
-    block, 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots:
-    pending
+  - PR-10A.2 layout and focus: accepted (borderless two-pane layout,
+    one focus, Esc hierarchy, focus-aware hint bar, drawn with the
+    tokens of the theme)
+  - PR-10A.3 composer, 10A.4 delivery and status block, 10A.5 action
+    sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

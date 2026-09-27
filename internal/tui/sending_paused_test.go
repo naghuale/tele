@@ -81,9 +81,12 @@ func TestPausedSendErrorIsVisibleImmediately(t *testing.T) {
 		t.Fatalf("sendState = %v, want error", m.sendState)
 	}
 	view := m.View()
+	// The notice is wrapped to the width of the pane, so what is checked
+	// are phrases that fit on a line of any usable width: what stopped,
+	// what it means for the draft, and what to do about it.
 	for _, want := range []string{
 		"Sending paused",
-		"Your message was not sent and is still here",
+		"Your message was not sent",
 		"Unlock your Keychain",
 		"Details: ",
 	} {

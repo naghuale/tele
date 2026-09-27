@@ -676,6 +676,9 @@ func TestReentryAfterAFailedFirstLoadInAnotherChatCanPaginate(t *testing.T) {
 		{ID: 100, Text: "newest"},
 		{ID: 99, Text: "oldest loaded"},
 	}
+	// Two of them: the composer hands over to the timeline, and the
+	// timeline leaves.
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m.selectedChat = 1
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
@@ -712,6 +715,9 @@ func TestEnteringAnotherChatResetsTheHistoryFlags(t *testing.T) {
 		t.Fatalf("boundary = %d, want 97", got)
 	}
 
+	// Two of them: the composer hands over to the timeline, and the
+	// timeline leaves.
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m.selectedChat = 1
 	m.chats = append(m.chats, Chat{ID: 8, Title: "B"})

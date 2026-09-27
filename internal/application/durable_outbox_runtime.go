@@ -26,6 +26,7 @@ type DurableOutboxRuntimeDeps struct {
 
 type DurableOutboxRuntime struct {
 	submitter      ComposerMessageSubmitter
+	cancelSubmit   MessageSubmitter
 	statusSource   MessageStatusSource
 	pendingSources PendingMessageSource
 	healthSource   MessageDeliveryHealthSource
@@ -197,6 +198,8 @@ func openDurableOutboxRuntime(
 	}
 
 	runtime := &DurableOutboxRuntime{
+		submitter:      nil,
+		cancelSubmit:   queue,
 		statusSource:   statusSource,
 		pendingSources: pendingSource,
 		opened:         opened,
@@ -312,6 +315,16 @@ func (r *DurableOutboxRuntime) StatusSource() MessageStatusSource {
 		return nil
 	}
 	return r.statusSource
+}
+
+// CancelSubmitter returns the durable submitter for the action sheet of
+// §13, which cancels a record the composer submitter cannot name.
+func (r *DurableOutboxRuntime) CancelSubmitter() MessageSubmitter {
+	if r == nil {
+		return nil
+	}
+
+	return r.cancelSubmit
 }
 
 // PendingMessages returns the queue as the timeline reads it: every entry of

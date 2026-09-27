@@ -18,6 +18,13 @@ import (
 // The order of the messages is chronological — the oldest first, the newest
 // last — because that is how a conversation is read (§8.3). The source
 // answers newest first and the reversal happens where the page arrives.
+//
+// The list is the history and the pending messages of §4.4, in that order:
+// a message that has not been delivered yet is newer than any message of
+// the history, and it is a message like any other, so the cursor walks on
+// to it and the keys of §13 act on it. The two are kept apart in the model
+// because they come from two sources, and together in the index space
+// because they are one list on the screen.
 
 // timelineMessageMinHeight is the fewest rows a message can take.
 //
@@ -78,13 +85,81 @@ func (m Model) olderPageLineCount() int {
 	return 0
 }
 
+// timelineTotal returns how many messages the timeline holds: the history
+// of the open chat and the pending messages below it.
+func (m Model) timelineTotal() int {
+	return len(m.selected().Messages) + len(m.pending)
+}
+
+// historyTotal returns how many messages of the timeline are history, which
+// is the boundary a pending message's index starts at.
+func (m Model) historyTotal() int {
+	return len(m.selected().Messages)
+}
+
+// selectedPending returns the pending message under the cursor, if the
+// cursor is on one.
+func (m Model) selectedPending() (PendingMessage, bool) {
+	index := m.selectedMsg - m.historyTotal()
+	if index < 0 || index >= len(m.pending) {
+		return PendingMessage{}, false
+	}
+
+	return m.pending[index], true
+}
+
+// selectedHistory returns the message of the history under the cursor, if
+// the cursor is on one.
+func (m Model) selectedHistory() (Message, bool) {
+	messages := m.selected().Messages
+	if m.selectedMsg < 0 || m.selectedMsg >= len(messages) {
+		return Message{}, false
+	}
+
+	return messages[m.selectedMsg], true
+}
+
+// pendingMessageOf returns the delivery state of a pending message the
+// timeline is showing, and whether it is showing it at all.
+//
+// A record the queue has moved on is dropped from the screen as soon as the
+// read that says so arrives, so a user who acts on a stale record is told
+// by its absence rather than by a message that contradicts it.
+func (m Model) pendingMessageOf(entryID string) *MessageDeliveryState {
+	for _, message := range m.pending {
+		if message.EntryID == entryID {
+			state := message.State
+
+			return &state
+		}
+	}
+
+	return nil
+}
+
+// dropPendingMessage removes a record from the screen after a cancel, so
+// that the read that follows is not fighting a record that is not there.
+func (m *Model) dropPendingMessage(entryID string) {
+	kept := make([]PendingMessage, 0, len(m.pending))
+	for _, message := range m.pending {
+		if message.EntryID == entryID {
+			continue
+		}
+		kept = append(kept, message)
+	}
+	m.pending = kept
+	m.pendingSnapshot = clonePendingMessages(kept)
+	m.selectedMsg = minInt(m.selectedMsg, maxInt(m.timelineTotal()-1, 0))
+}
+
 // scrollToNewest puts the cursor on the newest message and the view at the
 // end of the conversation.
 //
 // Opening a chat and sending a message both land here: they are the two
-// moments a user is looking for the newest thing in a conversation.
+// moments a user is looking for the newest thing in a conversation, and the
+// newest thing is a pending message when there is one.
 func (m Model) scrollToNewest() Model {
-	total := len(m.selected().Messages)
+	total := m.timelineTotal()
 	if total == 0 {
 		m.selectedMsg = 0
 		m.timelineTop = 0
@@ -93,7 +168,7 @@ func (m Model) scrollToNewest() Model {
 	}
 
 	m.selectedMsg = total - 1
-	m.timelineTop = maxInt(total-m.timelinePageSize(), 0)
+	m.timelineTop = maxInt(m.historyTotal()-m.timelinePageSize(), 0)
 
 	return m
 }
@@ -101,7 +176,7 @@ func (m Model) scrollToNewest() Model {
 // moveTimelineCursor moves the cursor by delta messages and scrolls the
 // view the least it has to.
 func (m Model) moveTimelineCursor(delta int) Model {
-	total := len(m.selected().Messages)
+	total := m.timelineTotal()
 	if total == 0 {
 		return m
 	}
@@ -118,8 +193,19 @@ func (m Model) moveTimelineCursor(delta int) Model {
 // moves: the window stays where it is while the cursor is inside it, which
 // is what makes reading a conversation feel like reading and not like
 // chasing the cursor.
+//
+// A cursor on a pending message is only on screen when the history is
+// scrolled to its end, because the pending messages are drawn below the
+// history and not inside its window. So that is where the window goes.
 func (m Model) scrollCursorIntoView() Model {
 	page := m.timelinePageSize()
+	history := m.historyTotal()
+
+	if m.selectedMsg >= history {
+		m.timelineTop = maxInt(history-page, 0)
+
+		return m.normalizeTimeline()
+	}
 
 	if m.selectedMsg < m.timelineTop {
 		m.timelineTop = m.selectedMsg
@@ -132,13 +218,13 @@ func (m Model) scrollCursorIntoView() Model {
 }
 
 // normalizeTimeline puts the cursor and the anchor back inside the loaded
-// history.
+// messages.
 //
 // A resize, a chat with no messages and a page that added nothing all make
 // one of the two point at a message that is not there, and an anchor past
 // the end of the history is a view that starts in the middle of nowhere.
 func (m Model) normalizeTimeline() Model {
-	total := len(m.selected().Messages)
+	total := m.timelineTotal()
 	if total == 0 {
 		m.selectedMsg = 0
 		m.timelineTop = 0
@@ -147,7 +233,10 @@ func (m Model) normalizeTimeline() Model {
 	}
 
 	m.selectedMsg = minInt(maxInt(m.selectedMsg, 0), total-1)
-	m.timelineTop = minInt(maxInt(m.timelineTop, 0), total-1)
+	m.timelineTop = minInt(
+		maxInt(m.timelineTop, 0),
+		maxInt(m.historyTotal()-1, 0),
+	)
 
 	return m
 }
@@ -185,6 +274,14 @@ func (m Model) updateHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case msg.Type == tea.KeyEnter || isInsertMode(msg):
 		m.focus = FocusComposer
+
+		return m, nil
+
+	case isOpenActions(msg):
+		// §13: the menu of what can be done with the message under the
+		// cursor. It opens on the message and not on the chat, so a user
+		// who pressed it by accident finds a menu they can close.
+		m.openActionSheet()
 
 		return m, nil
 	}

@@ -237,6 +237,27 @@ func prepareDeliveryAuthResult(
 		)
 	}
 
+	// The sheet of §13 cancels through the same submitter the composer
+	// queues through: one object answers both questions about a record, and
+	// a second writer to the store would be a second answer.
+	//
+	// A runtime with no durable submitter has nothing to cancel - direct
+	// delivery puts a message in the history as soon as it is sent - and
+	// the interface then has a menu whose cancel cannot be performed. That
+	// is a smaller thing than a program that will not start.
+	var canceller tui.MessageCanceller
+	if cancelSubmit := delivery.CancelSubmitter(); cancelSubmit != nil {
+		built, err := NewOutboxPendingMessageCanceller(cancelSubmit)
+		if err != nil {
+			return AuthRunResult{}, errors.Join(
+				fmt.Errorf("create pending message canceller: %w", err),
+				delivery.Close(),
+				closeDeliverySession(session, cfg.TDLib.ShutdownTimeoutMS),
+			)
+		}
+		canceller = built
+	}
+
 	samplingHandle := startDeliveryHealthSampling(
 		ctx,
 		delivery.HealthSource(),
@@ -293,13 +314,14 @@ func prepareDeliveryAuthResult(
 	}
 
 	return AuthRunResult{
-		Source:          NewTelegramChatService(session),
-		Submitter:       tuiSubmitter,
-		AccountKey:      accountKey,
-		MessageStatuses: newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
-		PendingMessages: newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
-		StatusSummaries: statusSummaries,
-		PresenceOpener:  &TelegramChatPresenceOpener{session: session},
+		Source:           NewTelegramChatService(session),
+		Submitter:        tuiSubmitter,
+		AccountKey:       accountKey,
+		MessageStatuses:  newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
+		PendingMessages:  newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
+		StatusSummaries:  statusSummaries,
+		PresenceOpener:   &TelegramChatPresenceOpener{session: session},
+		MessageCanceller: canceller,
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)
 			if shutdownCtx == nil {

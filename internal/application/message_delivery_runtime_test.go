@@ -50,6 +50,10 @@ func (r *h4StubRuntime) StatusSource() MessageStatusSource {
 func (r *h4StubRuntime) PendingMessages() PendingMessageSource {
 	return nil
 }
+
+func (r *h4StubRuntime) CancelSubmitter() MessageSubmitter {
+	return nil
+}
 func (r *h4StubRuntime) HealthSource() MessageDeliveryHealthSource {
 	return r.healthSource
 }

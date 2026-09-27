@@ -31,6 +31,14 @@ type PendingMessage struct {
 	// State is where the message is in its delivery.
 	State MessageDeliveryState
 
+	// Version is the version the queue read this record at.
+	//
+	// It is what a cancel is made against: the queue refuses a cancel of a
+	// record that has moved on since, and an interface that passed a
+	// version of its own would either be refused every time or cancel
+	// whatever the record had become.
+	Version uint64
+
 	// Attempt is how many delivery attempts have been made.
 	Attempt int
 
@@ -51,13 +59,18 @@ type PendingMessage struct {
 	local bool
 }
 
-// String returns the entry and the state, and never the text.
+// String returns the entry, the state and the version, and never the text.
+//
+// The version is here because it is what a failure message about a cancel
+// needs, and it is not personal data: it counts transitions of a record the
+// user cannot read.
 func (m PendingMessage) String() string {
 	return fmt.Sprintf(
-		"entry %s state %s attempt %d",
+		"entry %s state %s attempt %d version %d",
 		m.EntryID,
 		m.State,
 		m.Attempt,
+		m.Version,
 	)
 }
 

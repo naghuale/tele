@@ -33,6 +33,13 @@ func (r *DirectMessageDeliveryRuntime) PendingMessages() PendingMessageSource {
 	return nil
 }
 
+// CancelSubmitter reports that direct submission has nothing to cancel: a
+// message is in the history as soon as it is sent, and there is no record
+// left to name.
+func (r *DirectMessageDeliveryRuntime) CancelSubmitter() MessageSubmitter {
+	return nil
+}
+
 // HealthSource reports that direct submission has no durable runtime health.
 func (r *DirectMessageDeliveryRuntime) HealthSource() MessageDeliveryHealthSource {
 	return nil

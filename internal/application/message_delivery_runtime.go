@@ -16,6 +16,15 @@ type MessageDeliveryRuntime interface {
 	// yet. It is nil in direct delivery mode, where a message is in the
 	// history as soon as it is sent.
 	PendingMessages() PendingMessageSource
+
+	// CancelSubmitter is the durable submitter, for the one action the
+	// action sheet needs that is not a submission (§13).
+	//
+	// It is a separate method and not a wider Submitter because a cancel is
+	// not a queue: it acts on a record the caller has to name, with the
+	// version it read, and a submitter that could do both would be one
+	// interface for two questions.
+	CancelSubmitter() MessageSubmitter
 	HealthSource() MessageDeliveryHealthSource
 	Done() <-chan struct{}
 	Err() error

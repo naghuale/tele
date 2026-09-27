@@ -309,3 +309,78 @@ func (s viewStyles) litPlaceholder() lipgloss.Style {
 		Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Hex())).
 		Bold(true)
 }
+
+// popupItem is one line of a menu: a raised background, the accent line of
+// the focused region, and the marker of the selected item where the profile
+// has no attributes to carry it.
+//
+// There is no frame and no second accent line. §5 allows one accent line
+// per screen and §24 asks for a raised background instead of a border, and
+// a menu is a region like any other.
+func (s viewStyles) popupItem(
+	selected bool,
+	tokens theme.Tokens,
+) lipgloss.Style {
+	return s.popupBase(tokens).
+		Bold(selected).
+		Foreground(lipgloss.Color(popupForegroundColor(tokens, selected)))
+}
+
+// popupTitle is the question of §12.3, and popupBody the two lines under
+// it. Both are the popup's own surface: a question in the colour of the
+// screen behind it would be a question the user has to find.
+func (s viewStyles) popupTitle(tokens theme.Tokens) lipgloss.Style {
+	return s.popupBase(tokens).
+		Bold(true).
+		Foreground(lipgloss.Color(tokens.PrimaryText.Hex()))
+}
+
+func (s viewStyles) popupBody(tokens theme.Tokens) lipgloss.Style {
+	return s.popupBase(tokens).
+		Foreground(lipgloss.Color(tokens.SecondaryText.Hex()))
+}
+
+// popupBase is the surface and the padding every popup line shares.
+func (s viewStyles) popupBase(tokens theme.Tokens) lipgloss.Style {
+	style := s.renderer.NewStyle().PaddingLeft(0)
+
+	if tokens.PopupBackground.Kind() != theme.ColorKindRGB {
+		return style
+	}
+
+	return style.
+		Background(lipgloss.Color(tokens.PopupBackground.Hex())).
+		BorderLeft(true).
+		BorderStyle(lipgloss.Border{Left: theme.FocusBar}).
+		BorderForeground(lipgloss.Color(tokens.Focus.Hex()))
+}
+
+// popupShadow is the column of the surface below the popup that makes it
+// read as above the conversation.
+//
+// Where the profile has no colour to make a shadow with, the popup is set
+// off by an indent instead: a menu that starts in the first column looks
+// like a line of the conversation, and a user who reads it that way answers
+// the wrong question.
+func (s viewStyles) popupShadow(tokens theme.Tokens, columns int) string {
+	if tokens.ShadowBackground.Kind() != theme.ColorKindRGB {
+		return spaces(columns)
+	}
+
+	return s.renderer.NewStyle().
+		Background(lipgloss.Color(tokens.ShadowBackground.Hex())).
+		Render(spaces(columns))
+}
+
+// popupForegroundColor is the colour of an item of a menu.
+//
+// A selected item is in the accent of the theme and an unselected one in
+// its own text colour, so the selection is a colour as well as a marker
+// where there are attributes, and only a marker where there are none.
+func popupForegroundColor(tokens theme.Tokens, selected bool) string {
+	if selected {
+		return tokens.Focus.Hex()
+	}
+
+	return tokens.PrimaryText.Hex()
+}

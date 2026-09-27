@@ -67,6 +67,29 @@ type Model struct {
 	presenceOpener ChatPresenceOpener
 	openedChat     int64
 
+	// canceller cancels a queued message by the version the screen read,
+	// and clipboard is where an OSC 52 copy goes.
+	//
+	// Both are optional: a program without them can still show the sheet,
+	// and the items that need them are the ones it cannot perform. A nil
+	// clipboard is a terminal that gets no escape sequence, and a nil
+	// canceller is a queue this program does not own.
+	canceller MessageCanceller
+	clipboard io.Writer
+
+	// actionSheet is the menu of §13 and modal the question of §12.3.
+	// Both are values on the model rather than screens: a popup is drawn
+	// over the conversation, and the Esc hierarchy has one entry for it.
+	actionSheet actionSheet
+	modal       confirmModal
+
+	// notice is the sentence in the status line that says what an action
+	// did, noticeGeneration which notice is on the screen, and
+	// noticeDeadline when it started being read.
+	notice           string
+	noticeGeneration uint64
+	noticeDeadline   time.Time
+
 	// summary is the last accepted status summary, and summaryErr the last
 	// failure to read one.
 	//
@@ -363,6 +386,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case presenceExpiredMsg:
 		return m.handlePresenceExpired(msg)
+
+	case messageCancelFailedMsg:
+		return m.handleMessageCancelFailed(msg)
+
+	case noticeExpiredMsg:
+		return m.handleNoticeExpired(msg)
 
 	case composerPlaceholderExpiredMsg:
 		m.composerPlaceholderLit = false
@@ -1015,6 +1044,13 @@ func (m Model) openSelectedChat(
 // the chat list, and then it stops. It never leaves the program, and it
 // never discards a draft.
 func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// §8.5: a popup is the first level of the hierarchy, so Esc closes a
+	// question or a menu before it does anything else - and in an
+	// uncertain message, closing the menu is how the user keeps the record.
+	if m.actionSheet.open || m.modal.open {
+		return m.updatePopupKey(msg)
+	}
+
 	switch {
 	case msg.Type == tea.KeyEsc:
 		return m.leaveConversationRegion()

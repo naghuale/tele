@@ -96,6 +96,10 @@ type h5bRuntime struct {
 	closeErr     error
 	closeOnce    sync.Once
 	order        *[]string
+
+	// cancelSubmitter is the durable submitter the action sheet cancels
+	// through. It is nil in a runtime that has no queue.
+	cancelSubmitter MessageSubmitter
 }
 
 func (r *h5bRuntime) Submitter() ComposerMessageSubmitter {
@@ -111,6 +115,10 @@ func (r *h5bRuntime) StatusSource() MessageStatusSource {
 // no pending messages is the state these tests are about.
 func (r *h5bRuntime) PendingMessages() PendingMessageSource {
 	return nil
+}
+
+func (r *h5bRuntime) CancelSubmitter() MessageSubmitter {
+	return r.cancelSubmitter
 }
 func (r *h5bRuntime) HealthSource() MessageDeliveryHealthSource {
 	return r.healthSource
@@ -530,5 +538,81 @@ func TestRunApplicationDoesNotCancelForNormalClose(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatalf("context canceled after normal close: %v", context.Cause(ctx))
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+// The sheet of §13 can only cancel a message if the result carries a way to
+// do it, and a runtime without a durable submitter has nothing to cancel.
+func TestTheAuthResultCarriesACancellerOnlyWithAQueue(t *testing.T) {
+	t.Parallel()
+
+	queued := &recordingMessageSubmitter{}
+	durable := &h5bRuntime{
+		submitter:       &h5bComposerStub{},
+		cancelSubmitter: queued,
+	}
+	direct := &h5bRuntime{submitter: &h5bComposerStub{}}
+
+	withQueue, err := prepareDeliveryAuthResult(
+		context.Background(),
+		h5bConfig(t),
+		&h5bSession{},
+		func(error) {},
+		func(
+			context.Context,
+			MessageDeliveryRuntimeConfig,
+			MessageDeliveryRuntimeDeps,
+		) (MessageDeliveryRuntime, error) {
+			return durable, nil
+		},
+		deliveryHealthSampling{},
+		0,
+	)
+	if err != nil {
+		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
+	}
+	if withQueue.MessageCanceller == nil {
+		t.Fatal("a runtime with a queue carries no canceller")
+	}
+	if err := withQueue.MessageCanceller.CancelMessage(
+		context.Background(),
+		"entry-1",
+		3,
+	); err != nil {
+		t.Fatalf("CancelMessage: %v", err)
+	}
+	if queued.canceled != 1 || queued.canceledVersion != 3 {
+		t.Fatalf("cancel = %d at version %d, want one at version 3",
+			queued.canceled,
+			queued.canceledVersion,
+		)
+	}
+	if err := withQueue.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	withoutQueue, err := prepareDeliveryAuthResult(
+		context.Background(),
+		h5bConfig(t),
+		&h5bSession{},
+		func(error) {},
+		func(
+			context.Context,
+			MessageDeliveryRuntimeConfig,
+			MessageDeliveryRuntimeDeps,
+		) (MessageDeliveryRuntime, error) {
+			return direct, nil
+		},
+		deliveryHealthSampling{},
+		0,
+	)
+	if err != nil {
+		t.Fatalf("prepareDeliveryAuthResult() error = %v", err)
+	}
+	if withoutQueue.MessageCanceller != nil {
+		t.Fatal("a runtime with no queue carries a canceller")
+	}
+	if err := withoutQueue.Close(context.Background()); err != nil {
+		t.Fatalf("Close() error = %v", err)
 	}
 }

@@ -44,7 +44,17 @@ func (m Model) View() string {
 	}
 
 	layout := LayoutFor(m.width, m.height)
+	view := m.viewWithoutPopup(layout)
 
+	// A popup is drawn over the screen and not instead of it: a menu
+	// without the message it acts on cannot be read, and a question
+	// without the message it is about cannot be answered.
+	return m.withPopup(view, layout)
+}
+
+// viewWithoutPopup draws the screen of §1: the panes, or the one the
+// layout has room for.
+func (m Model) viewWithoutPopup(layout Layout) string {
 	// §10.2 and §10.3: a wide and a medium screen have two panes, and the
 	// right one is there before a chat is chosen. It says what to choose,
 	// which is more use than a quarter of the terminal left empty, and the
@@ -62,6 +72,49 @@ func (m Model) View() string {
 
 	default:
 		return m.fitHeight(m.viewSinglePane(layout, listPane), layout)
+	}
+}
+
+// withPopup draws the sheet or the question over the screen.
+//
+// The question of §12.3 is centred and the sheet sits above the composer,
+// because the composer is the thing a copy ends up in and a user who is
+// about to write is looking at it.
+func (m Model) withPopup(view string, layout Layout) string {
+	rows, firstRow := m.popupRowsAndRow(layout)
+	if len(rows) == 0 {
+		return view
+	}
+
+	return m.fitHeight(m.overlayPopup(view, rows, firstRow), layout)
+}
+
+// popupRowsAndRow returns the rows of the open popup and the screen row it
+// starts on.
+//
+// A modal is centred, because it interrupts everything, and a sheet is
+// placed above the composer, because its items are about a message and its
+// results are drafts.
+func (m Model) popupRowsAndRow(layout Layout) ([]string, int) {
+	switch {
+	case m.modal.open:
+		rows := m.confirmModalRows()
+		first := maxInt((layout.Height-len(rows))/2, 0)
+
+		return rows, first
+
+	case m.actionSheet.open:
+		rows := m.actionSheetRows()
+		first := maxInt(
+			layout.Height-m.composerHeight(layout, layout.ChatContentWidth())-
+				layout.hintLines()-len(rows)-1,
+			0,
+		)
+
+		return rows, first
+
+	default:
+		return nil, 0
 	}
 }
 

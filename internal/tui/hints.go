@@ -30,6 +30,17 @@ func (m Model) hintLines(layout Layout, width int) []string {
 
 // hintText returns the hints of the current focus.
 func (m Model) hintText(layout Layout) string {
+	// A popup is a focus region of its own (§5), so it names its own keys
+	// while it is open: the keys of the timeline do nothing underneath it,
+	// and a hint for a key that does nothing is a promise the interface
+	// cannot keep (§4.6).
+	if m.modal.open {
+		return hintModal
+	}
+	if m.actionSheet.open {
+		return hintActionSheet
+	}
+
 	if m.screen == ScreenChats || m.focus == FocusChatList {
 		return m.chatListHint()
 	}
@@ -61,16 +72,21 @@ func (m Model) composerHint(layout Layout) string {
 }
 
 // timelineHint returns the hints of the message timeline.
+//
+// The action key is in every one of them, because §13 gives every message a
+// menu and a key the user has to know exists is a key they will not press.
 func (m Model) timelineHint(layout Layout) string {
+	prefix := "j/k scroll · a actions"
+
 	if !layout.TwoPane() {
-		return "j/k scroll · Enter composer · Esc back"
+		return prefix + " · Enter composer · Esc back"
 	}
 
 	if layout.Kind == LayoutMedium {
-		return "j/k scroll · Enter composer · Esc chats"
+		return prefix + " · Enter composer · Esc chats"
 	}
 
-	return "j/k scroll · Enter composer · Tab focus · Esc chats"
+	return prefix + " · Enter composer · Tab focus · Esc chats"
 }
 
 // chatListHint is what the chat list says, with the retry key when a
@@ -91,6 +107,14 @@ func (m Model) chatListHint() string {
 func (m Model) chatsRetryPossible() bool {
 	return m.chatsLoadSlow || m.chatsState == loadStateError
 }
+
+// The hints of a popup. They are the keys of a list, and Esc is named with
+// the thing it does rather than with the letter: in an uncertain message it
+// is what keeps the record.
+const (
+	hintActionSheet = "j/k select · Enter run · Esc close"
+	hintModal       = "j/k select · Enter answer · Esc cancel"
+)
 
 // hintChatList is what the chat list says at every width.
 //

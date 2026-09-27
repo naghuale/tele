@@ -17,22 +17,31 @@ import (
 // why String and GoString leave it out: a value on its way to a log line or
 // a crash report must not carry what somebody wrote (§19).
 type PendingMessage struct {
-	EntryID       string
-	ChatID        int64
-	Text          string
-	State         MessageDeliveryState
+	EntryID string
+	ChatID  int64
+	Text    string
+	State   MessageDeliveryState
+
+	// Version is the version the queue read this record at, and it is what
+	// a cancel is made against: the store refuses a cancel of a record that
+	// has moved on since it was read (§13).
+	Version       uint64
 	Attempt       int
 	NextAttemptAt time.Time
 	CreatedAt     time.Time
 }
 
-// String returns the entry and the state, and never the text.
+// String returns the entry, the state and the version, and never the text.
+//
+// The version is here because a failure about a cancel needs it, and it is
+// not personal data: it counts transitions of a record nobody can read.
 func (m PendingMessage) String() string {
 	return fmt.Sprintf(
-		"entry %s state %s attempt %d",
+		"entry %s state %s attempt %d version %d",
 		m.EntryID,
 		m.State,
 		m.Attempt,
+		m.Version,
 	)
 }
 
@@ -163,10 +172,15 @@ func projectPendingMessage(entry outbox.Entry) (PendingMessage, error) {
 	}
 
 	return PendingMessage{
-		EntryID:       string(entry.ID),
-		ChatID:        entry.ChatID,
-		Text:          entry.Text,
-		State:         state,
+		EntryID: string(entry.ID),
+		ChatID:  entry.ChatID,
+		Text:    entry.Text,
+		State:   state,
+		// The version travels with the entry because a cancel is made
+		// against it: the queue refuses a cancel of a record that has
+		// moved on since it was read, and an interface that had no version
+		// to pass could only ever guess.
+		Version:       entry.Version,
 		Attempt:       entry.AttemptCount,
 		NextAttemptAt: entry.NextAttempt,
 		CreatedAt:     entry.CreatedAt,

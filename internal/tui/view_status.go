@@ -93,6 +93,13 @@ const statusSeparator = " · "
 
 // statusParts returns the parts of the status block in priority order.
 func (m Model) statusParts() []string {
+	// A notice is what an action just did, and it is the thing the user is
+	// looking for: they pressed a key and the screen owes them an answer
+	// before it owes them anything else.
+	if m.notice != "" {
+		return []string{m.notice}
+	}
+
 	// §11.1 puts the key and outbox failure above everything else, and
 	// decision 3 names the word. The counts of a queue nothing can be
 	// queued into would be a lie about that queue, so they go.
@@ -183,6 +190,8 @@ const (
 // carries the meaning in every profile whatever the colour does (§14).
 func (m Model) statusStyle() lipgloss.Style {
 	switch {
+	case m.notice != "":
+		return m.styles().text(m.tokens().StatusActive)
 	case m.pausedErr != nil:
 		return m.styles().text(m.tokens().StatusError)
 	case presenceText(m.summary.Presence, m.clock()(), m.timeZone()) != "":

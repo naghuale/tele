@@ -69,6 +69,21 @@ type Dependencies struct {
 	// safe string.
 	SendError error
 
+	// MessageCanceller is optional.
+	//
+	// It cancels a queued message by the version the screen read. A nil
+	// canceller means the program does not own the queue: the sheet still
+	// opens and the items that need it are the ones it cannot perform.
+	MessageCanceller MessageCanceller
+
+	// Clipboard receives the OSC 52 copy sequence.
+	//
+	// It is the program's terminal output and nothing else: the text of a
+	// message goes to the terminal and to no log and to no file (§19). A
+	// nil writer means there is nowhere to send a copy, and the interface
+	// says the copy did not happen rather than claiming it did.
+	Clipboard io.Writer
+
 	// PresenceOpener is optional.
 	//
 	// It is told which chat the user is looking at, because TDLib only
@@ -131,6 +146,8 @@ func NewModelWithDependencies(
 	model.messageStatuses = deps.MessageStatuses
 	model.pendingMessages = deps.PendingMessages
 	model.statusSummaries = deps.StatusSummaries
+	model.canceller = deps.MessageCanceller
+	model.clipboard = deps.Clipboard
 	model.presenceOpener = deps.PresenceOpener
 	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme

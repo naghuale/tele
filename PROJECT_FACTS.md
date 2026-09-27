@@ -616,6 +616,43 @@
     value takes on its way to a log. A presence is a fact about somebody
     who did not ask to be followed, and a log file is read by people who
     are not in the conversation
+- The action sheet (internal/tui/action_sheet.go, `action_sheet_view.go`,
+  `action_sheet_keys.go`, `clipboard.go`, PR-10A.5, §5, §6.2, §8.3, §8.5,
+  §12.3, §13, §14, §24)
+  - `a` in the timeline opens the sheet over the message under the cursor,
+    and the hint bar names it. The items are the table of §13 exactly, and
+    there is no Retry anywhere: a retry is what the queue does on its own
+    schedule
+  - the sheet is a value on the model and not a screen, and it is the first
+    level of the Esc hierarchy of §8.5. Esc closes it, and in an uncertain
+    message closing it is how the user keeps the record
+  - the cursor walks the pending messages as well as the history, so a
+    queued message has a menu. The pending block is only drawn with the
+    history scrolled to its end, and that is where the window goes
+  - the entry, the version and the text are read when the sheet opens: a
+    sheet over a record the queue has moved on would act on a state the
+    user did not choose, and the version is what lets the queue refuse it
+  - `Cancel message` and `Cancel record` go to
+    `OutboxPendingMessageCanceller` with the version the screen read. A
+    refusal that means the record moved (a version conflict, a forbidden
+    transition, a cancel after acceptance, a record that is not there) says
+    `This message changed state. Nothing was canceled.` and drops the
+    record; anything else says `This message was not canceled.` The cause
+    keeps its own text and goes to the diagnostic stream
+  - `Create new message` of a failed message puts the text in the composer
+    and nothing else: a program that re-queued a message on a menu item
+    would send a message nobody confirmed
+  - `Create a new message` of an uncertain message asks first (§12.3), the
+    question starts on `Keep uncertain`, and `Esc` is `Cancel`
+  - `Copy text` writes OSC 52 to the program's terminal and nowhere else.
+    The notice says `Copied`, and with no terminal to write to it says the
+    copy did not happen rather than claiming one
+  - an action that answers says so in the status line, in a notice that one
+    message takes away after three seconds. It is one message, not a repaint
+    loop (§6.3)
+  - a popup is a raised background, one accent line, a shadow column and an
+    indent, and no frame. The rows are cut by column and not by byte, so a
+    cut through a styled row cannot print half an escape sequence
 - Secret logging policy: never log secrets
 - TDLib credentials source (internal/application/auth_credentials.go):
   exactly one source per run, never mixed
@@ -748,6 +785,8 @@
     §18, enqueue error §12.1: accepted
   - PR-10A.4c peer presence in the conversation header, open/close of the
     open chat: accepted
+  - PR-10A.5 action sheet and the uncertain decision, cancel of a queued
+    message, copy through OSC 52: accepted
   - 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05

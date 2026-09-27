@@ -105,7 +105,7 @@ func TestPausedEnterUsesTheSubmitterAndNothingElse(t *testing.T) {
 	m := h17PausedModel(t, submitter)
 	m.source = source
 	m.focus = FocusComposer
-	m.composer = []rune("unsent draft")
+	setDraft(&m, "unsent draft")
 
 	updated, cmd := m.Update(press(tea.KeyEnter))
 	m = updated.(Model)
@@ -131,7 +131,7 @@ func TestPausedRefusalPreservesDraftAndFocus(t *testing.T) {
 	submitter := &h17CountingSubmitter{}
 	m := h17PausedModel(t, submitter)
 	m.focus = FocusComposer
-	m.composer = []rune("unsent draft")
+	setDraft(&m, "unsent draft")
 
 	updated, cmd := m.Update(press(tea.KeyEnter))
 	m = updated.(Model)
@@ -154,7 +154,7 @@ func TestPausedStateNeverFallsBackToDirectSend(t *testing.T) {
 	source := &fakeChatSource{}
 	m := h17PausedModel(t, &h17CountingSubmitter{})
 	m.focus = FocusComposer
-	m.composer = []rune("unsent draft")
+	setDraft(&m, "unsent draft")
 
 	updated, cmd := m.Update(press(tea.KeyEnter))
 	m = updated.(Model)
@@ -183,7 +183,7 @@ func TestPausedViewDoesNotSaySendFailed(t *testing.T) {
 func TestPausedReasonSurvivesClearingTheDraft(t *testing.T) {
 	m := h17PausedModel(t, &h17CountingSubmitter{})
 	m.focus = FocusComposer
-	m.composer = []rune("unsent draft")
+	setDraft(&m, "unsent draft")
 
 	if m.sendState != sendStateError {
 		t.Fatalf("sendState = %v, want error", m.sendState)

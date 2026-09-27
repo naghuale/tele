@@ -74,7 +74,7 @@ func TestChatListTakesTheWholeWidthWithoutAConversation(t *testing.T) {
 // conversation on a screen below six rows is the composer alone.
 func TestShortScreenRules(t *testing.T) {
 	withHints := openedModel(t, 60, 20).View()
-	if !strings.Contains(withHints, "Enter send · Esc back") {
+	if !strings.Contains(withHints, "Alt+Enter newline") {
 		t.Fatalf("a screen of 20 rows has no hint bar:\n%s", withHints)
 	}
 
@@ -238,16 +238,19 @@ func TestHintBarFollowsFocusAndWidth(t *testing.T) {
 		model Model
 		want  string
 	}{
-		"list":          {model: sizedModel(t, 120, 30), want: hintChatList},
-		"list narrow":   {model: sizedModel(t, 60, 30), want: hintChatList},
-		"composer wide": {model: openedModel(t, 120, 30), want: "Enter send · Tab focus · Esc timeline"},
+		"list":        {model: sizedModel(t, 120, 30), want: hintChatList},
+		"list narrow": {model: sizedModel(t, 60, 30), want: hintChatList},
+		"composer wide": {
+			model: openedModel(t, 120, 30),
+			want:  "Enter send · Alt+Enter newline · Tab focus · Esc timeline",
+		},
 		"composer medium": {
 			model: openedModel(t, 80, 30),
-			want:  "Enter send · Esc timeline",
+			want:  "Enter send · Alt+Enter newline · Esc timeline",
 		},
 		"composer narrow": {
 			model: openedModel(t, 60, 30),
-			want:  "Enter send · Esc back",
+			want:  "Enter send · Alt+Enter newline · Esc back",
 		},
 	}
 

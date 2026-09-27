@@ -352,7 +352,41 @@
   - opening a chat and sending a message both put the cursor on the
     newest message; a message that arrives while a reader is scrolled
     up does not move them
-- Composer: internal/tui/model.go
+- Composer: internal/tui/composer_text.go, composer_layout.go,
+  view_composer.go, model.go (PR-10A.3, §4.5, §7, §8.4)
+  - the draft is a run of runes and composerCursor is an index into it.
+    Editing goes over grapheme clusters (github.com/rivo/uniseg, a direct
+    dependency since PR-10A.3), so a ZWJ emoji or a letter with a
+    combining accent is one thing to move over and one thing to delete
+  - keys (§8.4): arrows and Home/End and Ctrl+A/Ctrl+E move the cursor,
+    up and down move between the rows of the draft keeping the column,
+    Backspace and Delete remove a cluster, Ctrl+U clears to the cursor,
+    Ctrl+W takes the word before it, Ctrl+K takes the rest of the line,
+    Tab and Shift+Tab move the focus and Esc leaves without losing the
+    draft
+  - Enter sends and Alt+Enter starts a line. Shift+Enter is not offered
+    because Bubble Tea v1 cannot tell it from Enter in most terminals
+    (divergence 3); the hint bar names Alt+Enter on every width
+  - a bracketed paste goes in whole, newlines and all, and is never a
+    send
+  - height (§4.5): one row for a draft that fits, more as it grows, four
+    at most and never more than 30% of the screen. The window follows
+    the cursor, so the row being written is always on screen
+  - a draft longer than the field is hard-wrapped for the screen and
+    never written into: what reaches SubmitMessage is the text as typed,
+    spaces and newlines included. Emptiness is a separate test
+  - the draft is cleared only after a successful enqueue, and a failure
+    keeps the text and the cursor
+  - editing forgets an ordinary send error and never forgets a paused
+    one: nothing was attempted, the reason still holds, and a user who
+    cannot send is told so on every keystroke
+  - Enter on a blank draft sends nothing, makes no error, and lights the
+    placeholder for 700ms through one message. Where the hint bar is
+    hidden the placeholder says "Write a message… (Enter to send)"
+  - the cursor is drawn: reverse video on the character it is at, a bar
+    at the end of a row. A terminal with no colour prints no attributes
+    either, and the bar is all that is left there
+- Composer (pre-10A.3 behaviour, kept in model.go)
   - Enter starts a send only with non-nil source, non-empty
     TrimSpace(text), no send in flight, and a selected chat
   - composer is frozen while sendState == sendStateSending
@@ -587,8 +621,10 @@
     one focus, Esc hierarchy, focus-aware hint bar, drawn with the
     tokens of the theme)
   - PR-10A.2b chronological timeline and conversation keys: accepted
-  - PR-10A.3 composer, 10A.4 delivery and status block, 10A.5 action
-    sheet, 10A.6 chat search, 10A.7 snapshots: pending
+  - PR-10A.3 multi-line composer with a cursor and readline keys:
+    accepted
+  - PR-10A.4 delivery and status block, 10A.5 action sheet, 10A.6 chat
+    search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

@@ -245,3 +245,34 @@ func (s viewStyles) rowText(selected bool) lipgloss.Style {
 
 	return s.text(s.theme.Tokens.PrimaryText)
 }
+
+// cursor is the style of the cursor of the composer.
+//
+// It is reverse where the terminal prints attributes and the cursor colour
+// where it does not, and the glyph it sits on or the bar it becomes is what
+// makes it visible in both. §4.5 asks for a bright cursor, and brightness
+// is the one thing a terminal without colour cannot do — so the bar, not the
+// colour, is the part that has to work everywhere.
+func (s viewStyles) cursor(focused bool) lipgloss.Style {
+	if focused {
+		return s.renderer.NewStyle().
+			Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Hex())).
+			Reverse(true)
+	}
+
+	return s.dimmed(s.theme.Tokens.Cursor)
+}
+
+// litPlaceholder is the placeholder after a blank Enter (§7.3).
+//
+// It is a change of style and nothing else: the same words in the accent of
+// the composer, for a moment, and no timer anywhere near the screen.
+func (s viewStyles) litPlaceholder() lipgloss.Style {
+	if s.theme.Tokens.Cursor.Kind() != theme.ColorKindRGB {
+		return s.renderer.NewStyle().Bold(true).Reverse(true)
+	}
+
+	return s.renderer.NewStyle().
+		Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Hex())).
+		Bold(true)
+}

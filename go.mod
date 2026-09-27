@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/muesli/termenv v0.16.0
+	github.com/rivo/uniseg v0.4.7
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.59.0
 )
@@ -29,7 +30,6 @@ require (
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

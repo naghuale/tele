@@ -494,8 +494,12 @@ func TestEnterComposerRejectsWhitespace(t *testing.T) {
 	updated, cmd := m.Update(press(tea.KeyEnter))
 	mm := updated.(Model)
 
+	// The command that comes back puts the lit placeholder out again
+	// (§7.3); what must not come back is a send.
 	if cmd != nil {
-		t.Fatal("whitespace-only composer must not produce a command")
+		if _, ok := runCmd(t, cmd).(composerPlaceholderExpiredMsg); !ok {
+			t.Fatal("whitespace-only composer must not produce a send")
+		}
 	}
 	if mm.sendState != sendStateIdle {
 		t.Fatalf("sendState = %s, want idle", mm.sendState)

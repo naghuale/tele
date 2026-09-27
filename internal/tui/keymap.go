@@ -69,8 +69,23 @@ func isShiftTab(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyShiftTab
 }
 
+// isClearComposer, isKillLine and isDeleteWordBefore are the readline keys
+// the composer answers (§8.4).
+//
+// Ctrl+U clears from the start of the line to the cursor and Ctrl+W takes
+// the word before it, which is what they do everywhere else. Ctrl+K is the
+// other half of the first pair and comes with them: a text field where two
+// of the three work and one does not is a field nobody can predict.
 func isClearComposer(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyCtrlU
+}
+
+func isKillLine(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyCtrlK
+}
+
+func isDeleteWordBefore(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyCtrlW
 }
 
 // isQuit reports the one single-letter key that leaves the program.

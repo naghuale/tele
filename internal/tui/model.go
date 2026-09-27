@@ -2,7 +2,6 @@ package tui
 
 import (
 	"context"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -111,7 +110,22 @@ type Model struct {
 	// follows the user into every chat instead of being cleared on entry.
 	pausedErr error
 
-	composer []rune
+	// composer is the draft and composerCursor the index in it.
+	//
+	// The cursor is its own field because a draft is not written at the
+	// end: it is written where the user is looking, and a composer that can
+	// only append cannot be corrected without deleting and retyping.
+	composer       []rune
+	composerCursor int
+
+	// composerPlaceholderLit is the one style change of §7.3: pressing
+	// Enter on a blank draft lights the placeholder for a moment, so that a
+	// user who pressed Enter knows the composer was there.
+	//
+	// It is put out by one message rather than by a timer that repaints the
+	// screen: §6.3 asks for no full-screen refresh loops, and one message
+	// is not one.
+	composerPlaceholderLit bool
 
 	authPrompt   AuthPromptKind
 	authCanceled bool
@@ -233,6 +247,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messageStatusesFailedMsg:
 		return m.handleMessageStatusesFailed(msg)
+
+	case composerPlaceholderExpiredMsg:
+		m.composerPlaceholderLit = false
+		return m, nil
 
 	case messageStatusPollTickMsg:
 		return m.handleMessageStatusPollTick(msg)
@@ -545,7 +563,10 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 
 	m.sendState = sendStateIdle
 	m.sendErr = nil
+	// The draft is cleared only now, after the queue has taken it (§7.1),
+	// and the cursor goes with it: the next draft starts at its beginning.
 	m.composer = nil
+	m.composerCursor = 0
 	submission := msg.submission
 	m.lastSubmission = &submission
 	return m, nil
@@ -572,6 +593,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		if m.screen == ScreenAuth {
 			m.composer = nil
+			m.composerCursor = 0
 			m.authCanceled = true
 		}
 		m.quitting = true
@@ -761,20 +783,6 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case isShiftTab(msg):
 		return m.cycleFocus(-1), nil
-
-	case isClearComposer(msg):
-		if m.focus == FocusComposer && m.sendState != sendStateSending {
-			m.composer = nil
-			m.sendState = sendStateIdle
-			m.sendErr = nil
-			if m.pausedErr != nil {
-				// Clearing the draft must not also silence the reason
-				// sending is impossible. That still holds.
-				m.sendState = sendStateError
-				m.sendErr = m.pausedErr
-			}
-		}
-		return m, nil
 	}
 
 	// A two-pane screen shows the chat list beside the conversation, so
@@ -918,49 +926,206 @@ func (m Model) visibleFocusRegions() []Focus {
 	return []Focus{FocusChatList, FocusHistory, FocusComposer}
 }
 
-// updateComposerKey handles composer editing.
+// updateComposerKey handles the keys of the composer (§8.4, §7.4).
 //
-// While a send is in flight the composer is frozen: no rune, space,
-// backspace, or clear action is applied. This prevents text typed after
-// Enter from being discarded when the successful send clears the
-// composer.
+// While a send is in flight the composer is frozen: no rune, paste or
+// deletion is applied. Text typed after Enter must not be thrown away when
+// the queue accepts the message.
+//
+// Alt+Enter is the newline. Shift+Enter is not offered as one because
+// Bubble Tea v1 cannot tell it from Enter in most terminals — divergence 3
+// of the specification — so the key that starts a line is the one that
+// works everywhere, and the hint bar names it.
 func (m Model) updateComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sendState == sendStateSending {
 		return m, nil
 	}
 
+	// A paste is text. It goes in whole, newlines and all, and it is never
+	// a send: a message copied from a file must not leave the composer
+	// because it had a line break in it.
+	if msg.Paste {
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = insertText(
+				m.composer,
+				m.composerCursor,
+				msg.Runes,
+			)
+		}), nil
+	}
+
+	// The readline keys of §8.4: clear to the cursor, kill the line, delete
+	// the word before the cursor.
+	switch {
+	case isClearComposer(msg):
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = clearToCursor(
+				m.composer,
+				m.composerCursor,
+			)
+		}), nil
+
+	case isKillLine(msg):
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = clearLine(
+				m.composer,
+				m.composerCursor,
+			)
+		}), nil
+
+	case isDeleteWordBefore(msg):
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = deleteWordBefore(
+				m.composer,
+				m.composerCursor,
+			)
+		}), nil
+	}
+
 	switch msg.Type {
 	case tea.KeyRunes:
-		m.composer = append(m.composer, msg.Runes...)
-		if m.sendState == sendStateError {
-			m.sendState = sendStateIdle
-			m.sendErr = nil
-		}
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = insertText(
+				m.composer,
+				m.composerCursor,
+				msg.Runes,
+			)
+		}), nil
 
-	case tea.KeySpace:
-		m.composer = append(m.composer, ' ')
-		if m.sendState == sendStateError {
-			m.sendState = sendStateIdle
-			m.sendErr = nil
-		}
-
-	case tea.KeyBackspace:
-		if len(m.composer) > 0 {
-			m.composer = m.composer[:len(m.composer)-1]
-		}
-		if m.sendState == sendStateError {
-			m.sendState = sendStateIdle
-			m.sendErr = nil
-		}
+	case tea.KeySpace, tea.KeyTab:
+		// Tab moves the focus (§8.4), so a space is the only key that adds
+		// a gap here.
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = insertText(
+				m.composer,
+				m.composerCursor,
+				[]rune{' '},
+			)
+		}), nil
 
 	case tea.KeyEnter:
+		if msg.Alt {
+			return m.edit(func(m *Model) {
+				m.composer, m.composerCursor = insertText(
+					m.composer,
+					m.composerCursor,
+					[]rune{'\n'},
+				)
+			}), nil
+		}
+
 		return m.handleComposerEnter()
+
+	case tea.KeyBackspace:
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = deleteBefore(
+				m.composer,
+				m.composerCursor,
+			)
+		}), nil
+
+	case tea.KeyDelete:
+		return m.edit(func(m *Model) {
+			m.composer, m.composerCursor = deleteAfter(
+				m.composer,
+				m.composerCursor,
+			)
+		}), nil
+
+	case tea.KeyLeft:
+		return m.edit(func(m *Model) {
+			m.composerCursor = moveLeft(m.composer, m.composerCursor)
+		}), nil
+
+	case tea.KeyRight:
+		return m.edit(func(m *Model) {
+			m.composerCursor = moveRight(m.composer, m.composerCursor)
+		}), nil
+
+	case tea.KeyUp:
+		return m.edit(func(m *Model) { m.moveComposerRow(-1) }), nil
+
+	case tea.KeyDown:
+		return m.edit(func(m *Model) { m.moveComposerRow(1) }), nil
+
+	case tea.KeyHome, tea.KeyCtrlA:
+		return m.edit(func(m *Model) {
+			m.composerCursor = lineStart(m.composer, m.composerCursor)
+		}), nil
+
+	case tea.KeyEnd, tea.KeyCtrlE:
+		return m.edit(func(m *Model) {
+			m.composerCursor = lineEnd(m.composer, m.composerCursor)
+		}), nil
+
 	}
 
 	return m, nil
 }
 
-// handleComposerEnter implements the composer Enter action.
+// edit applies a change to the draft and puts the screen state right
+// afterwards.
+//
+// Every key that touches the text goes through here, so two things cannot
+// be forgotten by one key and remembered by another: a draft that is no
+// longer blank puts the lit placeholder out, and a send that failed
+// because of the text is forgotten.
+func (m Model) edit(change func(m *Model)) Model {
+	change(&m)
+
+	m.composerPlaceholderLit = false
+	m.forgetSendError()
+
+	m.composerCursor = clampIndex(m.composerCursor, len(m.composer))
+
+	return m
+}
+
+// forgetSendError clears the state of a send that failed, so that editing
+// the draft is a fresh start.
+//
+// It does nothing while sending is paused. Nothing was ever attempted, the
+// reason still holds, and a user who cannot send is told so on every
+// keystroke rather than once: a reason that disappears when a key is
+// pressed is a reason the user has to remember.
+func (m *Model) forgetSendError() {
+	if m.pausedErr != nil {
+		return
+	}
+	if m.sendState == sendStateError {
+		m.sendState = sendStateIdle
+		m.sendErr = nil
+	}
+}
+
+// moveComposerRow moves the cursor one row up or down, keeping its column
+// where the row it lands on is long enough and putting it at the end of it
+// where it is not.
+func (m *Model) moveComposerRow(delta int) {
+	layout := layoutComposer(m.composer, m.composerCursor, m.composerWidth())
+	row, column := layout.cursorRow, layout.cursorColumn
+
+	row += delta
+	if row < 0 {
+		row = 0
+	}
+	if row > layout.lastRow() {
+		row = layout.lastRow()
+	}
+
+	m.composerCursor = layout.indexAt(row, column)
+}
+
+// composerWidth returns the width a row of the draft is laid out in.
+func (m Model) composerWidth() int {
+	layout := LayoutFor(m.width, m.height)
+	width := layout.ChatContentWidth() -
+		selectionMarkerWidth -
+		contentInsetWidth
+
+	return maxInt(width, 1)
+}
+
 func (m Model) handleComposerEnter() (tea.Model, tea.Cmd) {
 	if m.source == nil && m.submitter == nil {
 		return m, nil
@@ -970,8 +1135,13 @@ func (m Model) handleComposerEnter() (tea.Model, tea.Cmd) {
 	}
 
 	text := string(m.composer)
-	if strings.TrimSpace(text) == "" {
-		return m, nil
+	if blankDraft(m.composer) {
+		// §7.3: nothing is sent and no error is made, and the placeholder
+		// is lit for a moment so that a user who pressed Enter knows the
+		// composer was there.
+		m.composerPlaceholderLit = true
+
+		return m, composerPlaceholderCmd()
 	}
 
 	chat := m.selected()

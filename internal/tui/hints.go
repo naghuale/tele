@@ -42,16 +42,22 @@ func (m Model) hintText(layout Layout) string {
 }
 
 // composerHint returns the hints of the composer.
+//
+// The newline key is in every one of them and is never cut: it is the key
+// a user cannot guess, because Bubble Tea v1 does not tell Shift+Enter from
+// Enter in most terminals (divergence 3) and Alt+Enter is not what anybody
+// tries first. The focus and the way out are what shrink as the screen does.
 func (m Model) composerHint(layout Layout) string {
-	if !layout.TwoPane() {
-		return "Enter send · Esc back"
-	}
+	switch {
+	case !layout.TwoPane():
+		return "Enter send · Alt+Enter newline · Esc back"
 
-	if layout.Kind == LayoutMedium {
-		return "Enter send · Esc timeline"
-	}
+	case layout.Kind == LayoutMedium:
+		return "Enter send · Alt+Enter newline · Esc timeline"
 
-	return "Enter send · Tab focus · Esc timeline"
+	default:
+		return "Enter send · Alt+Enter newline · Tab focus · Esc timeline"
+	}
 }
 
 // timelineHint returns the hints of the message timeline.

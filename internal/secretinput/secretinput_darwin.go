@@ -55,23 +55,29 @@ func (ttyReader) ReadSecret(prompt string) ([]byte, error) {
 	}
 	defer C.telecli_zero(cValue)
 
+	return copySecret(cValue)
+}
+
+// copySecret copies a C secret into a caller-owned slice.
+//
+// The copy is returned intact; wiping it is the caller's job once the
+// secret has been used, as the Reader contract says. Only the C buffer is
+// wiped here, by the caller's deferred telecli_zero. Zeroing the copy
+// before returning handed every caller NUL bytes instead of the secret.
+func copySecret(cValue *C.char) ([]byte, error) {
 	length := C.strlen(cValue)
 	if length == 0 {
 		return nil, ErrEmpty
 	}
-
-	value := C.GoBytes(unsafe.Pointer(cValue), C.int(length))
-
-	// A Go copy of a secret is unavoidable at the call boundary, so it
-	// is zeroed as soon as the caller is done with it.
-	zeroBytes(value)
-
-	return value, nil
+	return C.GoBytes(unsafe.Pointer(cValue), C.int(length)), nil
 }
 
-// zeroBytes overwrites a secret slice in place.
-func zeroBytes(value []byte) {
-	for i := range value {
-		value[i] = 0
-	}
+// copySecretFromString runs copySecret on a C copy of value and wipes
+// that copy afterwards, as ReadSecret does. Test files cannot use cgo,
+// so the tests reach copySecret through it.
+func copySecretFromString(value string) ([]byte, error) {
+	cValue := C.CString(value)
+	defer C.free(unsafe.Pointer(cValue))
+	defer C.telecli_zero(cValue)
+	return copySecret(cValue)
 }

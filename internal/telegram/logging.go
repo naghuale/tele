@@ -89,7 +89,38 @@ func setSafeTDLibLogVerbosity(native Native) error {
 		)
 	}
 
-	return nil
+	// td_execute reports a rejected request as a successful call that
+	// returns an error object. Only an explicit ok proves the verbosity
+	// was lowered; anything else must fail closed.
+	var envelope struct {
+		Type    string `json:"@type"`
+		Code    int    `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(response, &envelope); err != nil {
+		return fmt.Errorf(
+			"%w: decode response: %w",
+			ErrTDLibLogConfiguration,
+			err,
+		)
+	}
+	switch envelope.Type {
+	case "ok":
+		return nil
+	case "error":
+		return fmt.Errorf(
+			"%w: TDLib error code=%d message=%q",
+			ErrTDLibLogConfiguration,
+			envelope.Code,
+			envelope.Message,
+		)
+	default:
+		return fmt.Errorf(
+			"%w: unexpected response type %q",
+			ErrTDLibLogConfiguration,
+			envelope.Type,
+		)
+	}
 }
 
 // ConfigureSafeLogging lowers TDLib's log verbosity for production use.

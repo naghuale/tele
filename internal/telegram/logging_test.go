@@ -21,9 +21,11 @@ type recordingNative struct {
 	responses     [][]byte
 	executeErr    error
 	emptyResponse bool
-	receive       chan []byte
-	onSend        func(kind string, raw []byte)
-	clientID      int
+	// executeResponse, when set, replaces the default ok response.
+	executeResponse []byte
+	receive         chan []byte
+	onSend          func(kind string, raw []byte)
+	clientID        int
 }
 
 func newRecordingNative() *recordingNative {
@@ -78,6 +80,9 @@ func (n *recordingNative) Execute(request []byte) ([]byte, error) {
 	n.mu.Lock()
 	n.responses = append(n.responses, append([]byte(nil), request...))
 	n.mu.Unlock()
+	if n.executeResponse != nil {
+		return append([]byte(nil), n.executeResponse...), nil
+	}
 	return []byte(`{"@type":"ok"}`), nil
 }
 
@@ -272,6 +277,65 @@ func TestSetSafeTDLibLogVerbosityRejectsNilNative(t *testing.T) {
 		ErrTDLibLogConfiguration,
 	) {
 		t.Fatalf("error = %v, want ErrTDLibLogConfiguration", err)
+	}
+}
+
+// TestSetSafeTDLibLogVerbosityFailsClosedOnNonOkResponse pins that only
+// an explicit ok counts as success. td_execute returns a rejected request
+// as an error object rather than a call failure, and accepting it would
+// leave TDLib at its default verbosity, which dumps api_hash.
+func TestSetSafeTDLibLogVerbosityFailsClosedOnNonOkResponse(t *testing.T) {
+	cases := map[string]string{
+		"error object":    `{"@type":"error","code":400,"message":"rejected"}`,
+		"unexpected type": `{"@type":"logVerbosityLevel","verbosity_level":5}`,
+		"missing type":    `{}`,
+		"malformed json":  `{"@type":`,
+	}
+	for name, response := range cases {
+		t.Run(name, func(t *testing.T) {
+			native := newRecordingNative()
+			native.executeResponse = []byte(response)
+
+			if err := setSafeTDLibLogVerbosity(native); !errors.Is(
+				err,
+				ErrTDLibLogConfiguration,
+			) {
+				t.Fatalf("error = %v, want ErrTDLibLogConfiguration", err)
+			}
+		})
+	}
+}
+
+// TestAuthorizeFailsClosedWhenTDLibRejectsVerbosity pins that a rejected
+// verbosity request stops startup before any client exists, so no
+// credential-bearing request can be sent.
+func TestAuthorizeFailsClosedWhenTDLibRejectsVerbosity(t *testing.T) {
+	native := newRecordingNative()
+	native.executeResponse = []byte(
+		`{"@type":"error","code":400,"message":"rejected"}`,
+	)
+	runtime := newStartedRecordingRuntime(t, native)
+
+	// Without the fail-closed check Authorize would proceed and wait
+	// for an authorization state that never arrives.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, err := Authorize(
+		ctx,
+		runtime,
+		TdlibParameters{},
+		&fakeProvider{},
+	)
+	if !errors.Is(err, ErrTDLibLogConfiguration) {
+		t.Fatalf("error = %v, want ErrTDLibLogConfiguration", err)
+	}
+
+	for _, event := range native.recordedEvents() {
+		if event == "create_client_id" || strings.HasPrefix(event, "send:") {
+			t.Fatalf("event %q after rejected verbosity: %v",
+				event, native.recordedEvents())
+		}
 	}
 }
 

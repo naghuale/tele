@@ -381,3 +381,5 @@
 ## Open ADRs
 - ADR-0001: TDLib modern JSON C API through an internal dynamic cgo
   loader (accepted)
+- ADR-0002: durable outbox storage and at-rest privacy (accepted)
+- ADR-0003: live updates through a coalescing state store (proposed)

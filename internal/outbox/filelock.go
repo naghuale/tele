@@ -24,4 +24,11 @@ type fileLockFactory interface {
 		ctx context.Context,
 		databaseID string,
 	) (fileLock, error)
+
+	// TryAcquire takes the lock once and reports a held lock at once,
+	// instead of waiting for it.
+	TryAcquire(
+		ctx context.Context,
+		databaseID string,
+	) (fileLock, error)
 }

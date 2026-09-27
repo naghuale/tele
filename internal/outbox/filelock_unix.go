@@ -114,6 +114,39 @@ func (f *dirFileLockFactory) Acquire(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+
+	ticker := time.NewTicker(fileLockRetryInterval)
+	defer ticker.Stop()
+
+	for {
+		lock, err := f.TryAcquire(ctx, databaseID)
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, ErrOutboxQueueInUse) {
+			return nil, err
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// TryAcquire takes the lock for databaseID once.
+//
+// A lock that is already held is reported as ErrOutboxQueueInUse at
+// once, so a caller that must not wait can say so instead of looking
+// hung.
+func (f *dirFileLockFactory) TryAcquire(
+	ctx context.Context,
+	databaseID string,
+) (fileLock, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := validateDatabaseID(databaseID); err != nil {
 		return nil, err
 	}
@@ -138,38 +171,33 @@ func (f *dirFileLockFactory) Acquire(
 		)
 	}
 
-	ticker := time.NewTicker(fileLockRetryInterval)
-	defer ticker.Stop()
+	err = syscall.Flock(
+		int(file.Fd()),
+		syscall.LOCK_EX|syscall.LOCK_NB,
+	)
 
-	for {
-		err := syscall.Flock(
-			int(file.Fd()),
-			syscall.LOCK_EX|syscall.LOCK_NB,
+	switch {
+	case err == nil:
+		return &flockHandle{file: file}, nil
+
+	case errors.Is(err, syscall.EWOULDBLOCK),
+		errors.Is(err, syscall.EAGAIN):
+		_ = file.Close()
+
+		return nil, fmt.Errorf(
+			"%w: %s",
+			ErrOutboxQueueInUse,
+			databaseID,
 		)
 
-		switch {
-		case err == nil:
-			return &flockHandle{file: file}, nil
+	default:
+		_ = file.Close()
 
-		case errors.Is(err, syscall.EWOULDBLOCK),
-			errors.Is(err, syscall.EAGAIN):
-			// Wait for the next retry or context cancellation.
-
-		default:
-			_ = file.Close()
-			return nil, fmt.Errorf(
-				"%w: flock: %v",
-				ErrFileLockUnavailable,
-				err,
-			)
-		}
-
-		select {
-		case <-ctx.Done():
-			_ = file.Close()
-			return nil, ctx.Err()
-		case <-ticker.C:
-		}
+		return nil, fmt.Errorf(
+			"%w: flock: %v",
+			ErrFileLockUnavailable,
+			err,
+		)
 	}
 }
 

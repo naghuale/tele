@@ -91,6 +91,17 @@ type Deps struct {
 	KeyProvider KeyProvider
 	Sender      Sender
 	Clock       Clock
+
+	// Exclusive asks Open to hold the run lock of the data directory
+	// for the lifetime of the returned Outbox, and to fail with
+	// ErrOutboxQueueInUse when another telecli process already holds
+	// the queue.
+	//
+	// It is opt-in per caller. A session that will send messages sets
+	// it, so nothing else can move the queue while it runs. A read-only
+	// probe leaves it false: a diagnostic must keep working while a
+	// session is open, and must not block one either.
+	Exclusive bool
 }
 
 // Outbox is the assembled durable outbox.
@@ -99,21 +110,40 @@ type Outbox struct {
 	Dispatcher *Dispatcher
 	Cipher     PayloadCipher
 
-	closer io.Closer
+	closer  io.Closer
+	runLock RunLock
 }
 
 // Close releases the underlying SQLite handle.
 //
 // Close is idempotent.
 func (o *Outbox) Close() error {
-	if o == nil || o.closer == nil {
+	if o == nil {
 		return nil
 	}
 
 	closer := o.closer
 	o.closer = nil
 
-	return closer.Close()
+	runLock := o.runLock
+	o.runLock = nil
+
+	var errs []error
+	if closer != nil {
+		errs = append(errs, closer.Close())
+	}
+	if runLock != nil {
+		errs = append(errs, runLock.Release())
+	}
+
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return errors.Join(errs...)
+	}
 }
 
 // Open assembles a durable outbox.
@@ -122,10 +152,11 @@ func (o *Outbox) Close() error {
 //
 //  1. Validate Config and Deps.
 //  2. Prepare DataDir and verify its type, ownership, and permissions.
-//  3. Inspect the database path without following symbolic links.
-//  4. Resolve the data-encryption key.
-//  5. Build AEADCipher and open the SQLite Store.
-//  6. Build Dispatcher when Deps.Sender is non-nil.
+//  3. Take the run lock when Deps.Exclusive is set.
+//  4. Inspect the database path without following symbolic links.
+//  5. Resolve the data-encryption key.
+//  6. Build AEADCipher and open the SQLite Store.
+//  7. Build Dispatcher when Deps.Sender is non-nil.
 //
 // Fail-closed behavior:
 //
@@ -135,13 +166,14 @@ func (o *Outbox) Close() error {
 //     partially initialized database;
 //   - a non-regular database path is rejected;
 //   - key-provider failures never fall back to plaintext or memory;
+//   - a queue with an unfinished reset is never created from scratch;
 //   - insecure, foreign-owned, or symlinked DataDir values are
 //     rejected.
 func Open(
 	ctx context.Context,
 	cfg Config,
 	deps Deps,
-) (*Outbox, error) {
+) (opened *Outbox, err error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -165,6 +197,24 @@ func Open(
 		cfg.DataDir,
 	); err != nil {
 		return nil, err
+	}
+
+	var runLock RunLock
+	if deps.Exclusive {
+		acquired, lockErr := AcquireRunLock(ctx, cfg.DataDir)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		runLock = acquired
+
+		// Every failure below must hand the queue back, or a refused
+		// Open would leave a session that never started holding the
+		// only lock that says the queue is free.
+		defer func() {
+			if err != nil {
+				_ = runLock.Release()
+			}
+		}()
 	}
 
 	dbPath := filepath.Join(
@@ -218,9 +268,10 @@ func Open(
 	}
 
 	result := &Outbox{
-		Store:  store,
-		Cipher: payloadCipher,
-		closer: closer,
+		Store:   store,
+		Cipher:  payloadCipher,
+		closer:  closer,
+		runLock: runLock,
 	}
 
 	if deps.Sender != nil {
@@ -338,9 +389,10 @@ func prepareDataDir(
 //
 //   - database path absent plus key absent calls CreateKey;
 //   - database path absent plus key present reuses the existing key;
-//   - regular database path present plus key present reuses the key;
+//   - database path present plus key present reuses the key;
 //   - any database path present plus key absent fails closed;
-//   - a non-regular database path is inconsistent initialization.
+//   - a non-regular database path is inconsistent initialization;
+//   - an unfinished reset fails closed instead of creating a key.
 func resolveKey(
 	ctx context.Context,
 	cfg Config,
@@ -387,6 +439,17 @@ func resolveKey(
 			"%w: %w: database path exists but key is unavailable",
 			ErrOutboxInconsistentInit,
 			ErrOutboxKeyUnavailable,
+		)
+	}
+
+	// A reset that was started and not finished must not be undone by a
+	// start. Creating a key here would give the old identity a fresh
+	// key, and the user would see a working, empty queue instead of the
+	// reset they were told to run.
+	if PendingReset(cfg.DataDir) {
+		return nil, fmt.Errorf(
+			"%w: run telecli outbox reset to finish it",
+			ErrOutboxResetPending,
 		)
 	}
 

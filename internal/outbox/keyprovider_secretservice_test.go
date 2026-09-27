@@ -86,6 +86,13 @@ func (f *fakeLockFactory) Acquire(
 	return noopLock{}, nil
 }
 
+func (f *fakeLockFactory) TryAcquire(
+	ctx context.Context,
+	databaseID string,
+) (fileLock, error) {
+	return f.Acquire(ctx, databaseID)
+}
+
 type noopLock struct{}
 
 func (noopLock) Release() error { return nil }

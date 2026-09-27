@@ -32,6 +32,15 @@ type AuthSender interface {
 type AuthResult struct {
 	State   AuthState
 	Elapsed time.Duration
+
+	// HeldUpdates carries the non-authorization updates that arrived
+	// while this run was driving TDLib to Ready, in arrival order.
+	//
+	// They are dropped here and applied to the session's LiveState
+	// instead, because TDLib sends updateNewChat exactly once per chat:
+	// a chat first seen during authorization would otherwise never enter
+	// the store, and no later update would mention it again.
+	HeldUpdates []RawMessage
 }
 
 var (
@@ -152,7 +161,7 @@ func RunAuthWithClientDiagnostics(
 	params TdlibParameters,
 	provider AuthProvider,
 	diagnostics AuthDiagnostics,
-) (AuthResult, error) {
+) (result AuthResult, err error) {
 	if sender == nil {
 		return AuthResult{}, ErrNilRuntime
 	}
@@ -166,6 +175,13 @@ func RunAuthWithClientDiagnostics(
 	if diagnostics == nil {
 		diagnostics = DiscardAuthDiagnostics()
 	}
+
+	// Updates that are not authorization states are held instead of
+	// dropped, so the session's LiveState starts from what TDLib already
+	// reported. The named results let the deferred assignment cover every
+	// return path, including the failure ones.
+	var held []RawMessage
+	defer func() { result.HeldUpdates = held }()
 
 	session := NewAuthSession(params)
 	start := time.Now()
@@ -287,7 +303,12 @@ func RunAuthWithClientDiagnostics(
 			}
 
 			if state == AuthStateUnknown {
-				// Non-authorization update.
+				// Non-authorization update. The ones the chat-list
+				// store consumes are held for the session; the rest
+				// are traffic no live store models yet.
+				if isLiveStateUpdate(update.Raw) {
+					held = append(held, append(RawMessage(nil), update.Raw...))
+				}
 				continue
 			}
 

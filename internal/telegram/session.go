@@ -34,8 +34,12 @@ type AuthorizedSession struct {
 
 	shutdownTimeout time.Duration
 
-	updates chan Update
-	errors  chan error
+	// live is the single application-facing view of TDLib updates. The
+	// pump is its only writer; readers take snapshots. The former lossy
+	// s.updates channel is gone with ADR-0003 step 1.
+	live *LiveState
+
+	errors chan error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -133,6 +137,7 @@ func Authorize(
 		rt,
 		client,
 		rt.ShutdownTimeout(),
+		result.HeldUpdates,
 	), nil
 }
 
@@ -183,6 +188,7 @@ func closeFailedAuthorization(
 		rt,
 		client,
 		rt.ShutdownTimeout(),
+		nil,
 	)
 
 	closeErr := session.Close(context.Background())
@@ -203,11 +209,19 @@ func (r *Runtime) ShutdownTimeout() time.Duration {
 }
 
 // newAuthorizedSession constructs a session and starts its pump.
+//
+// held carries updates that arrived before the pump existed, which is the
+// authorization phase. TDLib sends updateNewChat once per chat, so an
+// update dropped there would remove that chat from the store for the rest
+// of the session. They are applied in arrival order before the pump
+// consumes anything, so the store never has a gap that no later update
+// would fill.
 func newAuthorizedSession(
 	sender AuthSender,
 	closer RuntimeCloser,
 	client *Client,
 	shutdownTimeout time.Duration,
+	held []RawMessage,
 ) *AuthorizedSession {
 	if shutdownTimeout <= 0 {
 		shutdownTimeout = 5 * time.Second
@@ -220,7 +234,7 @@ func newAuthorizedSession(
 		closer:          closer,
 		client:          client,
 		shutdownTimeout: shutdownTimeout,
-		updates:         make(chan Update, 256),
+		live:            NewLiveState(),
 		errors:          make(chan error, 16),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -230,7 +244,7 @@ func newAuthorizedSession(
 		closeDone:       make(chan struct{}),
 	}
 
-	go s.run()
+	go s.run(held)
 	return s
 }
 
@@ -242,12 +256,16 @@ func (s *AuthorizedSession) ClientID() int {
 	return s.client.ID()
 }
 
-// Updates returns the best-effort application-facing update channel.
-func (s *AuthorizedSession) Updates() <-chan Update {
+// LiveState returns the store the pump applies TDLib updates to.
+//
+// It is the only application-facing view of updates: the former lossy
+// Updates channel is gone, so nothing that TDLib sends is dropped on the
+// way out.
+func (s *AuthorizedSession) LiveState() *LiveState {
 	if s == nil {
 		return nil
 	}
-	return s.updates
+	return s.live
 }
 
 // Errors returns the best-effort application-facing runtime error
@@ -298,20 +316,25 @@ func (s *AuthorizedSession) recordError(err error) {
 
 // run is the session pump. It is the single consumer of
 // client.Updates() and client.Errors() between Authorize and Close.
-func (s *AuthorizedSession) run() {
+//
+// held is applied before the first update is read, so the store starts
+// from the state the authorization phase already produced.
+func (s *AuthorizedSession) run(held []RawMessage) {
 	// Defer order is LIFO:
 	//   1. close(errors)
-	//   2. close(updates)
-	//   3. failPendingQueries
-	//   4. close(pumpDone)
+	//   2. failPendingQueries
+	//   3. close(pumpDone)
 	defer close(s.pumpDone)
 	defer s.failPendingQueries(ErrQuerySessionClosed)
-	defer close(s.updates)
 	defer close(s.errors)
 
 	clientUpdates := s.client.Updates()
 	clientErrors := s.client.Errors()
 	closedSignaled := false
+
+	for _, raw := range held {
+		s.applyLiveUpdate(raw)
+	}
 
 	for {
 		select {
@@ -351,10 +374,7 @@ func (s *AuthorizedSession) run() {
 				continue
 			}
 			if state == AuthStateUnknown {
-				select {
-				case s.updates <- u:
-				default:
-				}
+				s.applyLiveUpdate(u.Raw)
 				continue
 			}
 
@@ -367,6 +387,20 @@ func (s *AuthorizedSession) run() {
 				close(s.closed)
 			}
 		}
+	}
+}
+
+// applyLiveUpdate applies one update to the store and forwards a failure
+// to Errors.
+//
+// Applying an update is in-memory work only, so the pump never waits on a
+// reader of the store.
+func (s *AuthorizedSession) applyLiveUpdate(raw RawMessage) {
+	if s.live == nil {
+		return
+	}
+	if _, err := s.live.apply(raw); err != nil {
+		s.recordError(fmt.Errorf("session: apply live update: %w", err))
 	}
 }
 

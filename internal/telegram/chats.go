@@ -78,6 +78,76 @@ type chatResponse struct {
 	LastMessage json.RawMessage `json:"last_message"`
 }
 
+// errChatListLoaded is the TDLib error code loadChats returns once the
+// whole chat list is known. ADR-0003 treats it as a normal end of
+// loading rather than a failure.
+const chatListAlreadyLoadedCode = 404
+
+// loadChatsRequest asks TDLib to send the updates for the next part of a
+// chat list.
+type loadChatsRequest struct {
+	Type     string         `json:"@type"`
+	ChatList chatListSource `json:"chat_list"`
+	Limit    int            `json:"limit"`
+}
+
+// chatListSource selects a TDLib chat list by @type.
+type chatListSource struct {
+	Type string `json:"@type"`
+}
+
+// LoadChats asks TDLib to deliver the next part of the main chat list
+// through updates, which the session pump applies to LiveState.
+//
+// The boolean result reports that the whole list is now known. TDLib
+// answers "ok" while more chats remain and returns error 404 once the
+// list is complete, which is a normal end of loading and not a failure.
+//
+// limit is validated exactly as in GetChats, and an invalid limit is
+// rejected before any request is sent.
+func (s *AuthorizedSession) LoadChats(
+	ctx context.Context,
+	limit int,
+) (bool, error) {
+	if limit <= 0 || limit > maxChatListLimit {
+		return false, fmt.Errorf(
+			"%w: %d", ErrInvalidChatLimit, limit,
+		)
+	}
+
+	request, err := json.Marshal(loadChatsRequest{
+		Type:     "loadChats",
+		ChatList: chatListSource{Type: mainChatList},
+		Limit:    limit,
+	})
+	if err != nil {
+		return false, fmt.Errorf("marshal loadChats: %w", err)
+	}
+
+	raw, err := s.Query(ctx, RawMessage(request))
+	if err != nil {
+		var tdlibErr *TDLibError
+		if errors.As(err, &tdlibErr) && tdlibErr.Code == chatListAlreadyLoadedCode {
+			return true, nil
+		}
+		return false, fmt.Errorf("loadChats: %w", err)
+	}
+
+	var response messageEnvelope
+	if err := json.Unmarshal(raw, &response); err != nil {
+		return false, fmt.Errorf(
+			"decode loadChats response: %w", err,
+		)
+	}
+	if response.Type != "ok" {
+		return false, fmt.Errorf(
+			"%w: loadChats returned @type=%q",
+			ErrUnexpectedChatResponse, response.Type,
+		)
+	}
+	return false, nil
+}
+
 // GetChats fetches the main chat list and materializes a summary for
 // every returned chat ID.
 //

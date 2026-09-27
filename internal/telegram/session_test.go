@@ -64,6 +64,7 @@ func newSessionWithFakes(
 		closer,
 		client,
 		100*time.Millisecond,
+		nil,
 	)
 
 	t.Cleanup(func() {
@@ -966,6 +967,7 @@ func TestSessionCloseRejectsNilSenderAndStopsRuntime(
 		closer,
 		client,
 		100*time.Millisecond,
+		nil,
 	)
 
 	t.Cleanup(func() {
@@ -1030,30 +1032,34 @@ func TestSessionCloseHandlesClosedErrorChannel(
 
 // ---- Pump behavior ----
 
-func TestSessionPumpForwardsNonAuthUpdates(t *testing.T) {
+func TestSessionPumpAppliesNonAuthUpdatesToLiveState(t *testing.T) {
 	session, _, _, client :=
 		newSessionWithFakes(t)
 
-	raw := []byte(`{"@type":"updateNewChat"}`)
+	raw := []byte(`{
+		"@type": "updateNewChat",
+		"chat": {
+			"id": 7,
+			"title": "Alice",
+			"positions": {
+				"@type": "chatPositions",
+				"positions": [
+					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
+				]
+			}
+		}
+	}`)
 
 	client.updates <- Update{
 		ClientID: client.id,
 		Raw:      raw,
 	}
 
-	select {
-	case update := <-session.Updates():
-		if string(update.Raw) != string(raw) {
-			t.Fatalf(
-				"forwarded update = %s, want %s",
-				update.Raw,
-				raw,
-			)
-		}
-
-	case <-time.After(time.Second):
-		t.Fatal(
-			"update was not forwarded by session pump",
+	chat := waitForLiveChat(t, session.LiveState(), 7)
+	if chat.Title != "Alice" {
+		t.Fatalf(
+			"Title = %q, want Alice",
+			chat.Title,
 		)
 	}
 }

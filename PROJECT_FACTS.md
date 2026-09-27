@@ -120,9 +120,17 @@
     to activate a dormant logical client
   - single owner of Client.Updates() and Client.Errors() after Ready
   - active pump goroutine started by Authorize before it returns
-  - best-effort forwarding into session-facing Updates()/Errors()
-    channels; drops do not block the process-wide receive loop
-  - channel-drop policy is deferred to PR-08
+  - non-query, non-authorization updates are applied to LiveState
+    (internal/telegram/live_state.go), the only application-facing
+    view of updates; applying is in-memory only, so the pump never
+    waits on a reader
+  - the lossy session update channel and Updates() are removed; nothing
+    TDLib sends is dropped on the way out
+  - updates that arrived during authorization are held on AuthResult
+    and applied to LiveState before the pump's first update, so a chat
+    first seen before Ready is not lost; only the update types the
+    store consumes are held, which bounds the slice by the chat list
+  - runtime errors still forwarded to a session-facing Errors() channel
   - graceful close observes authorizationStateClosed as the required
     terminal state
   - close request is sent before the pump is cancelled
@@ -159,7 +167,7 @@
 - Correlated queries: internal/telegram/query.go
   - @extra-based request/response correlation
   - pendingQuery registry guarded by queryMu
-  - responses with telecli-owned @extra never reach Updates()
+  - responses with telecli-owned @extra never reach LiveState
   - foreign @extra (string, object, or non-string) is treated as a
     normal application update
   - late responses to cancelled queries are consumed silently
@@ -175,7 +183,26 @@
   - messageText previews extracted; other content types use a
     placeholder such as [photo] or [unsupported message]; the
     message ID is always preserved
-  - snapshot-only: live chat-list updates are not yet handled
+  - still the snapshot path the TUI uses; the live store below is not
+    wired into the chat list yet (ADR-0003 step 3)
+- Live chat-list store: internal/telegram/live_state.go (ADR-0003 step 1)
+  - LiveState is the pump's single-writer store; readers take copies
+  - Changed() is a capacity-1 channel signalled non-blockingly after an
+    update that changed state, so signals coalesce and cannot be lost
+  - ChatList() returns the main list ordered by (order, chat ID)
+    descending; a chat with no chatListMain position or order 0 is
+    excluded
+  - applied updates: updateNewChat, updateChatTitle, updateChatPosition,
+    updateChatLastMessage, updateChatDraftMessage (positions only),
+    updateChatReadInbox
+  - position order is a JSON string int64; a value that does not parse
+    reports ErrLiveStateOrder and leaves the state unchanged
+  - an update for an unknown chat creates no record; other update types
+    are ignored without an error or a signal
+  - LoadChats(ctx, limit) returns complete=true on TDLib error 404 and
+    an error for anything else; limit validated as in GetChats
+  - message events (updateNewMessage, send succeeded/failed, deletions)
+    are step 2 and are not applied yet
 - History projection: internal/telegram/history.go
   - GetChatHistory returns newest-first pages
   - chatID == 0 rejected; limit validated in (0, 100]
@@ -323,7 +350,7 @@
   - PR-06D.2 application source plumbing and close ownership:
     accepted
   - history pagination UI: accepted
-  - live chat-list updates: pending
+  - live chat-list updates: accepted (ADR-0003 step 1)
   - lossless update/resync policy: pending
 - PR-07: text message sending
   - Telegram `sendMessage` wire layer: accepted

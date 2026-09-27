@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -200,6 +201,29 @@ func extractExtra(t *testing.T, request RawMessage) string {
 	return decoded.Extra
 }
 
+// waitForNewExtra waits until a request carrying an @extra other than
+// previous has been sent, and returns that identifier.
+//
+// waitForSentRequest returns the most recent request without removing it,
+// so a test that sent an earlier request must wait for a distinguishable
+// one rather than read whatever happens to be newest.
+func waitForNewExtra(
+	t *testing.T,
+	sender *fakeSender,
+	previous string,
+) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if extra := extractExtra(t, waitForSentRequest(t, sender)); extra != previous {
+			return extra
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("no request with a new @extra (previous %q)", previous)
+	return ""
+}
+
 // ---- Query happy paths ----
 
 func TestQueryRoutesMatchingResponse(t *testing.T) {
@@ -383,10 +407,44 @@ func TestLateResponseAfterCancellationIsConsumed(t *testing.T) {
 		Raw:      RawMessage(`{"@type":"ok","@extra":"` + extra + `"}`),
 	}
 
+	// A late reply must be consumed by the pump: it is neither handed to
+	// a later query nor applied to the store.
+	type second struct {
+		raw RawMessage
+		err error
+	}
+	secondCh := make(chan second, 1)
+	go func() {
+		raw, err := session.Query(
+			context.Background(),
+			RawMessage(`{"@type":"getMe"}`),
+		)
+		secondCh <- second{raw: raw, err: err}
+	}()
+
+	// waitForSentRequest returns the most recent request and does not pop,
+	// so the first query's request is still there. Wait for one carrying a
+	// different @extra instead of taking whatever is newest.
+	secondExtra := waitForNewExtra(t, sender, extra)
+	client.updates <- Update{
+		ClientID: client.id,
+		Raw:      RawMessage(`{"@type":"user","id":42,"@extra":"` + secondExtra + `"}`),
+	}
+
 	select {
-	case u := <-session.Updates():
-		t.Fatalf("late response leaked into updates: %s", u.Raw)
-	case <-time.After(100 * time.Millisecond):
+	case r := <-secondCh:
+		if r.err != nil {
+			t.Fatalf("second Query: %v", r.err)
+		}
+		if !strings.Contains(string(r.raw), `"id":42`) {
+			t.Fatalf("a later query was answered with a stale reply: %s", r.raw)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the second Query did not return")
+	}
+
+	if chats := session.LiveState().ChatList(); len(chats) != 0 {
+		t.Fatalf("a query reply was applied to the store: %v", chats)
 	}
 }
 
@@ -607,21 +665,66 @@ func TestRouteQueryResponseIgnoresForeignObjectExtra(t *testing.T) {
 	}
 }
 
-// ---- Pump forwards foreign object @extra ----
+// ---- Pump routes a foreign @extra update to the store ----
 
-func TestPumpForwardsUpdateWithForeignObjectExtra(t *testing.T) {
+func TestPumpAppliesUpdateWithForeignObjectExtra(t *testing.T) {
 	session, _, _, client := newSessionWithFakes(t)
 
-	raw := RawMessage(`{"@type":"updateSome","@extra":{"source":"other"}}`)
+	// A foreign @extra must not make the pump treat the object as a query
+	// reply. The update belongs to the store, so it lands there.
+	raw := RawMessage(`{
+		"@type": "updateNewChat",
+		"@extra": {"source": "other"},
+		"chat": {
+			"id": 7,
+			"title": "Alice",
+			"positions": {
+				"@type": "chatPositions",
+				"positions": [
+					{"position": {"@type": "chatPosition", "source": {"@type": "chatListMain"}, "order": "100"}, "chat_id": 7}
+				]
+			}
+		}
+	}`)
 
 	client.updates <- Update{ClientID: client.id, Raw: raw}
 
+	waitForLiveChat(t, session.LiveState(), 7)
+}
+
+func TestPumpDoesNotApplyQueryReplyToTheStore(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	type result struct {
+		raw RawMessage
+		err error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		raw, err := session.Query(
+			context.Background(),
+			RawMessage(`{"@type":"getMe"}`),
+		)
+		resultCh <- result{raw: raw, err: err}
+	}()
+
+	request := waitForSentRequest(t, sender)
+	extra := extractExtra(t, request)
+	client.updates <- Update{
+		ClientID: client.id,
+		Raw:      RawMessage(`{"@type":"user","id":42,"@extra":"` + extra + `"}`),
+	}
+
 	select {
-	case update := <-session.Updates():
-		if string(update.Raw) != string(raw) {
-			t.Fatalf("update = %s, want %s", update.Raw, raw)
+	case r := <-resultCh:
+		if r.err != nil {
+			t.Fatalf("Query: %v", r.err)
 		}
-	case <-time.After(time.Second):
-		t.Fatal("foreign object @extra update was not forwarded")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Query did not return")
+	}
+
+	if chats := session.LiveState().ChatList(); len(chats) != 0 {
+		t.Fatalf("a query reply reached the store: %v", chats)
 	}
 }

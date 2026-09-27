@@ -592,13 +592,16 @@ func TestMessageSentClearsComposer(t *testing.T) {
 	}
 }
 
-func TestMessageSentPrependsMessage(t *testing.T) {
+// A message that was just sent is the newest one, so it goes to the end
+// of the conversation (§8.3). Prepending it would put the newest message
+// above the older ones, which is a conversation nobody has ever had.
+func TestMessageSentAppendsMessage(t *testing.T) {
 	source := &fakeChatSource{}
 	m := prepareConversation(t, source)
 
 	m.chats[0].Messages = []Message{
-		{ID: 100, Text: "older"},
 		{ID: 99, Text: "oldest"},
+		{ID: 100, Text: "older"},
 	}
 	m, _ = updateModel(t, m, pressRunes("hi"))
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
@@ -613,10 +616,10 @@ func TestMessageSentPrependsMessage(t *testing.T) {
 	if len(messages) != 3 {
 		t.Fatalf("len(messages) = %d, want 3", len(messages))
 	}
-	if messages[0].ID != 200 {
-		t.Fatalf("messages[0].ID = %d, want 200", messages[0].ID)
+	if messages[2].ID != 200 {
+		t.Fatalf("messages[2].ID = %d, want 200", messages[2].ID)
 	}
-	if messages[1].ID != 100 || messages[2].ID != 99 {
+	if messages[0].ID != 99 || messages[1].ID != 100 {
 		t.Fatalf("previous order not preserved: %+v", messages)
 	}
 	if m.selectedMsg != 0 {
@@ -629,8 +632,8 @@ func TestMessageSentDeduplicatesID(t *testing.T) {
 	m := prepareConversation(t, source)
 
 	m.chats[0].Messages = []Message{
-		{ID: 200, Text: "already present"},
 		{ID: 100, Text: "older"},
+		{ID: 200, Text: "already present"},
 	}
 	m.sendOperation = 1
 
@@ -644,11 +647,11 @@ func TestMessageSentDeduplicatesID(t *testing.T) {
 	if len(messages) != 2 {
 		t.Fatalf("len(messages) = %d, want 2", len(messages))
 	}
-	if messages[0].ID != 200 || messages[0].Text != "replacement" {
-		t.Fatalf("messages[0] = %+v, want replaced entry", messages[0])
+	if messages[1].ID != 200 || messages[1].Text != "replacement" {
+		t.Fatalf("messages[1] = %+v, want replaced entry", messages[1])
 	}
-	if messages[1].ID != 100 {
-		t.Fatalf("messages[1].ID = %d, want 100", messages[1].ID)
+	if messages[0].ID != 100 {
+		t.Fatalf("messages[0].ID = %d, want 100", messages[0].ID)
 	}
 }
 

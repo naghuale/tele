@@ -107,8 +107,10 @@ func TestEnterOpensSelectedConversationAndFocusesComposer(t *testing.T) {
 	if m.focus != FocusComposer {
 		t.Fatalf("focus = %v, want FocusComposer", m.focus)
 	}
-	if m.selectedMsg != 0 {
-		t.Fatalf("selectedMsg = %d, want 0", m.selectedMsg)
+	// The conversation opens at its end: the newest message is the one a
+	// user opened the chat to read (§8.3).
+	if want := len(m.selected().Messages) - 1; m.selectedMsg != want {
+		t.Fatalf("selectedMsg = %d, want %d (the newest message)", m.selectedMsg, want)
 	}
 }
 
@@ -245,13 +247,27 @@ func TestConversationUpDownMovesSelectedMessage(t *testing.T) {
 	m := NewModel()
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
 	m.focus = FocusHistory
+	last := len(m.selected().Messages) - 1
+	m.selectedMsg = 1
+
 	m, _ = updateModel(t, m, press(tea.KeyDown))
+	if m.selectedMsg != 2 {
+		t.Fatalf("selectedMsg = %d, want 2", m.selectedMsg)
+	}
+	m, _ = updateModel(t, m, press(tea.KeyUp))
 	if m.selectedMsg != 1 {
 		t.Fatalf("selectedMsg = %d, want 1", m.selectedMsg)
 	}
 	m, _ = updateModel(t, m, press(tea.KeyUp))
 	if m.selectedMsg != 0 {
 		t.Fatalf("selectedMsg = %d, want 0", m.selectedMsg)
+	}
+	m, _ = updateModel(t, m, press(tea.KeyUp))
+	if m.selectedMsg != 0 {
+		t.Fatalf("selectedMsg = %d, want 0 at the oldest message", m.selectedMsg)
+	}
+	if last != 2 {
+		t.Fatalf("the mock conversation has %d messages, want 3", last+1)
 	}
 }
 

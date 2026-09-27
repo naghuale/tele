@@ -86,6 +86,16 @@ type Model struct {
 	// history. It is cleared by the next attempt.
 	historyMoreErr error
 
+	// timelineTop is the index of the first message the conversation shows.
+	//
+	// It is the scroll position of §10.5: the message a user scrolled to
+	// is the one that stays on screen when the terminal is resized or when
+	// a page of older messages arrives above it. The cursor is
+	// selectedMsg, and the two are separate because a reader who scrolls
+	// with the keys and a reader who has scrolled to read something older
+	// are in different places.
+	timelineTop int
+
 	// historyOperation identifies the current history load. It is bumped
 	// on every entry into a conversation so that a page still in flight
 	// for a previous entry is discarded instead of appended.
@@ -239,9 +249,11 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
 
-	// The focus follows the screen: a size that took a region away must
-	// not leave the keys on a region that is no longer drawn.
-	return m.normalizeFocus(), nil
+	// The focus follows the screen, and so does the scroll: a size that
+	// took a region away must not leave the keys on a region that is no
+	// longer drawn, and a narrower screen shows the same message at the
+	// top of the window (§10.5).
+	return m.normalizeTimeline().normalizeFocus(), nil
 }
 
 func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
@@ -298,8 +310,7 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.loadErr = nil
-	m.chats[m.selectedChat].Messages = msg.page.Messages
-	m.selectedMsg = 0
+	m.chats[m.selectedChat].Messages = chronological(msg.page.Messages)
 
 	// A new first page re-opens the history: nothing is known to be
 	// missing from it yet.
@@ -311,17 +322,20 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	} else {
 		m.historyState = loadStateLoaded
 	}
-	return m, nil
+
+	// A first page opens the conversation at its end: the newest message is
+	// the one a user came to read (§8.3).
+	return m.scrollToNewest(), nil
 }
 
-// appendOlderHistory appends a page of older messages to the ones already
-// loaded.
+// appendOlderHistory puts a page of older messages on top of the ones
+// already loaded.
 //
 // NextFrom is inclusive, so the boundary message of the previous page is
 // repeated here and is dropped by ID. A page that adds nothing means the
 // history is exhausted, whatever HistoryPage.HasMore claims.
 //
-// A failure keeps the loaded messages and the cursor, so the next ↓
+// A failure keeps the loaded messages and the cursor, so the next ↑
 // repeats the same request.
 func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.historyMoreLoading = false
@@ -334,28 +348,51 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.historyMoreErr = nil
 
 	existing := m.chats[m.selectedChat].Messages
-	merged := appendMessagesByID(existing, msg.page.Messages)
+	merged := prependOlderMessages(existing, chronological(msg.page.Messages))
 	m.chats[m.selectedChat].Messages = merged
 
-	// The page is appended at the older end, so the selection index still
-	// points at the same message. Clamp anyway in case a page arrived
-	// shorter than the selection.
-	if m.selectedMsg >= len(merged) {
-		m.selectedMsg = maxInt(len(merged)-1, 0)
-	}
+	// The page went on top, so the message that was on screen is exactly
+	// what was added lower down. Moving the cursor and the scroll anchor by
+	// that much is what keeps a reader in place: this is the one place
+	// where reading upwards could punish a user for asking for more.
+	added := len(merged) - len(existing)
+	m.selectedMsg += added
+	m.timelineTop += added
 
 	if len(merged) == len(existing) {
 		m.historyExhausted = true
 	}
-	return m, nil
+
+	return m.normalizeTimeline(), nil
 }
 
-// appendMessagesByID appends older to messages, dropping every entry
-// whose ID is already present.
+// chronological returns the messages of a page oldest first.
 //
-// Both slices are newest-first, so the result stays ordered from the
-// newest message to the oldest.
-func appendMessagesByID(messages []Message, older []Message) []Message {
+// TDLib answers a history request newest first: the first message of the
+// page is the newest one it has. A conversation is read the other way
+// round (§8.3, and divergence 1 of the specification), so the order is
+// reversed here rather than in the source. The source is what it is, and
+// the interface is what the specification describes.
+func chronological(messages []Message) []Message {
+	if len(messages) < 2 {
+		return messages
+	}
+
+	result := make([]Message, 0, len(messages))
+	for index := len(messages) - 1; index >= 0; index-- {
+		result = append(result, messages[index])
+	}
+
+	return result
+}
+
+// prependOlderMessages puts a page of older messages on top of the loaded
+// ones, dropping every message whose ID is already loaded.
+//
+// The page is older than everything loaded, so it goes first: the order of
+// the conversation is the order it is read in, and a page that arrived
+// wrong would put the newest message in the middle.
+func prependOlderMessages(messages []Message, older []Message) []Message {
 	if len(older) == 0 {
 		return messages
 	}
@@ -366,7 +403,6 @@ func appendMessagesByID(messages []Message, older []Message) []Message {
 	}
 
 	result := make([]Message, 0, len(messages)+len(older))
-	result = append(result, messages...)
 	for _, candidate := range older {
 		if _, duplicate := seen[candidate.ID]; duplicate {
 			continue
@@ -374,7 +410,8 @@ func appendMessagesByID(messages []Message, older []Message) []Message {
 		seen[candidate.ID] = struct{}{}
 		result = append(result, candidate)
 	}
-	return result
+
+	return append(result, messages...)
 }
 
 // historyBoundary returns the inclusive boundary for the next older page
@@ -385,11 +422,14 @@ func appendMessagesByID(messages []Message, older []Message) []Message {
 // message rather than stored. Deriving it means the cursor can never
 // drift from the cache: re-entering a chat whose messages are already
 // loaded keeps paginating without refetching the first page.
+//
+// The oldest message is the first one: Chat.Messages is oldest first.
 func historyBoundary(chat Chat) int64 {
 	if len(chat.Messages) == 0 {
 		return 0
 	}
-	return chat.Messages[len(chat.Messages)-1].ID
+
+	return chat.Messages[0].ID
 }
 
 // loadOlderMessages requests the next older page of the open chat's
@@ -468,11 +508,21 @@ func (m Model) updateMessageSent(msg messageSentMsg) (tea.Model, tea.Cmd) {
 	m.sendErr = nil
 	m.composer = nil
 
-	m.chats[m.selectedChat].Messages = prependMessageByID(
+	// A message that was sent is the newest one, so it goes to the end of
+	// the conversation. A reader who is at the end follows it: they are
+	// watching this conversation for what is new in it. A reader who has
+	// scrolled up to read something older is left where they are, because
+	// a message arriving is not a reason to lose their place.
+	atNewest := m.selectedMsg >= len(m.chats[m.selectedChat].Messages)-1
+
+	m.chats[m.selectedChat].Messages = appendMessageByID(
 		m.chats[m.selectedChat].Messages,
 		msg.message,
 	)
-	m.selectedMsg = 0
+
+	if atNewest {
+		return m.scrollToNewest(), nil
+	}
 
 	return m, nil
 }
@@ -501,18 +551,21 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 	return m, nil
 }
 
-// prependMessageByID inserts message at the head of messages and drops
-// any existing entry with the same ID.
-func prependMessageByID(messages []Message, message Message) []Message {
+// appendMessageByID puts a message at the end of a conversation, replacing
+// an entry with the same ID rather than repeating it.
+//
+// The end is where a message that has just been sent belongs: it is the
+// newest one, and a conversation is read with the newest at the bottom.
+func appendMessageByID(messages []Message, message Message) []Message {
 	result := make([]Message, 0, len(messages)+1)
-	result = append(result, message)
 	for _, current := range messages {
 		if current.ID == message.ID {
 			continue
 		}
 		result = append(result, current)
 	}
-	return result
+
+	return append(result, message)
 }
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -640,7 +693,6 @@ func (m Model) openSelectedChat(
 	if focusComposer {
 		m.focus = FocusComposer
 	}
-	m.selectedMsg = 0
 	m.sendState = sendStateIdle
 	m.sendErr = nil
 	if m.pausedErr != nil {
@@ -667,7 +719,11 @@ func (m Model) openSelectedChat(
 		if len(m.chats[m.selectedChat].Messages) == 0 {
 			m.historyState = loadStateLoading
 			m.loadErr = nil
-			return m, tea.Batch(
+
+			// A conversation opens at its end, and the page is on its way:
+			// the cursor waits at the newest message it knows of and the
+			// view fills from there (§8.3).
+			return m.scrollToNewest(), tea.Batch(
 				loadHistoryCmd(
 					m.source,
 					m.chats[m.selectedChat].ID,
@@ -684,7 +740,10 @@ func (m Model) openSelectedChat(
 		m.historyState = loadStateLoaded
 		m.loadErr = nil
 	}
-	return m, statusCmd
+
+	// A conversation opens at its end however it was loaded: the newest
+	// message is the one a user opened the chat to read (§8.3).
+	return m.scrollToNewest(), statusCmd
 }
 
 // updateConversationKey handles the conversation pane.
@@ -857,25 +916,6 @@ func (m Model) visibleFocusRegions() []Focus {
 	}
 
 	return []Focus{FocusChatList, FocusHistory, FocusComposer}
-}
-
-func (m Model) updateHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	msgs := len(m.selected().Messages)
-	switch {
-	case isUp(msg):
-		if m.selectedMsg > 0 {
-			m.selectedMsg--
-		}
-	case isDown(msg):
-		if m.selectedMsg < msgs-1 {
-			m.selectedMsg++
-			return m, nil
-		}
-		// The selection is on the oldest loaded message. History runs
-		// newest-first, so ↓ is the gesture for reaching further back.
-		return m.loadOlderMessages()
-	}
-	return m, nil
 }
 
 // updateComposerKey handles composer editing.

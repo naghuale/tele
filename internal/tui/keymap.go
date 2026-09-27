@@ -42,6 +42,25 @@ func isLast(msg tea.KeyMsg) bool {
 	return false
 }
 
+// isPageUp and isPageDown are the two page keys of the timeline (§8.3).
+func isPageUp(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyPgUp
+}
+
+func isPageDown(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyPgDown
+}
+
+// isInsertMode is the second way into the composer (§8.3): Enter for a
+// keyboard, `i` for the muscle memory of anyone who came from vi or less.
+//
+// It is a single letter and it lives in the timeline, which is why §8.4
+// says single letters are not commands while the composer has the focus:
+// `i` typed into a message has to be the letter.
+func isInsertMode(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'i'
+}
+
 func isTab(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyTab
 }

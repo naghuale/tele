@@ -27,6 +27,21 @@ const (
 	FocusNone = " "
 )
 
+// The selection marker is the mark of the chosen row or message inside a
+// region. It is not the focus bar and must not look like one: a list whose
+// focused region and selected row are marked with the same glyph reads as
+// a double line, and a user cannot tell which of the two they are looking
+// at. §2.7 allows either of them as the fallback for the other, so the two
+// are told apart by shape and not by colour.
+const (
+	// SelectionMark is the marker of the selected row or message.
+	SelectionMark = "›"
+
+	// SelectionNone is what an unselected row or message shows: the width
+	// of the marker, so a row does not shift when the selection moves.
+	SelectionNone = " "
+)
+
 // FocusIndicator returns the marker of a region.
 //
 // The marker is the same in every profile, including no colour at all: a
@@ -39,6 +54,20 @@ func (t Theme) FocusIndicator(focused bool) string {
 	}
 
 	return FocusBar
+}
+
+// SelectionIndicator returns the marker of a selected row or message.
+//
+// Like the focus bar, the marker is a character in every profile. The
+// attributes below cannot be: termenv's Ascii profile prints neither bold
+// nor reverse, so a selection carried by them alone is invisible exactly
+// where a user who cannot rely on colour is looking.
+func SelectionIndicator(selected bool) string {
+	if !selected {
+		return SelectionNone
+	}
+
+	return SelectionMark
 }
 
 // Attributes are the text attributes a renderer applies to a run.

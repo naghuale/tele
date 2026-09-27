@@ -105,17 +105,17 @@ func (m Model) chatListRowLines(
 
 	// The marker sits against the name and the line below is indented by
 	// the same column, which is the shape §4.1 draws: the two lines of a
-	// chat stay aligned and the marker never costs a column the other
-	// chats do not have.
-	marker := theme.FocusNone
-	if selected {
-		marker = theme.FocusBar
-	}
-
+	// chat stay aligned, and a row that is not selected has the same
+	// columns as one that is. The glyph is a chevron and not the focus
+	// bar: the two say different things, and a list that marked both with
+	// `▌` read as a double line.
 	lines := []string{
 		styles.selected(selected).Render(
-			styles.selectionBar(selected, m.focus == FocusChatList).Render(marker) +
-				styles.rowText(selected).Render(fitCells(title, width-1)),
+			styles.selectionMark(selected, m.focus == FocusChatList).
+				Render(theme.SelectionIndicator(selected)) +
+				styles.rowText(selected).Render(
+					fitCells(title, width-selectionMarkerWidth),
+				),
 		),
 	}
 
@@ -123,10 +123,11 @@ func (m Model) chatListRowLines(
 		return lines
 	}
 
-	detail := m.chatListDetail(chat, layout, width)
+	detail := m.chatListDetail(chat, layout, width-selectionMarkerWidth)
 	lines = append(
 		lines,
-		styles.dimmed(m.tokens().SecondaryText).Render(detail),
+		styles.dimmed(m.tokens().SecondaryText).
+			Render(spaces(selectionMarkerWidth)+detail),
 	)
 
 	return lines

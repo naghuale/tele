@@ -108,10 +108,12 @@ func TestProgramPathDrawsTheFocusInNoColor(t *testing.T) {
 	}
 }
 
-// The selected chat is a bar of its own next to its name, and it is a
+// The selected chat is marked with a glyph of its own, and it is a
 // character rather than an attribute. termenv's Ascii profile prints no
-// bold and no reverse, so a selection carried by them would be invisible
-// on a terminal with NO_COLOR set.
+// bold and no reverse, so a selection carried by them would be invisible on
+// a terminal with NO_COLOR set, and the glyph is not the focus bar: the
+// two say different things and a list that drew both as `▌` read as a
+// double line.
 func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 	model := focusedOn(
 		programModel(t, theme.ProfileNoColor, 120, 30),
@@ -120,7 +122,7 @@ func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 	model, _ = updateModel(t, model, press(tea.KeyDown))
 
 	selected := model.selected().Title
-	marked := theme.FocusBar + selected
+	marked := theme.SelectionMark + selected
 	if !strings.Contains(plain(model.View()), marked) {
 		t.Fatalf(
 			"view does not mark the selected chat %q:\\n%s",
@@ -129,9 +131,9 @@ func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 		)
 	}
 
-	// And nothing else carries the mark: one selected chat, one bar.
+	// And nothing else carries the mark: one selected chat, one marker.
 	view := plain(model.View())
-	if got := strings.Count(view, theme.FocusBar+selected); got != 1 {
+	if got := strings.Count(view, theme.SelectionMark+selected); got != 1 {
 		t.Fatalf("%d marked rows, want 1:\\n%s", got, view)
 	}
 }
@@ -151,7 +153,7 @@ func TestProgramPathKeepsTheOpenChatMarked(t *testing.T) {
 		)
 
 		view := plain(model.View())
-		if !strings.Contains(view, theme.FocusBar+model.selected().Title) {
+		if !strings.Contains(view, theme.SelectionMark+model.selected().Title) {
 			t.Fatalf("profile %v: the open chat is not marked:\\n%s", profile, view)
 		}
 	}

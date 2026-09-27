@@ -2,21 +2,53 @@ package tui
 
 import (
 	"strings"
+
+	"telecli/internal/tui/theme"
+)
+
+// This file draws the messages of a conversation.
+//
+// The shape is §4.4: the sender on one line with the time at the right
+// edge, the text under it, an outgoing message indented a little and named
+// in the accent. There is no frame and no bubble, and no line is drawn in
+// front of a message to say that it is selected — §5.2 asks for one marker
+// per selected message and for the accent to stay on the region, so the
+// marker is a glyph in front of the message and the region's own column
+// still says where the keys are.
+//
+// The order is chronological: the oldest message is drawn first, so the
+// newest is on the last row of the screen. A text that does not fit wraps
+// instead of being cut, because a message cut in the middle is a message a
+// user cannot read and cannot answer.
+
+// The words of a message line.
+const (
+	// outgoingAuthor is how a message of this user is signed (§4.4).
+	outgoingAuthor = "You"
+
+	// incomingAuthor stands in for the name of the other side until the
+	// projection carries one. It is the word the interface has always
+	// used, and a wrong name is worse than an honest one.
+	incomingAuthor = "Peer"
+
+	// outgoingIndent is how much further right an outgoing message starts.
+	//
+	// It is two columns: enough to tell the two sides apart at a glance,
+	// little enough that a narrow pane still has room for the text.
+	outgoingIndent = 2
 )
 
 // conversationRegion draws the messages of the open conversation, with
 // the header above them and the delivery state below.
 //
-// §5.2 keeps the focus off the messages: a line in front of each message
-// would be a border, and there are none. The header carries the accent
-// instead, and the region's own focus column says which region has the
-// keys.
+// The header is a line of its own and stays there while the messages move
+// under it, which is what §4.4 means by a sticky header: the name of the
+// chat is not something a user has to scroll back to.
 //
-// The header is a line of its own and the timeline takes what is left of
-// the block, because the composer and the hint bar are what a user must
-// still see on a short screen (§3.4). Lines the timeline does not fill are
-// left empty rather than spent on something else: the surface continues,
-// and the composer stays on the last rows of the screen.
+// The rows the messages get are the rows that are left after the header,
+// the line an older page occupies while it is on its way, and the delivery
+// block. The model asks for the same number, so the two cannot disagree
+// about how far a page of keys moves the cursor.
 func (m Model) conversationRegion(
 	layout Layout,
 	width int,
@@ -29,22 +61,18 @@ func (m Model) conversationRegion(
 			Render(fitCells(m.conversationTitle(layout, width), width)),
 	}
 
-	// The progress of an older-page request sits below the messages it is
-	// about: the messages stay on screen while the page is on its way, and
-	// a failure leaves them intact for the next ↓ to retry.
+	// The progress of an older-page request is at the top of the timeline,
+	// where the page it is about will go: a line at the bottom would be
+	// read as the end of the conversation, and the end is the newest
+	// message.
 	history := m.olderPageLines(layout, width)
+	lines = append(lines, history...)
+
 	statuses := m.viewMessageStatuses()
 
-	used := len(lines) + len(history)
-	if statuses != "" {
-		used += len(strings.Split(statuses, "\n"))
+	if rows := m.timelineRows(layout, width); rows > 0 {
+		lines = append(lines, m.timelineLines(layout, width, rows)...)
 	}
-
-	if budget := height - used; budget > 0 {
-		lines = append(lines, m.timelineLines(layout, width, budget)...)
-	}
-
-	lines = append(lines, history...)
 
 	if statuses != "" {
 		lines = append(lines, strings.Split(statuses, "\n")...)
@@ -101,96 +129,202 @@ func (m Model) conversationTitle(layout Layout, width int) string {
 // way back is.
 const conversationBackMarker = "< Chats"
 
-// timelineLines returns the visible message lines.
+// timelineLines returns the rows the messages take, oldest first.
 //
-// The order and the pagination are the ones the model has: this task does
-// not change them, and PR-10A.2b does.
-func (m Model) timelineLines(layout Layout, width int, budget int) []string {
-	chat := m.selected()
-	if len(chat.Messages) == 0 {
+// The window starts at the model's scroll anchor and moves only if the
+// cursor would be outside it. That is the last word on where the cursor
+// is: the model decides when the view scrolls, and the view refuses to
+// draw a cursor it is not showing.
+func (m Model) timelineLines(layout Layout, width, rows int) []string {
+	messages := m.selected().Messages
+	if len(messages) == 0 {
 		return m.timelineEmptyLines(layout, width)
 	}
 
-	// One message takes an author line and a body line, except on a short
-	// screen, where §3.4 drops the detail and the messages themselves
-	// stay.
-	messageHeight := timelineMessageHeight(layout)
-
-	start, end := visibleRange(
-		len(chat.Messages),
-		m.selectedMsg,
-		budget/messageHeight,
-	)
-
 	styles := m.styles()
-	lines := make([]string, 0, (end-start)*messageHeight)
+	top := minInt(maxInt(m.timelineTop, 0), len(messages)-1)
 
-	for index := start; index < end; index++ {
-		lines = append(
-			lines,
-			m.messageLines(chat.Messages[index], layout, width, styles)...,
+	lines, drawn := m.timelineRowsFrom(messages, top, layout, width, rows, styles)
+	if m.selectedMsg < top || m.selectedMsg >= top+drawn {
+		lines, _ = m.timelineRowsFrom(
+			messages,
+			m.selectedMsg,
+			layout,
+			width,
+			rows,
+			styles,
 		)
-	}
-
-	if end < len(chat.Messages) {
-		lines = append(lines, styles.dimmed(m.tokens().MutedText).
-			Render(fitCells("...", width)))
 	}
 
 	return lines
 }
 
-// timelineMessageHeight returns how many lines one message takes.
-func timelineMessageHeight(layout Layout) int {
-	if layout.Short() {
-		return 1
+// timelineRowsFrom draws the messages from index first until the rows run
+// out, and returns how many messages it drew.
+func (m Model) timelineRowsFrom(
+	messages []Message,
+	first int,
+	layout Layout,
+	width int,
+	rows int,
+	styles viewStyles,
+) ([]string, int) {
+	var (
+		lines []string
+		drawn int
+	)
+
+	for index := first; index < len(messages); index++ {
+		block := m.messageLines(
+			messages[index],
+			index == m.selectedMsg,
+			layout,
+			width,
+			styles,
+		)
+
+		// A message taller than the rows that are left is cut at them. The
+		// first one is cut rather than skipped, or a long message would
+		// leave the timeline empty, and letting it grow past its rows would
+		// push the composer off the screen, which §3.4 does not allow.
+		if len(block) > rows-len(lines) {
+			if len(lines) > 0 {
+				break
+			}
+
+			block = block[:maxInt(rows, 0)]
+		}
+
+		lines = append(lines, block...)
+		drawn++
+
+		if len(lines) >= rows {
+			break
+		}
 	}
 
-	return 2
+	return lines, drawn
 }
 
-// messageLines renders one message.
-//
-// The author and the time share the first line, with the time pushed to
-// the right edge, which is the shape of every mock screen in §3. When
-// there is no time, the line is still one line: a grid that changes shape
-// per row is harder to read than one that does not.
+// messageLines renders one message as the rows it takes.
 func (m Model) messageLines(
 	message Message,
+	selected bool,
 	layout Layout,
 	width int,
 	styles viewStyles,
 ) []string {
-	author := "Peer"
-	if message.Outgoing {
-		author = "You"
+	if layout.Short() {
+		return m.shortMessageLines(message, selected, layout, width, styles)
 	}
 
-	head := author
+	indent := m.messageIndent(message)
+
+	head := styles.selectionMark(selected, m.focus == FocusHistory).
+		Render(theme.SelectionIndicator(selected)) +
+		spaces(contentInsetWidth+indent) +
+		styles.author(message.Outgoing, selected).
+			Render(messageAuthor(message))
+
 	if message.Time != "" {
-		head = leftAndRight(author, message.Time, width)
-	}
-
-	lines := []string{
-		styles.text(m.tokens().SecondaryText).Render(fitCells(head, width)),
-	}
-
-	if timelineMessageHeight(layout) == 1 {
-		return []string{fitCells(
-			author+": "+message.Text,
+		head = leftAndRight(
+			head,
+			styles.dimmed(m.tokens().MutedText).Render(message.Time),
 			width,
-		)}
+		)
 	}
 
-	return append(lines, styles.text(m.tokens().PrimaryText).
-		Render(fitCells(message.Text, width)))
+	lines := []string{styles.selected(selected).Render(head)}
+
+	return append(lines, m.messageBodyLines(message, indent, width, styles)...)
 }
 
-// leftAndRight puts left at the start of a line of width columns and
-// right at its end.
+// shortMessageLines renders a message on a screen too short for two rows.
+//
+// The sender and the time go: what is left is the message itself, which is
+// what a user came to read. The text still wraps, because a screen that is
+// short is not a screen where a message may be cut in half.
+func (m Model) shortMessageLines(
+	message Message,
+	selected bool,
+	layout Layout,
+	width int,
+	styles viewStyles,
+) []string {
+	indent := m.messageIndent(message)
+	inset := spaces(contentInsetWidth + indent)
+	textWidth := messageTextWidth(indent, width)
+
+	wrapped := wrapCells(messageAuthor(message)+": "+message.Text, textWidth)
+	if len(wrapped) == 0 {
+		wrapped = []string{""}
+	}
+
+	body := make([]string, 0, len(wrapped))
+	for _, line := range wrapped {
+		body = append(body, styles.body(message.Outgoing).Render(inset+line))
+	}
+
+	head := styles.selectionMark(selected, m.focus == FocusHistory).
+		Render(theme.SelectionIndicator(selected)) + body[0]
+
+	return append([]string{styles.selected(selected).Render(head)}, body[1:]...)
+}
+
+// messageBodyLines returns the rows of the text of a message, wrapped to
+// the width the message has.
+func (m Model) messageBodyLines(
+	message Message,
+	indent int,
+	width int,
+	styles viewStyles,
+) []string {
+	textWidth := messageTextWidth(indent, width)
+	if textWidth < 1 {
+		return nil
+	}
+
+	inset := spaces(contentInsetWidth + indent)
+	wrapped := wrapCells(message.Text, textWidth)
+	lines := make([]string, 0, len(wrapped))
+
+	for _, line := range wrapped {
+		lines = append(lines, styles.body(message.Outgoing).Render(inset+line))
+	}
+
+	return lines
+}
+
+// messageTextWidth returns how many columns the text of a message has.
+func messageTextWidth(indent, width int) int {
+	return width - selectionMarkerWidth - contentInsetWidth - indent
+}
+
+// messageIndent returns how much further right a message starts than an
+// incoming one.
+func (m Model) messageIndent(message Message) int {
+	if message.Outgoing {
+		return outgoingIndent
+	}
+
+	return 0
+}
+
+// messageAuthor returns the word that stands for the sender of a message.
+func messageAuthor(message Message) string {
+	if message.Outgoing {
+		return outgoingAuthor
+	}
+
+	return incomingAuthor
+}
+
+// leftAndRight puts left at the start of a row of width columns and right
+// at its end.
 //
 // The gap between them is filled with spaces, so two messages keep their
-// timestamps in the same column and the eye can run down them.
+// times in the same column and the eye can run down them. Both sides may
+// carry escape sequences: the gap is measured in columns, not in bytes.
 func leftAndRight(left, right string, width int) string {
 	gap := width - cellWidth(left) - cellWidth(right)
 	if gap < 1 {

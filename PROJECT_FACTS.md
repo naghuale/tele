@@ -309,8 +309,10 @@
     and not a colour, so it is drawn under every profile: the no-
     colour profile clears the tokens of the theme on the way in and
     termenv prints neither colour nor attributes there. The selected
-    chat carries a bar of its own next to its name (§4.1) and keeps it
-    while the focus is on the conversation. Styles: styles.go
+    chat and the selected message carry a chevron of their own
+    (theme.SelectionMark, §4.1/§5.2) and keep it while the focus is
+    elsewhere; it is not the focus bar, because a list that marked both
+    with `▌` read as a double line. Styles: styles.go
   - Esc hierarchy (§8.5): composer to timeline, timeline to the chat
     list, and then it stops. On a two-pane screen the third step
     focuses the list beside the conversation instead of throwing the
@@ -322,6 +324,34 @@
   - widths are terminal columns (truncateCells, fitCells, wrapCells),
     never runes, and a line is padded rather than left ragged so a
     surface covers its whole pane
+- Timeline: internal/tui/timeline.go, internal/tui/view_conversation.go
+  (PR-10A.2b, §4.4, §8.3, divergence 1)
+  - Chat.Messages is chronological, oldest first. TDLib answers a page
+    newest first, so the page is reversed where it arrives; the source
+    is untouched. A first page is stored as it comes, a page of older
+    messages is prepended with dedup by Message.ID, and a sent message
+    is appended
+  - the cursor (selectedMsg) and the scroll anchor (timelineTop) are
+    separate: the anchor is the message on the first row and survives a
+    page arriving above it and a resize (§10.5). A page that adds N
+    messages moves both by N, so the message that was on screen stays
+    on screen
+  - keys (§8.3): j/k walk, PgUp/PgDn move a screenful, G and End go to
+    the newest message, Enter and i hand the keys to the composer, and
+    g does nothing: it is the chat list's key
+  - older pages load on ↑ at the oldest loaded message. Everything #12
+    does with the request is unchanged: inclusive boundary, dedup by ID,
+    a page that adds nothing exhausts the history, one request at a
+    time, an error keeps what is loaded and is retried by the next ↑,
+    and a stale response is dropped by historyOperation
+  - a message is its author line with the time at the right edge and its
+    text under it, wrapped to the width of the region. An outgoing
+    message is indented two columns and named in the accent, one marker
+    marks the selected message, the header is sticky, and the progress
+    or the failure of an older page sits at the top of the timeline
+  - opening a chat and sending a message both put the cursor on the
+    newest message; a message that arrives while a reader is scrolled
+    up does not move them
 - Composer: internal/tui/model.go
   - Enter starts a send only with non-nil source, non-empty
     TrimSpace(text), no send in flight, and a selected chat
@@ -556,6 +586,7 @@
   - PR-10A.2 layout and focus: accepted (borderless two-pane layout,
     one focus, Esc hierarchy, focus-aware hint bar, drawn with the
     tokens of the theme)
+  - PR-10A.2b chronological timeline and conversation keys: accepted
   - PR-10A.3 composer, 10A.4 delivery and status block, 10A.5 action
     sheet, 10A.6 chat search, 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02

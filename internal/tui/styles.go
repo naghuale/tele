@@ -184,18 +184,18 @@ func (s viewStyles) selected(selectedRow bool) lipgloss.Style {
 		Reverse(attributes.Reverse)
 }
 
-// selectionBar is the marker in front of a selected row.
+// selectionMark is the marker in front of a selected row or message.
 //
 // It is the accent of the region while the region has the focus and a
-// dimmer bar of the same shape when the focus has gone to the
-// conversation, which is what keeps the chat that is open visible in the
-// list beside it (§4.1).
+// dimmer mark of the same shape when the focus is elsewhere, which is what
+// keeps the chat that is open visible in the list beside it (§4.1) and the
+// message the cursor is on visible in a timeline the keys have left (§5.2).
 //
 // The attributes come from the theme and the colour from the tokens, and
 // neither is what makes the selection visible: the glyph is. A terminal
-// that prints no attributes and no colours still shows the bar, and a
+// that prints no attributes and no colours still shows the mark, and a
 // terminal that prints both shows it in the accent.
-func (s viewStyles) selectionBar(selected, regionFocused bool) lipgloss.Style {
+func (s viewStyles) selectionMark(selected, regionFocused bool) lipgloss.Style {
 	style := s.dimmed(s.theme.Tokens.SecondaryText)
 	if !selected {
 		return style
@@ -206,6 +206,34 @@ func (s viewStyles) selectionBar(selected, regionFocused bool) lipgloss.Style {
 	}
 
 	return style.Bold(true).Reverse(true)
+}
+
+// author is the style of the word that stands for the sender of a message.
+//
+// The outgoing name is in the accent (§4.4), and the name of the message
+// the cursor is on is the selected colour so that it is the one name in the
+// column that is brighter than the rest.
+func (s viewStyles) author(outgoing, selected bool) lipgloss.Style {
+	if selected {
+		return s.text(s.theme.Tokens.Selected)
+	}
+	if outgoing {
+		return s.text(s.theme.Tokens.OutgoingMessage)
+	}
+
+	return s.text(s.theme.Tokens.SecondaryText)
+}
+
+// body is the style of the text of a message.
+//
+// The two sides are told apart by colour and by indent (§4.4): the accent
+// of this user's own messages against the ordinary text of the other side.
+func (s viewStyles) body(outgoing bool) lipgloss.Style {
+	if outgoing {
+		return s.text(s.theme.Tokens.OutgoingMessage)
+	}
+
+	return s.text(s.theme.Tokens.IncomingMessage)
 }
 
 // rowText is the colour of the text of a row: the selected colour for the

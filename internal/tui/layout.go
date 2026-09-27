@@ -64,6 +64,13 @@ const (
 	contentInsetWidth = 1
 )
 
+// selectionMarkerWidth is the single column the marker of a selected row or
+// message takes.
+//
+// Every row reserves it, selected or not, so a row does not shift when the
+// selection moves to it.
+const selectionMarkerWidth = 1
+
 // minWidth and minHeight are the smallest screen that is laid out at all.
 //
 // Below them the interface says so instead of drawing something that does

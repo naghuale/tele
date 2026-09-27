@@ -46,7 +46,14 @@ func (f *fakeNative) Receive(timeout time.Duration) ([]byte, error) {
 func (f *fakeNative) Execute(request []byte) ([]byte, error) {
 	f.executeMu.Lock()
 	defer f.executeMu.Unlock()
-	return append([]byte(nil), f.executeResults[string(request)]...), nil
+	if result, ok := f.executeResults[string(request)]; ok {
+		return append([]byte(nil), result...), nil
+	}
+	// Runtime.Start lowers the log verbosity first; TDLib answers ok.
+	if requestType(request) == "setLogVerbosityLevel" {
+		return []byte(`{"@type":"ok"}`), nil
+	}
+	return nil, nil
 }
 func (f *fakeNative) Close() error { f.closeCalls.Add(1); f.closed.Store(true); return nil }
 

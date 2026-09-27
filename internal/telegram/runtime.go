@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"telecli/internal/telemetry/recorder"
@@ -40,9 +41,13 @@ type Runtime struct {
 	done      chan struct{}
 	closed    chan struct{}
 	startOnce sync.Once
-	closeOnce sync.Once
-	startErr  error
-	closeErr  error
+
+	// logSecured records that TDLib's verbosity was lowered, so later
+	// callers do not repeat the request.
+	logSecured atomic.Bool
+	closeOnce  sync.Once
+	startErr   error
+	closeErr   error
 }
 
 type Client struct {
@@ -92,6 +97,16 @@ func (r *Runtime) Start(parent context.Context) error {
 		// The state check and the transition happen under one lock, so a
 		// concurrent Close from the created state either wins and Start
 		// reports ErrClosed, or loses and stops the loop Start began.
+		// td_receive writes log lines at TDLib's default verbosity, which
+		// is high enough to dump requests. The verbosity is lowered
+		// before the loop's first receive, and startup fails closed when
+		// that is impossible. The runtime stays in the created state, so
+		// Close still releases the native handle.
+		if err := r.ConfigureSafeLogging(); err != nil {
+			r.startErr = err
+			return
+		}
+
 		r.mu.Lock()
 		if r.state != LifecycleCreated {
 			r.mu.Unlock()

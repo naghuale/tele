@@ -212,7 +212,11 @@ func newStartedRecordingRuntime(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.Start(context.Background()); err != nil {
+	// Start lowers the verbosity itself and fails closed when it
+	// cannot. The fail-closed tests below still hand that runtime to
+	// Authorize and RunAuth to prove they refuse it as well.
+	if err := runtime.Start(context.Background()); err != nil &&
+		!errors.Is(err, ErrTDLibLogConfiguration) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

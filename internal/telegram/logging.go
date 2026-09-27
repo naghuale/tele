@@ -138,5 +138,14 @@ func (r *Runtime) ConfigureSafeLogging() error {
 			ErrTDLibLogConfiguration,
 		)
 	}
-	return setSafeTDLibLogVerbosity(r.native)
+	// Start already lowers the verbosity before the first receive; the
+	// setting is process-wide, so a later call has nothing to change.
+	if r.logSecured.Load() {
+		return nil
+	}
+	if err := setSafeTDLibLogVerbosity(r.native); err != nil {
+		return err
+	}
+	r.logSecured.Store(true)
+	return nil
 }

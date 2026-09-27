@@ -76,24 +76,27 @@ func (e *liveChatEntry) listable() bool {
 	return e.inMain && e.Order != 0
 }
 
-// LiveState is the in-memory projection of the main chat list that the
-// session pump applies TDLib updates to.
+// LiveState is the in-memory projection of the main chat list and of the
+// message events of every chat, that the session pump applies TDLib
+// updates to.
 //
 // It follows ADR-0003: the pump is the only writer, consumers are told
 // that the state changed rather than what changed, and a consumer reads
 // the state itself. Applying an update is in-memory work only, so the
 // pump never waits on a reader.
 type LiveState struct {
-	mu      sync.RWMutex
-	chats   map[ChatID]*liveChatEntry
-	changed chan struct{}
+	mu       sync.RWMutex
+	chats    map[ChatID]*liveChatEntry
+	messages map[ChatID]*chatMessages
+	changed  chan struct{}
 }
 
 // NewLiveState returns an empty store.
 func NewLiveState() *LiveState {
 	return &LiveState{
-		chats:   make(map[ChatID]*liveChatEntry),
-		changed: make(chan struct{}, 1),
+		chats:    make(map[ChatID]*liveChatEntry),
+		messages: make(map[ChatID]*chatMessages),
+		changed:  make(chan struct{}, 1),
 	}
 }
 
@@ -156,9 +159,34 @@ func (l *LiveState) signalChanged() {
 //
 // Decoding completes before any state is touched, so an error cannot
 // leave a half-applied update behind and no rollback is needed.
+//
+// The update types are routed by one read of the envelope. The two
+// decoders keep their own handling of it on purpose: the chat-list path
+// must not change under a message-event step, and one small unmarshal is
+// cheaper than a decoder both paths would have to agree on.
 func (l *LiveState) apply(raw RawMessage) (bool, error) {
 	if l == nil {
 		return false, nil
+	}
+
+	var envelope updateEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return false, fmt.Errorf("decode live update: %w", err)
+	}
+
+	if _, isMessageUpdate := messageUpdateTypes[envelope.Type]; isMessageUpdate {
+		update, applies, err := decodeMessageUpdate(raw)
+		if err != nil {
+			return false, err
+		}
+		if !applies {
+			return false, nil
+		}
+
+		l.mu.Lock()
+		defer l.mu.Unlock()
+
+		return l.recordMessageUpdate(update), nil
 	}
 
 	patch, applies, err := decodeLivePatch(raw)
@@ -594,27 +622,53 @@ type liveMessageRaw struct {
 // decodeLiveMessage turns a raw last_message into a Message, or nil when
 // there is none.
 func decodeLiveMessage(raw json.RawMessage) *Message {
-	if isAbsentJSON(raw) {
+	message, err := parseLiveMessage(raw)
+	if err != nil {
 		return nil
+	}
+	return &message
+}
+
+// parseLiveMessage is decodeLiveMessage without the silent nil.
+//
+// The chat list treats an unreadable last_message as "no message": a
+// preview that fails to parse must not cost the user the whole update
+// that carried it. A message event cannot afford that, because the event
+// would be filed under no chat at all and the consumer would never learn
+// that a message exists. So the same decode is done strictly here, and
+// the caller reports the failure.
+//
+// The preview text comes from parseLastMessage, which the snapshot path
+// already uses, so a message cannot look different depending on which
+// path saw it.
+func parseLiveMessage(raw json.RawMessage) (Message, error) {
+	if isAbsentJSON(raw) {
+		return Message{}, errors.New("telegram message is absent")
 	}
 
 	var message liveMessageRaw
 	if err := json.Unmarshal(raw, &message); err != nil {
-		return nil
+		return Message{}, fmt.Errorf("decode message: %w", err)
 	}
 	if message.ID == 0 {
-		return nil
+		return Message{}, errors.New("telegram message has no id")
+	}
+	if message.ChatID == 0 {
+		return Message{}, fmt.Errorf(
+			"telegram message %d has no chat id",
+			message.ID,
+		)
 	}
 
 	// parseLastMessage already extracts the preview text for a message
 	// payload, including the placeholder for unsupported content.
 	_, text := parseLastMessage(raw)
 
-	return &Message{
+	return Message{
 		ID:        MessageID(message.ID),
 		ChatID:    ChatID(message.ChatID),
 		Outgoing:  message.IsOutgoing,
 		Timestamp: time.Unix(message.Date, 0).UTC(),
 		Text:      text,
-	}
+	}, nil
 }

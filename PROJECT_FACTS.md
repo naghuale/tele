@@ -129,7 +129,9 @@
   - updates that arrived during authorization are held on AuthResult
     and applied to LiveState before the pump's first update, so a chat
     first seen before Ready is not lost; only the update types the
-    store consumes are held, which bounds the slice by the chat list
+    store consumes are held, which bounds the slice by the chat list.
+    Message events are applied but never held, since the TUI starts from
+    the first history page (ADR-0003 step 2)
   - runtime errors still forwarded to a session-facing Errors() channel
   - graceful close observes authorizationStateClosed as the required
     terminal state
@@ -195,14 +197,49 @@
   - applied updates: updateNewChat, updateChatTitle, updateChatPosition,
     updateChatLastMessage, updateChatDraftMessage (positions only),
     updateChatReadInbox
+  - the message updates below are routed by the same apply and never
+    move the list: the two projections are independent, and a chat
+    update spends no message sequence
   - position order is a JSON string int64; a value that does not parse
     reports ErrLiveStateOrder and leaves the state unchanged
   - an update for an unknown chat creates no record; other update types
     are ignored without an error or a signal
   - LoadChats(ctx, limit) returns complete=true on TDLib error 404 and
     an error for anything else; limit validated as in GetChats
-  - message events (updateNewMessage, send succeeded/failed, deletions)
-    are step 2 and are not applied yet
+- Live message events: internal/telegram/live_messages.go
+  (ADR-0003 step 2)
+  - a closed set of four events with an unexported marker method, so a
+    consumer's type switch is exhaustive: MessageAdded{Message},
+    MessageReplaced{OldID, Message},
+    MessageFailed{OldID, Message, Error}, MessagesDeleted{IDs}
+  - updateNewMessage → MessageAdded for incoming and outgoing alike; the
+    chat comes from message.chat_id, since the update has no chat_id of
+    its own
+  - updateMessageSendSucceeded → MessageReplaced, carrying the temporary
+    ID the consumer already holds
+  - updateMessageSendFailed → MessageFailed; Error is MessageError with
+    a code and TDLib's own description, and neither Error() nor Reason()
+    includes that description, so a log line cannot get the message body
+    or a transport string
+  - updateDeleteMessages with is_permanent = true → MessagesDeleted; a
+    non-permanent deletion only drops TDLib's cache and is ignored, as is
+    a deletion with no ids
+  - one window of the last 256 events per chat, with a monotonic
+    sequence; the window is created by the first event, so a chat that
+    never receives a message costs nothing, and the allocation stops
+    growing once the window is full
+  - MessageEventsSince(chatID, seq) returns the events after seq as
+    copies, the cursor to continue from, and a resync flag: a cursor
+    older than the window or ahead of the store cannot be answered and
+    the consumer reloads the first history page. A chat with no events
+    reports next = 0 and no resync
+  - a message event signals the same capacity-1 channel as a chat-list
+    change; a chat-list consumer re-reads a list that did not move
+  - message updates are deliberately not in liveStateUpdateTypes, so
+    they are not held during authorization: the TUI starts from the first
+    history page and that page closes the gap
+  - a message the store cannot parse is reported as an error and leaves
+    the window untouched, as a malformed order does for the chat list
 - History projection: internal/telegram/history.go
   - GetChatHistory returns newest-first pages
   - chatID == 0 rejected; limit validated in (0, 100]
@@ -413,6 +450,7 @@
     accepted
   - history pagination UI: accepted
   - live chat-list updates: accepted (ADR-0003 step 1)
+  - live message events: accepted (ADR-0003 step 2)
   - lossless update/resync policy: pending
 - PR-07: text message sending
   - Telegram `sendMessage` wire layer: accepted

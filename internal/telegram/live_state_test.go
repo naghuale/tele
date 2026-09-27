@@ -316,13 +316,14 @@ func TestApplyUnknownChatDoesNotCreateEntry(t *testing.T) {
 	}
 }
 
+// An update the store does not model at all is ignored, not reported.
+// The message updates are not in this list: they became events in
+// ADR-0003 step 2 and are covered in live_messages_test.go.
 func TestApplyUnsupportedUpdateTypeIsIgnored(t *testing.T) {
 	for _, raw := range []string{
-		`{"@type":"updateNewMessage","message":{"@type":"message","id":1}}`,
-		`{"@type":"updateMessageSendSucceeded","old_message_id":1,"message":{"@type":"message","id":1}}`,
-		`{"@type":"updateDeleteMessages","chat_id":7,"message_ids":[1],"is_permanent":true}`,
 		`{"@type":"updateUser","user":{"@type":"user","id":1}}`,
 		`{"@type":"updateOption","name":"x","value":{"@type":"optionValueBoolean","value":true}}`,
+		`{"@type":"updateCall","call":{"@type":"call","id":1}}`,
 	} {
 		state := seededLiveState(t)
 		changed, err := state.apply(RawMessage(raw))

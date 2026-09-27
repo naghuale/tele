@@ -273,6 +273,33 @@
   moves it to os.UserConfigDir()/telecli. Every stored directory must
   be absolute; without an absolute home directory there is no default
   and startup fails with ErrDataDirUnavailable until data_dir is set
+- Outbox reset (internal/outbox/reset.go, internal/application/outbox_reset.go):
+  - `telecli outbox reset` starts a new empty queue when the key of the
+    old one is provably absent (provider answered "no record"); a
+    malformed key, a locked or denied key store and a platform without
+    key storage all refuse and change nothing
+  - the summary before the confirmation is read from a scratch copy of
+    the database, so the queue is never opened or modified and the
+    message bodies, chat ids and phone numbers are never read at all:
+    only plaintext scheduling metadata is counted
+  - confirmation is the word `reset` (case-insensitive), not `y` or
+    Enter; `--yes` is for an unattended run, and without either a
+    terminal the command does nothing
+  - the old queue is never deleted: it is renamed to
+    `outbox.db.orphaned-<UTC time>` with its write-ahead log, and a
+    `.txt` note beside it records the old `database_id` and how to put
+    the queue back if the old key returns
+  - a new `database_id` gets the new key; the old one is never reused,
+    so a key restored from a backup cannot end up on the empty queue
+  - steps run in the order record, move aside, create key, write
+    configuration, clear record, and the record (`outbox.reset` in the
+    data folder) makes the order recoverable: a repeated run finishes
+    the same reset. While it exists, `Open` refuses to create a key
+    (ErrOutboxResetPending), so no start can quietly invent a queue
+  - a session holds the queue through the run lock
+    (`outbox.AcquireRunLock`, `Deps.Exclusive`), so the command refuses
+    while another telecli window has the queue open. The lock lives in
+    the shared lock directory, not in the data folder
 - TDLib database directory: ~/.local/share/telecli/tdlib/database
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by
@@ -308,7 +335,9 @@
     sentinels: `ErrOutboxKeyAccessDenied` (locked or denied),
     `ErrOutboxKeyUnavailable` (key missing),
     `ErrOutboxKeyProviderUnsupported` (no secure storage),
-    `ErrOutboxDataDirInsecure` (folder reachable by others), otherwise
+    `ErrOutboxDataDirInsecure` (folder reachable by others),
+    `ErrOutboxResetPending` (a reset that was started and not finished,
+    reported as the missing-key case with the same remedy), otherwise
     other
   - `ErrOutboxKeyAccessDenied` was added because the Keychain bridge
     already separated a missing item from a refusal and the provider
@@ -338,6 +367,9 @@
 - telecli version
 - telecli doctor
 - telecli configure
+- telecli configure status
+- telecli configure reset
+- telecli outbox reset [--config path] [--yes]
 - telecli tui
 
 ## Architecture

@@ -118,6 +118,10 @@ func openDurableOutboxRuntime(
 		KeyProvider: deps.KeyProvider,
 		Sender:      sender,
 		Clock:       deps.Clock,
+		// A session that will send messages owns the queue: it holds
+		// the run lock, so `telecli outbox reset` refuses to move the
+		// queue file out from under it.
+		Exclusive: true,
 	})
 	if err != nil {
 		return nil, err

@@ -14,6 +14,7 @@ import (
 
 	"telecli/internal/buildinfo"
 	"telecli/internal/config"
+	"telecli/internal/outbox"
 	"telecli/internal/telegram"
 	"telecli/internal/telemetry/recorder"
 	"telecli/internal/tui"
@@ -92,6 +93,20 @@ type Environment struct {
 	// and on a machine without one the production probe hangs until the
 	// test binary is killed.
 	ProbeOutbox OutboxProbe
+
+	// NewOutboxKeyProvider builds the key provider used by
+	// telecli outbox reset.
+	//
+	// A nil value uses the platform provider. Tests inject a fake so no
+	// real Keychain item is read, created or left behind.
+	NewOutboxKeyProvider func() outbox.KeyProvider
+
+	// OutboxResetOps overrides individual steps of
+	// telecli outbox reset. A nil field keeps the production step.
+	//
+	// Tests use it to fail one step, which is the only way to prove
+	// that a repeated run after a crash finishes the same reset.
+	OutboxResetOps OutboxResetOperations
 }
 
 // telegramCredentialStore returns the credential store for this run.
@@ -329,6 +344,8 @@ func Main(args []string, env Environment) int {
 		return runDoctor(args[2:], env)
 	case "configure":
 		return runConfigure(args[2:], env)
+	case "outbox":
+		return runOutbox(args[2:], env)
 	case "tui":
 		return runTUI(args[2:], env)
 	default:
@@ -344,9 +361,10 @@ func printHelp(w io.Writer) {
 Usage:
   telecli --help
   telecli version
-  telecli configure [--config path] [--mode direct|durable]
+  telecli configure [--config path] [--mode durable]
   telecli configure status
   telecli configure reset
+  telecli outbox reset [--config path] [--yes]
   telecli doctor [--config path]
   telecli tui    [--config path]
 

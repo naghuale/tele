@@ -77,6 +77,30 @@ The database must never contain the data-encryption key. The key must
 not be supplied through command-line arguments, written to logs, or
 stored in repository configuration.
 
+A new key is never created silently for an existing database. A key is
+created only while a database identity is being initialized, or by
+`telecli outbox reset`, which exists for the one case where the key of an
+existing database is provably absent (the key store answered that there
+is no record for it). That command:
+
+- requires the explicit word `reset` as confirmation, or `--yes` for an
+  unattended run, and does nothing without either;
+- tells the user what the old queue holds first, read from the plaintext
+  scheduling metadata alone, and never reads a message body, a chat id
+  or a phone number;
+- keeps the old database as `outbox.db.orphaned-<UTC time>` next to
+  itself, with a note naming its `database_id` and how to put it back if
+  the old key is ever found, so the old queue is never deleted and never
+  silently replaced;
+- gives the new queue a new `database_id`, recorded in the configuration
+  file, and never reuses the old one: a key restored from a backup for
+  the old identity must not end up on the new, empty queue.
+
+A key that exists but is unusable, a locked key store, a denied access
+request and a platform without secure key storage are all cases where the
+queue may still be readable, so the command refuses them and changes
+nothing. The same is true of a queue another telecli process has open.
+
 Production activation fails closed when the key provider is
 unavailable. There is no automatic plaintext fallback.
 
@@ -235,3 +259,27 @@ grant write access to group or other users. Each lock file is named
 from `sha256(databaseID)` and is created with mode `0600`.
 
 Cross-machine key sharing and synchronization are out of scope.
+
+### Queue reset serialization and ordering
+
+`telecli outbox reset` is the only operation that rearranges a queue on
+disk, so it is serialized with the same convention: an exclusive
+advisory lock named from the queue's data directory, in the same lock
+directory as the key locks. A session holds the queue through the lock
+for as long as it is open; the lock is opt-in per caller, so a read-only
+probe such as `telecli doctor` keeps working while a session runs.
+
+The steps run in one order only: record, move the database aside
+together with its write-ahead log, create the key of the new identity,
+write the new identity to the configuration file, clear the record. The
+record (`outbox.reset` in the data directory) is written before the
+first destructive step and removed after the last, so a run that is
+interrupted at any point is finished by running the same command again,
+and never leaves a configuration that names an identity without its key
+or without the database it replaced.
+
+While the record exists, `Open` refuses to create a key
+(`ErrOutboxResetPending`). Without that, a start between the two halves
+of a reset would create a fresh key for the old identity, and the user
+would see a working empty queue instead of the reset they were told to
+run.

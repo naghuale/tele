@@ -31,13 +31,20 @@
      ```
    - третья строка — подсказка по причине:
 
-     | Причина | Подсказка |
-     |---|---|
-     | Keychain заблокирован или доступ запрещён | `Unlock your Keychain or allow telecli access, then restart telecli.` |
-     | Ключа очереди нет в Keychain | `The key for your message queue is missing. Run telecli doctor for details.` |
-     | Нет хранилища секретов (Linux без Secret Service) | `This system has no secure key storage, so messages cannot be queued safely.` |
-     | У папки данных есть права group/other | `The telecli data folder is accessible to other users. Run telecli doctor to fix it.` |
-     | Любая другая | `Run telecli doctor to see what went wrong.` |
+      | Причина | Подсказка |
+      |---|---|
+      | Keychain заблокирован или доступ запрещён | `Unlock your Keychain or allow telecli access, then restart telecli.` |
+      | Ключа очереди нет в Keychain | `The key for your message queue is missing. Run telecli outbox reset to start a new queue.` |
+      | Нет хранилища секретов (Linux без Secret Service) | `This system has no secure key storage, so messages cannot be queued safely.` |
+      | У папки данных есть права group/other | `The telecli data folder is accessible to other users. Run telecli doctor to fix it.` |
+      | Любая другая | `Run telecli doctor to see what went wrong.` |
+
+      Случай «сброс начат, но не закончен» отображается той же строкой про
+      отсутствующий ключ: ключ текущего `database_id` действительно
+      отсутствует, и та же команда `telecli outbox reset` его дозапускает.
+      Различать их на экране незачем, а ложная подсказка «Run telecli
+      doctor» была бы неверной.
+
 
    - последняя строка: `Details: https://github.com/naghuale/tele/blob/main/docs/help/sending-paused.md`.
      В режиме Narrow и Short (§3.3, §3.4) её можно скрыть; подсказка по

@@ -182,8 +182,9 @@ func TestSendingPausedHintsMatchTheHelpPage(t *testing.T) {
 
 	cases := map[SendingPausedReason]string{
 		SendingPausedKeychainLocked: "Unlock your Keychain or allow telecli access, then restart telecli.",
-		SendingPausedKeyMissing:     "The key for your message queue is missing. Run telecli doctor for details.",
-		SendingPausedNoKeyStorage:   "This system has no secure key storage, so messages cannot be queued safely.",
+		SendingPausedKeyMissing: "The key for your message queue is missing. " +
+			"Run telecli outbox reset to start a new queue.",
+		SendingPausedNoKeyStorage: "This system has no secure key storage, so messages cannot be queued safely.",
 		SendingPausedDataDirInsecure: "The telecli data folder is accessible to other users. " +
 			"Run telecli doctor to fix it.",
 		SendingPausedOther: "Run telecli doctor to see what went wrong.",

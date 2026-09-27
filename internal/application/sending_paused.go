@@ -25,7 +25,10 @@ const (
 	// access request the user denied.
 	SendingPausedKeychainLocked
 
-	// SendingPausedKeyMissing is a queue on disk whose key is gone.
+	// SendingPausedKeyMissing is a queue on disk whose key is gone. The
+	// same case covers a reset that was started and not finished: the
+	// key of the current identity is missing either way, and
+	// telecli outbox reset is the remedy for both.
 	SendingPausedKeyMissing
 
 	// SendingPausedNoKeyStorage is a platform with no secure key
@@ -62,7 +65,7 @@ func (r SendingPausedReason) Hint() string {
 			"then restart telecli."
 	case SendingPausedKeyMissing:
 		return "The key for your message queue is missing. " +
-			"Run telecli doctor for details."
+			"Run telecli outbox reset to start a new queue."
 	case SendingPausedNoKeyStorage:
 		return "This system has no secure key storage, " +
 			"so messages cannot be queued safely."
@@ -106,6 +109,12 @@ func classifySendingPaused(err error) SendingPausedReason {
 		return SendingPausedNoKeyStorage
 	case errors.Is(err, outbox.ErrOutboxDataDirInsecure):
 		return SendingPausedDataDirInsecure
+	case errors.Is(err, outbox.ErrOutboxResetPending):
+		// A reset that was started and not finished. The key of the
+		// current identity really is missing, and the same command is
+		// what finishes the reset, so it is the same case with the same
+		// remedy.
+		return SendingPausedKeyMissing
 	default:
 		return SendingPausedOther
 	}

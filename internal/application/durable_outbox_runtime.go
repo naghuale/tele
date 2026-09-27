@@ -161,11 +161,18 @@ func openDurableOutboxRuntime(
 		))
 	}
 
+	// Without an explicit notifier a submission wakes the dispatcher,
+	// so a new message is sent at once rather than after PollInterval.
+	var notifier DispatchNotifier = opened.Dispatcher
+	if deps.Notifier != nil {
+		notifier = deps.Notifier
+	}
+
 	queue, err := NewOutboxMessageSubmitter(
 		opened.Store,
 		deps.Clock,
 		deps.IDGenerator,
-		deps.Notifier,
+		notifier,
 		accountKey,
 	)
 	if err != nil {

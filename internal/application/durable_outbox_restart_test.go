@@ -287,7 +287,10 @@ func (f *h7dFixture) open(
 			Session:     session,
 			Clock:       f.clock,
 			IDGenerator: durableRuntimeTestIDGenerator("h7d"),
-			AccountKey:  f.accountKey,
+			// The explicit no-op notifier keeps the dispatcher gated
+			// on the test clock; production wakes it on every enqueue.
+			Notifier:   noopNotifier{},
+			AccountKey: f.accountKey,
 		},
 	)
 }
@@ -372,6 +375,53 @@ func (f *h7dFixture) waitForEntryState(
 		}
 		f.clock.fire(f.t)
 		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// TestDurableRuntimeWakesDispatcherOnSubmit pins the production wiring:
+// with no notifier supplied, a submission wakes the dispatcher at once
+// instead of waiting for the poll interval. The test clock is never
+// fired, so only the wake-up can deliver the message.
+func TestDurableRuntimeWakesDispatcherOnSubmit(t *testing.T) {
+	t.Parallel()
+
+	fixture := newH7dFixture(t)
+	session := newH7dSession(nil)
+	runtime, err := OpenDurableOutboxRuntime(
+		context.Background(),
+		fixture.config(),
+		DurableOutboxRuntimeDeps{
+			KeyProvider: fixture.provider,
+			Session:     session,
+			Clock:       fixture.clock,
+			IDGenerator: durableRuntimeTestIDGenerator("wake"),
+			AccountKey:  fixture.accountKey,
+		},
+	)
+	if err != nil {
+		t.Fatalf("open durable runtime: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := runtime.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	if _, err := runtime.Submitter().SubmitMessage(
+		context.Background(),
+		fixture.accountKey,
+		42,
+		"hello",
+	); err != nil {
+		t.Fatalf("SubmitMessage() error = %v", err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for session.calls.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("submission did not wake the dispatcher")
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

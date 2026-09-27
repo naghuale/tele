@@ -118,6 +118,10 @@ type Dispatcher struct {
 
 	mu      sync.Mutex
 	stopped bool
+
+	// wake coalesces enqueue notifications into at most one pending
+	// wake-up of an idle Run.
+	wake chan struct{}
 }
 
 // NewDispatcher wires a dispatcher.
@@ -163,6 +167,17 @@ func NewDispatcher(
 		sender: sender,
 		clock:  clock,
 		cfg:    cfg,
+		wake:   make(chan struct{}, 1),
+	}
+}
+
+// Notify wakes an idle Run so a newly queued entry is sent at once
+// instead of after the poll interval. It never blocks; notifications
+// that arrive while one is pending coalesce.
+func (d *Dispatcher) Notify() {
+	select {
+	case d.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -266,6 +281,8 @@ func (d *Dispatcher) Run(
 		select {
 		case <-ctx.Done():
 			return nil
+
+		case <-d.wake:
 
 		case <-d.clock.After(
 			d.cfg.PollInterval,

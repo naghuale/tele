@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"telecli/internal/config"
+	"telecli/internal/outbox"
 	"telecli/internal/telegram"
 	"telecli/internal/telemetry/recorder"
 	"telecli/internal/tui"
@@ -40,6 +41,16 @@ func newEnv(stdout, stderr *bytes.Buffer, tuiCalls *int) Environment {
 			_ recorder.ComponentRecorder,
 		) (*telegram.Runtime, error) {
 			return nil, errors.New("TDLib unavailable in tests")
+		},
+		// The production probe opens the real platform key provider,
+		// which blocks on a runner with no Keychain until the test
+		// binary is killed. Tests must never touch it.
+		ProbeOutbox: func(
+			context.Context,
+			outbox.Config,
+			outbox.Deps,
+		) (io.Closer, error) {
+			return h17NoopCloser{}, nil
 		},
 	}
 }
@@ -328,6 +339,13 @@ func TestDoctorWithoutTDLibExit1(t *testing.T) {
 			fmt.Fprintln(output, "TDLib runtime: unavailable")
 			return 1
 		},
+		ProbeOutbox: func(
+			context.Context,
+			outbox.Config,
+			outbox.Deps,
+		) (io.Closer, error) {
+			return h17NoopCloser{}, nil
+		},
 	}
 
 	code := Main([]string{"telecli", "doctor"}, env)
@@ -357,6 +375,13 @@ func TestDoctorReportsVerifiedTDLib(t *testing.T) {
 			fmt.Fprintln(output, "TDLib version: 1.8.0")
 			fmt.Fprintln(output, "TDLib compatibility: verified")
 			return 0
+		},
+		ProbeOutbox: func(
+			context.Context,
+			outbox.Config,
+			outbox.Deps,
+		) (io.Closer, error) {
+			return h17NoopCloser{}, nil
 		},
 	}
 

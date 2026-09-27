@@ -83,6 +83,15 @@ type Environment struct {
 	// A nil value uses the production store. Tests inject a fake so no
 	// real Keychain item is read or written.
 	NewTelegramCredentialStore func() TelegramCredentialStore
+
+	// ProbeOutbox is the message-queue probe used by telecli doctor.
+	//
+	// A nil value uses the production probe, which opens the real
+	// platform key provider and can therefore block on a user prompt.
+	// Tests inject a fake: the suite must never touch a real Keychain,
+	// and on a machine without one the production probe hangs until the
+	// test binary is killed.
+	ProbeOutbox OutboxProbe
 }
 
 // telegramCredentialStore returns the credential store for this run.
@@ -424,7 +433,7 @@ func runDoctor(args []string, env Environment) int {
 		env.Stdout,
 		context.Background(),
 		cfg,
-		nil,
+		env.ProbeOutbox,
 	)
 
 	resolver := NewTelegramCredentialResolver(env.telegramCredentialStore())

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"telecli/internal/config"
 	"telecli/internal/outbox"
@@ -21,17 +22,25 @@ func writeConfigWarnings(out io.Writer, warnings []string) {
 	}
 }
 
-// outboxProbe opens the durable outbox just far enough to learn whether
-// it can be used, then closes it.
+// OutboxProbe opens the durable outbox just far enough to learn whether it
+// can be used, then closes it.
 //
 // It is a probe, not a runtime: no dispatcher is started and no Telegram
 // session is involved, so doctor can report a broken queue without
 // authorizing anything.
-type outboxProbe func(
+type OutboxProbe func(
 	context.Context,
 	outbox.Config,
 	outbox.Deps,
 ) (io.Closer, error)
+
+// outboxProbeTimeout bounds the probe.
+//
+// The platform key provider can block on a user prompt or on a locked
+// system service, and a diagnostic command must never hang. On timeout the
+// queue is reported unavailable, which is the safe reading: the messages
+// cannot be queued until the cause is fixed.
+const outboxProbeTimeout = 5 * time.Second
 
 // productionOutboxProbe opens the outbox with the platform key provider.
 func productionOutboxProbe(
@@ -55,11 +64,14 @@ func reportOutboxStatus(
 	out io.Writer,
 	ctx context.Context,
 	cfg config.Config,
-	probe outboxProbe,
+	probe OutboxProbe,
 ) {
 	if probe == nil {
 		probe = productionOutboxProbe
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, outboxProbeTimeout)
+	defer cancel()
 
 	dataDir := strings.TrimSpace(cfg.MessageDelivery.DataDir)
 	if dataDir == "" {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"telecli/internal/config"
@@ -303,7 +304,7 @@ func TestWriteConfigWarningsIsQuietWhenThereIsNothingToSay(t *testing.T) {
 
 // h17Probe returns an outboxProbe that fails with err, or succeeds with
 // a closer that discards everything when err is nil.
-func h17Probe(err error) outboxProbe {
+func h17Probe(err error) OutboxProbe {
 	return func(
 		context.Context,
 		outbox.Config,
@@ -328,4 +329,70 @@ func h17Config(t *testing.T) config.Config {
 	cfg.DataDir = t.TempDir()
 	cfg.MessageDelivery.DataDir = cfg.DataDir
 	return cfg
+}
+
+// ---- The doctor probe must be injectable ----
+
+// The production probe opens the real platform key provider. A test that
+// lets it run blocks on a machine with no Keychain until the binary is
+// killed, which is how a green local run turns into a ten-minute CI
+// timeout. Injecting the probe is what keeps the suite hermetic, so the
+// contract is pinned here rather than left to a comment.
+func TestDoctorUsesTheInjectedProbe(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu        sync.Mutex
+		gotConfig outbox.Config
+		calls     int
+	)
+
+	var out bytes.Buffer
+	cfg := h17Config(t)
+	reportOutboxStatus(&out, context.Background(), cfg, func(
+		_ context.Context,
+		got outbox.Config,
+		_ outbox.Deps,
+	) (io.Closer, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls++
+		gotConfig = got
+		return h17NoopCloser{}, nil
+	})
+
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("probe calls = %d, want 1", calls)
+	}
+	if gotConfig.DataDir != cfg.DataDir {
+		t.Fatalf("probe data dir = %q, want %q", gotConfig.DataDir, cfg.DataDir)
+	}
+	if !strings.Contains(out.String(), "Message queue: OK") {
+		t.Fatalf("doctor did not report the injected probe result:\n%s",
+			out.String())
+	}
+}
+
+// A probe that fails must not stop the rest of doctor's output.
+func TestDoctorReportsAFailedProbeWithoutPanicking(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	cfg := h17Config(t)
+	reportOutboxStatus(
+		&out,
+		context.Background(),
+		cfg,
+		h17Probe(outbox.ErrOutboxKeyProviderUnsupported),
+	)
+
+	text := out.String()
+	if !strings.Contains(text, "Message queue: unavailable") {
+		t.Fatalf("doctor hid the failure:\n%s", text)
+	}
+	if !strings.Contains(text, cfg.DataDir) {
+		t.Fatalf("doctor did not print the data folder:\n%s", text)
+	}
 }

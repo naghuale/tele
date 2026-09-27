@@ -934,7 +934,6 @@ func TestTDLibLibraryCandidatesIncludeHomebrew(t *testing.T) {
 	for _, want := range []string{
 		"/opt/homebrew/lib/libtdjson.dylib",
 		"/usr/local/lib/libtdjson.dylib",
-		thirdPartyTDLibPath,
 	} {
 		found := false
 		for _, candidate := range candidates {
@@ -945,6 +944,24 @@ func TestTDLibLibraryCandidatesIncludeHomebrew(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("candidate %q is missing from %v", want, candidates)
+		}
+	}
+}
+
+// TestTDLibLibraryCandidatesNeverUseWorkingDirectory pins that a release
+// build offers no candidate the loader would resolve from the working
+// directory, so configure cannot probe or persist a planted library.
+func TestTDLibLibraryCandidatesNeverUseWorkingDirectory(t *testing.T) {
+	if telegram.DevelopmentLibrarySearchEnabled() {
+		t.Skip("telecli_dev builds search the repository checkout")
+	}
+
+	for _, candidate := range TDLibLibraryCandidates("", nil) {
+		if candidate.Source == telegram.NativeLibrarySourceDevelopment {
+			t.Fatalf("development candidate in a release build: %+v", candidate)
+		}
+		if !filepath.IsAbs(candidate.Path) {
+			t.Fatalf("relative candidate %q would resolve from the working directory", candidate.Path)
 		}
 	}
 }

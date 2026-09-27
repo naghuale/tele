@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -108,15 +109,23 @@ func TDLibLibraryCandidates(
 		}
 	}
 
+	// The checkout is only searched in a telecli_dev build, and is
+	// remembered as an absolute path: a relative one would be resolved
+	// from whatever directory telecli later starts in.
+	if telegram.DevelopmentLibrarySearchEnabled() {
+		if path, err := filepath.Abs(
+			telegram.DevelopmentLibraryPath(),
+		); err == nil {
+			candidates = append(candidates, TDLibLibraryCandidate{
+				Path:    path,
+				Source:  telegram.NativeLibrarySourceDevelopment,
+				Persist: true,
+			})
+		}
+	}
+
 	candidates = append(
 		candidates,
-		TDLibLibraryCandidate{
-			Path:   thirdPartyTDLibPath,
-			Source: telegram.NativeLibrarySourceDevelopment,
-			// A development checkout is worth remembering, because the
-			// relative path only resolves from the source tree.
-			Persist: true,
-		},
 		// The Homebrew and /usr/local locations hold a system-wide
 		// installation at a stable absolute path, so they are reported
 		// as the platform source and may be remembered. That is the
@@ -146,8 +155,6 @@ func TDLibLibraryCandidates(
 
 	return uniqueTDLibCandidates(candidates)
 }
-
-const thirdPartyTDLibPath = "third_party/tdlib/lib/libtdjson.dylib"
 
 // nativeTDLibProbe loads a real TDLib and inspects it.
 type nativeTDLibProbe struct{}

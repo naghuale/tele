@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"telecli/internal/config"
+	"telecli/internal/telegram"
 )
 
 // The source of the TDLib library is a diagnostic, so these tests assert
@@ -152,6 +153,9 @@ func TestTDLibReportShowsConfiguredSource(t *testing.T) {
 }
 
 func TestTDLibReportShowsDevelopmentSource(t *testing.T) {
+	if !telegram.DevelopmentLibrarySearchEnabled() {
+		t.Skip("only telecli_dev builds search the repository checkout")
+	}
 	library := reportTDLibLibrary(t)
 	t.Setenv("TELECLI_TDLIB_LIBRARY", "")
 
@@ -173,28 +177,44 @@ func TestTDLibReportShowsDevelopmentSource(t *testing.T) {
 	}
 }
 
-func TestTDLibReportShowsPlatformSource(t *testing.T) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		t.Skip("platform loader default is only defined for this build")
+// TestTDLibReportIgnoresLibraryInWorkingDirectory pins that a library
+// planted in the working directory is never loaded implicitly. On macOS a
+// bare leaf name would fall back to the working directory, so the
+// platform candidates are absolute there.
+func TestTDLibReportIgnoresLibraryInWorkingDirectory(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("the working-directory fallback is specific to macOS dlopen")
+	}
+	if telegram.DevelopmentLibrarySearchEnabled() {
+		t.Skip("telecli_dev builds search the repository checkout")
 	}
 
 	library := reportTDLibLibrary(t)
 	t.Setenv("TELECLI_TDLIB_LIBRARY", "")
 
-	// The platform candidate is a bare leaf name, which the dynamic
-	// loader resolves from the working directory. Neither the packaged
-	// nor the development candidate may match first.
 	root := t.TempDir()
 	copyLibrary(t, library, filepath.Join(root, "libtdjson.dylib"))
+	copyLibrary(
+		t,
+		library,
+		filepath.Join(root, "third_party", "tdlib", "lib", "libtdjson.dylib"),
+	)
 	chdir(t, root)
 
-	output, code := runReport(t, reportConfig(""))
-	if code != 0 {
-		t.Fatalf("report failed with code %d:\n%s", code, output)
-	}
-
-	if got := sourceLine(output); got != "platform" {
-		t.Fatalf("source = %q, want platform:\n%s", got, output)
+	output, _ := runReport(t, reportConfig(""))
+	switch sourceLine(output) {
+	case "development":
+		t.Fatalf("the repository checkout was searched:\n%s", output)
+	case "platform":
+		for _, path := range []string{
+			"/opt/homebrew/lib/libtdjson.dylib",
+			"/usr/local/lib/libtdjson.dylib",
+		} {
+			if _, err := os.Stat(path); err == nil {
+				return
+			}
+		}
+		t.Fatalf("a platform library was loaded but none is installed:\n%s", output)
 	}
 }
 

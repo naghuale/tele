@@ -5,6 +5,7 @@ package telegram
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,15 @@ func indexOfSource(
 func clearTDLibLibraryEnvironment(t *testing.T) {
 	t.Helper()
 	t.Setenv(tdlibLibraryEnvironment, "")
+}
+
+// enableDevelopmentSearch turns on the telecli_dev checkout candidate for
+// one test.
+func enableDevelopmentSearch(t *testing.T) {
+	t.Helper()
+	previous := developmentLibrarySearch
+	developmentLibrarySearch = true
+	t.Cleanup(func() { developmentLibrarySearch = previous })
 }
 
 // ---- candidate order ----------------------------------------------------
@@ -91,6 +101,7 @@ func TestLibraryCandidatesPreferConfiguredPathOverPackaged(t *testing.T) {
 
 func TestLibraryCandidatesUsePackagedBeforeDevelopment(t *testing.T) {
 	clearTDLibLibraryEnvironment(t)
+	enableDevelopmentSearch(t)
 
 	candidates := libraryCandidates("", "/pkg/bin/telecli")
 
@@ -113,6 +124,7 @@ func TestLibraryCandidatesUsePackagedBeforeDevelopment(t *testing.T) {
 
 func TestLibraryCandidatesUseDevelopmentBeforePlatformDefault(t *testing.T) {
 	clearTDLibLibraryEnvironment(t)
+	enableDevelopmentSearch(t)
 
 	candidates := libraryCandidates("", "/pkg/bin/telecli")
 
@@ -142,8 +154,35 @@ func TestLibraryCandidatesContainPlatformDefaultLast(t *testing.T) {
 			last.Source,
 		)
 	}
-	if last.Path != "" {
-		t.Fatalf("the platform default must have an empty path, got %q", last.Path)
+}
+
+// TestLibraryCandidatesNeverResolveFromWorkingDirectory pins that a
+// release build offers no candidate the dynamic loader would resolve from
+// the working directory. A relative path is resolved from it directly,
+// and on macOS a bare leaf name falls back to it, so starting telecli from
+// an untrusted directory must not load a library planted there.
+func TestLibraryCandidatesNeverResolveFromWorkingDirectory(t *testing.T) {
+	clearTDLibLibraryEnvironment(t)
+	if DevelopmentLibrarySearchEnabled() {
+		t.Skip("telecli_dev builds search the repository checkout")
+	}
+
+	for _, executable := range []string{"/pkg/bin/telecli", ""} {
+		for _, candidate := range libraryCandidates("", executable) {
+			if candidate.Source == NativeLibrarySourceDevelopment {
+				t.Fatalf("development candidate in a release build: %v",
+					candidatePaths([]NativeLibraryCandidate{candidate}))
+			}
+			if candidate.Path == "" {
+				if runtime.GOOS == "darwin" {
+					t.Fatal("a bare leaf name falls back to the working directory on macOS")
+				}
+				continue
+			}
+			if !filepath.IsAbs(candidate.Path) {
+				t.Fatalf("relative candidate %q", candidate.Path)
+			}
+		}
 	}
 }
 

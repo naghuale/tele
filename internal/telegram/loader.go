@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"telecli/internal/telegram/tdjson"
@@ -29,8 +28,12 @@ type LoadedNative struct {
 //  1. TELECLI_TDLIB_LIBRARY
 //  2. explicit configuration path
 //  3. packaged path next to the executable
-//  4. repository development path
-//  5. platform loader default
+//  4. repository development path (telecli_dev builds only)
+//  5. platform locations (absolute paths on macOS, loader default on Linux)
+//
+// No candidate is resolved from the working directory in a release
+// build, so starting telecli from an untrusted directory cannot load a
+// library planted there.
 //
 // An explicit candidate, whether from the environment or from the
 // configuration, is the only candidate. A path the operator chose is
@@ -134,24 +137,21 @@ func libraryCandidates(
 		})
 	}
 
-	candidates = append(
-		candidates,
-		NativeLibraryCandidate{
-			Path: filepath.Join(
-				"third_party",
-				"tdlib",
-				"lib",
-				defaultLibraryName(),
-			),
+	if developmentLibrarySearch {
+		candidates = append(candidates, NativeLibraryCandidate{
+			Path:   DevelopmentLibraryPath(),
 			Source: NativeLibrarySourceDevelopment,
-		},
-		NativeLibraryCandidate{
-			// An empty path asks the dynamic loader to use its
-			// own default search.
-			Path:   "",
+		})
+	}
+
+	for _, path := range platformLibraryPaths() {
+		// An empty path asks the dynamic loader to use its own default
+		// search.
+		candidates = append(candidates, NativeLibraryCandidate{
+			Path:   path,
 			Source: NativeLibrarySourcePlatform,
-		},
-	)
+		})
+	}
 
 	return uniqueLibraryCandidates(candidates)
 }

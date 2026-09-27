@@ -44,10 +44,17 @@
 - Runtime library discovery:
   1. TELECLI_TDLIB_LIBRARY environment variable
   2. tdlib.library_path from config
-  3. repository development path:
+  3. packaged path: ../lib/libtdjson.* next to the executable
+  4. repository development path, only in builds with
+     `-tags telecli_dev`:
      - third_party/tdlib/lib/libtdjson.dylib (macOS)
      - third_party/tdlib/lib/libtdjson.so (Linux)
-  4. system loader default
+  5. platform locations:
+     - macOS: /opt/homebrew/lib, /usr/local/lib (absolute only; a bare
+       leaf name would make dlopen fall back to the working directory)
+     - Linux: system loader default
+  - a release build never resolves a candidate from the working
+    directory
 - Runtime version source: synchronous getOption("version")
 - Runtime commit source: synchronous getOption("commit_hash")
 - Compatibility manifest: internal/telegram/manifest.go

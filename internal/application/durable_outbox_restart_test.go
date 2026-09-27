@@ -953,30 +953,82 @@ func h7dHoldingSession(release <-chan struct{}) *h7dSession {
 }
 
 // h7dAssertOneUndelivered checks the aggregate the test actually depends
-// on: exactly one entry survived the restart and it has not been accepted.
+// on: exactly one entry survived the restart, and it was never delivered.
 //
-// The state is deliberately not pinned to a single counter. A live
-// dispatcher moves a record from Queued to Dispatching while it works, so
-// asserting on Queued alone races it. Queued plus Dispatching is the
-// set of records that exist and are not finished, and Accepted must be
-// zero, which is the property that matters: nothing was delivered.
+// No single counter is asserted, because no counter is scheduling
+// independent. After the restart the entry is in one of several states
+// depending on what the dispatchers managed to do before they were
+// stopped:
+//
+//   - Queued, when nothing picked it up;
+//   - Dispatching, while the reopened runtime's dispatcher works on it;
+//   - Uncertain, when the *first* runtime's dispatcher started the send
+//     and Close cancelled it mid-flight. An interrupted send is recorded
+//     as uncertain, not as queued, because whether Telegram received it
+//     is unknown.
+//
+// All three mean the same thing for this test: the record exists and was
+// not delivered. Counting every non-terminal state therefore yields 1
+// whichever path the scheduler took, and Accepted must be 0.
+//
+// The no-leak assertions elsewhere in the test are unaffected: they look
+// at the payload, not at the state.
 func h7dAssertOneUndelivered(t *testing.T, health MessageDeliveryHealth) {
 	t.Helper()
 
-	if health.Queued+health.Dispatching != 1 {
+	undelivered := health.Queued +
+		health.Dispatching +
+		health.FailedRetryable +
+		health.Uncertain
+	if undelivered != 1 {
 		t.Fatalf(
-			"health queued=%d dispatching=%d, want their sum to be 1",
+			"health queued=%d dispatching=%d failed_retryable=%d uncertain=%d, "+
+				"want their sum to be 1 (accepted=%d)",
 			health.Queued,
 			health.Dispatching,
+			health.FailedRetryable,
+			health.Uncertain,
+			health.Accepted,
 		)
 	}
 	if health.Accepted != 0 {
-		t.Fatalf("health accepted = %d, want 0: the message must not be delivered", health.Accepted)
+		t.Fatalf(
+			"health accepted = %d, want 0: the message must not be delivered",
+			health.Accepted,
+		)
+	}
+	if health.Canceled != 0 || health.FailedPermanent != 0 {
+		t.Fatalf(
+			"health canceled=%d failed_permanent=%d, want 0",
+			health.Canceled,
+			health.FailedPermanent,
+		)
 	}
 }
 
 func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 	t.Parallel()
+
+	h7dRunRestartLeakCheck(t, 0)
+}
+
+// The same check with a pause before the first Close, so the first
+// runtime's dispatcher has time to start the send and have it cancelled.
+// That is the path a slow CI runner takes, and it is the one that used to
+// fail. It is a separate test rather than a comment, because a claim that
+// a race is gone is worth little unless the slow path is exercised.
+func TestDurableLifecycleRestartErrorsDoNotContainMessageTextWithSlowFirstRuntime(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	h7dRunRestartLeakCheck(t, 300*time.Millisecond)
+}
+
+// h7dRunRestartLeakCheck runs the restart leak check, giving the first
+// runtime pauseBeforeClose to dispatch before it is closed.
+func h7dRunRestartLeakCheck(t *testing.T, pauseBeforeClose time.Duration) {
+	t.Helper()
 
 	fixture := newH7dFixture(t)
 
@@ -993,6 +1045,11 @@ func TestDurableLifecycleRestartErrorsDoNotContainMessageText(t *testing.T) {
 		h7dSecretText,
 	); err != nil {
 		t.Fatalf("SubmitMessage() error = %v", err)
+	}
+	if pauseBeforeClose > 0 {
+		// Give the first dispatcher a chance to take the entry, which is
+		// what a slow machine does on its own.
+		time.Sleep(pauseBeforeClose)
 	}
 	if err := first.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)

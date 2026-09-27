@@ -96,13 +96,13 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 	lines := make([]string, 0, len(visible))
 	for _, row := range visible {
 		number := laid.rowNumber(row)
-		column, onCursorRow := laid.cursorIn(row, number)
+		offset, onCursorRow := laid.cursorIn(row, number)
 
 		lines = append(lines, m.composerRowLine(
 			styles,
 			row,
 			onCursorRow,
-			column,
+			offset,
 			textWidth,
 			m.focus == FocusComposer,
 			inset,
@@ -114,11 +114,24 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 
 // composerRowLine draws one row of the draft, with the cursor on it when
 // the cursor is there.
+//
+// The cursor cell is a whole grapheme cluster and not a rune. Editing
+// moved over clusters, and a cursor style in the middle of a ZWJ emoji
+// does not mark it: the terminal draws the pieces one after another and
+// the emoji comes apart on the screen.
+//
+// Where the profile prints attributes, the cursor is reverse video on the
+// cluster it is at, and a bar when it is past the last one. Where it
+// prints none — the Ascii profile of NO_COLOR, --no-color, TERM=dumb and
+// `color = "never"` — the bar comes first and the row gives up the column
+// it takes, because a cursor nobody can see is not a cursor. A row that
+// was exactly full loses its last cell for it, which is the price of a
+// visible cursor in a terminal that has no way to print one.
 func (m Model) composerRowLine(
 	styles viewStyles,
 	row composerRow,
 	onCursorRow bool,
-	column int,
+	offset int,
 	textWidth int,
 	focused bool,
 	inset string,
@@ -128,34 +141,65 @@ func (m Model) composerRowLine(
 			Render(inset + fitCells(row.text, textWidth))
 	}
 
-	// The cursor is drawn on the character it is at, and as a bar when it
-	// is past the last one. Reverse is the marker where the terminal prints
-	// attributes, and it is the character that is marked rather than
-	// replaced: a cursor that hides the letter under it is a cursor the
-	// user cannot read a word with.
-	//
-	// A terminal with no colour at all prints no attributes either, and
-	// there the bar is all that is left. It shows at the end of a draft and
-	// in an empty one, which is where a cursor is most of the time.
-	runes := []rune(row.text)
-	at := clampIndex(column, len(runes))
-	before := string(runes[:at])
-	under := runes[at:]
-	rest := ""
-
-	if len(under) > 0 {
-		rest = string(under[1:])
-	}
-
+	before, under, after := splitAtCluster([]rune(row.text), offset)
 	cursorStyle := styles.cursor(focused)
-	head := inset + styles.text(m.tokens().PrimaryText).Render(before)
-	tail := styles.text(m.tokens().PrimaryText).Render(rest)
+	bar := cursorStyle.Render(cursorBar)
 
-	if len(under) == 0 {
-		return head + cursorStyle.Render(cursorBar) + tail
+	if under == "" {
+		// The cursor is past the last cell of the row, so the bar is the
+		// last thing on it and nothing has to move.
+		return inset + styles.text(m.tokens().PrimaryText).
+			Render(before) + bar
 	}
 
-	return head + cursorStyle.Render(string(under[0])) + tail
+	attributed := styles.attributesVisible()
+	budget := textWidth
+
+	var line string
+	if attributed {
+		// One style run around the whole cluster, so the terminal has
+		// nothing to break it apart with.
+		line = styles.text(m.tokens().PrimaryText).Render(before) +
+			cursorStyle.Render(under) +
+			styles.text(m.tokens().PrimaryText).Render(after)
+	} else {
+		budget--
+		line = styles.text(m.tokens().PrimaryText).Render(before) +
+			bar +
+			styles.text(m.tokens().PrimaryText).Render(under+after)
+	}
+
+	return inset + fitCells(line, budget)
+}
+
+// splitAtCluster cuts the text of a row at a rune offset that is on a
+// cluster boundary, into the part before the cursor, the cluster under it
+// and the part after it.
+//
+// An offset in the middle of a cluster — which a rune index can be, if the
+// text was set from outside rather than typed — belongs to the cluster
+// before it, the same way Backspace does. A cursor drawn inside a cluster
+// is a cursor on half an emoji.
+func splitAtCluster(text []rune, offset int) (before, under, after string) {
+	offset = clampIndex(offset, len(text))
+
+	used := 0
+
+	for _, cluster := range graphemes(text) {
+		// The first cluster the offset reaches or falls into is the one the
+		// cursor is on. An offset that lands exactly on its first rune is
+		// the cursor before it, which is where a left arrow leaves it.
+		if used+len(cluster) > offset {
+			return before, string(cluster), string(text[used+len(cluster):])
+		}
+
+		before += string(cluster)
+		used += len(cluster)
+	}
+
+	// The offset is past the last rune, so the cursor is at the end of the
+	// row and there is nothing under it.
+	return before, "", ""
 }
 
 // cursorBar is the cursor drawn where there is no character under it.

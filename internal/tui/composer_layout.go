@@ -27,10 +27,16 @@ type composerRow struct {
 type composerLayout struct {
 	rows []composerRow
 
-	// cursorRow and cursorColumn are where the cursor is, in rows and in
-	// terminal columns.
+	// cursorRow and cursorColumn are where the cursor is drawn, in rows and
+	// in terminal columns.
 	cursorRow    int
 	cursorColumn int
+
+	// cursorOffset is the same place as an index into the text, which is
+	// how the buffer says where the cursor is. The view needs both: the
+	// offset to cut the row at a cluster boundary, and the column to know
+	// where the row ends on the screen.
+	cursorOffset int
 }
 
 // layoutComposer lays a draft out in rows of the given width.
@@ -58,6 +64,7 @@ func layoutComposer(text []rune, cursor, width int) composerLayout {
 		if index == cursor {
 			layout.cursorRow = len(layout.rows)
 			layout.cursorColumn = column
+			layout.cursorOffset = cursor
 		}
 
 		if cluster[0] == '\n' {
@@ -85,6 +92,7 @@ func layoutComposer(text []rune, cursor, width int) composerLayout {
 	if index := len(text); index == cursor {
 		layout.cursorRow = len(layout.rows)
 		layout.cursorColumn = column
+		layout.cursorOffset = cursor
 	}
 
 	appendRow()
@@ -158,8 +166,14 @@ func (l composerLayout) visibleRows(height int) []composerRow {
 	return l.rows[first : last+1]
 }
 
-// cursorIn reports whether the cursor is on a row and where on it is, in
-// columns from the start of that row.
+// cursorIn reports whether the cursor is on a row and where in it, as the
+// number of runes before the cursor on that row.
+//
+// The offset is in runes and not in columns because that is what the
+// buffer holds: the cursor is an index into the text, and the row the
+// cursor is on starts at a rune of it. A column would have to be turned
+// back into a rune, and a cluster that is two cells wide would be turned
+// back into the wrong one.
 //
 // It is the row number that decides, not the row: a row is its own start
 // index, and asking "is this row the one the cursor is on" that way says
@@ -172,7 +186,7 @@ func (l composerLayout) cursorIn(row composerRow, number int) (int, bool) {
 		return 0, false
 	}
 
-	return l.cursorColumn, true
+	return clampIndex(l.cursorOffset-row.start, len([]rune(row.text))), true
 }
 
 // rowNumber returns the number of a row in the layout.

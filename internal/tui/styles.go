@@ -246,6 +246,18 @@ func (s viewStyles) rowText(selected bool) lipgloss.Style {
 	return s.text(s.theme.Tokens.PrimaryText)
 }
 
+// attributesVisible reports whether the profile can print bold, reverse
+// and the rest of the SGR attributes.
+//
+// The Ascii profile cannot: termenv answers Ascii for NO_COLOR, for
+// `color = "never"`, for TERM=dumb and for --no-color, and Lip Gloss
+// strips every attribute under it. Anything a view marks with an attribute
+// alone is invisible there, so this is the question a view asks before
+// trusting one.
+func (s viewStyles) attributesVisible() bool {
+	return s.renderer.ColorProfile() != termenv.Ascii
+}
+
 // cursor is the style of the cursor of the composer.
 //
 // It is reverse where the terminal prints attributes and the cursor colour

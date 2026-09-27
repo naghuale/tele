@@ -103,7 +103,10 @@ func TestTheRowWithTheCursorIsAlwaysOnScreen(t *testing.T) {
 			t.Fatalf("the cursor is on no row of the draft")
 		}
 
-		view := plain(m.View())
+		// The cursor bar sits inside the row it marks, so it is taken out
+		// before looking for the text of the row: a row with the cursor in
+		// the middle of it is not the text of that row.
+		view := strings.ReplaceAll(plain(m.View()), cursorBar, "")
 		if !strings.Contains(view, row) {
 			t.Fatalf("the cursor row %q is not on the screen:\n%s", row, view)
 		}
@@ -268,4 +271,167 @@ func TestWrappingDoesNotChangeTheDraft(t *testing.T) {
 			t.Fatalf("the wrapped draft lost %q:\n%s", want, view)
 		}
 	}
+}
+
+// The cursor is drawn on a cell, and a cell is a grapheme cluster.
+//
+// Editing moved over clusters, so drawing has to as well: a cursor style
+// in the middle of a ZWJ emoji does not mark it, it breaks it into pieces
+// the terminal then draws one after another.
+func TestTheCursorIsDrawnOnAWholeGrapheme(t *testing.T) {
+	const family = "👨‍👩‍👧"
+
+	cases := map[string]struct {
+		profile     theme.Profile
+		profileName string
+	}{
+		"true color": {profile: theme.ProfileTrueColor, profileName: "true color"},
+		"no colour":  {profile: theme.ProfileNoColor, profileName: "no colour"},
+	}
+
+	for name, testCase := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := openedProgramModel(t, testCase.profile, 100, 24)
+			m.focus = FocusComposer
+			m, _ = updateModel(t, m, pressRunes("вторая "+family))
+
+			// The cursor at the end of a draft that ends in a cluster is a
+			// bar after it, whatever the cluster is.
+			row := composerRowOf(t, m, "вторая")
+			if !strings.HasSuffix(strings.TrimRight(plain(row), " "), cursorBar) {
+				t.Fatalf("the row does not end with the cursor: %q", plain(row))
+			}
+
+			// One step back puts the cursor on the cluster, and the whole
+			// cluster has to be inside one style run: an escape sequence in
+			// the middle of it is the terminal drawing it in pieces.
+			m, _ = updateModel(t, m, press(tea.KeyLeft))
+
+			styled := composerRowOf(t, m, "вторая")
+			if !cursorOnCluster(t, styled, family) {
+				t.Fatalf(
+					"the cluster is not inside one style run: %q",
+					styled,
+				)
+			}
+
+			for index, line := range viewLines(m.View()) {
+				if got := cellWidth(line); got > m.width {
+					t.Fatalf(
+						"row %d is %d columns, want at most %d",
+						index,
+						got,
+						m.width,
+					)
+				}
+			}
+		})
+	}
+}
+
+// A letter and a combining accent are one cell, and the cursor style must
+// not come between them either: the mark belongs to the letter on the
+// screen and it belongs to it in the buffer.
+func TestTheCursorDoesNotSplitACombiningMark(t *testing.T) {
+	const marked = "и" + "́"
+
+	m := openedProgramModel(t, theme.ProfileTrueColor, 100, 24)
+	m.focus = FocusComposer
+	m, _ = updateModel(t, m, pressRunes("да "+marked))
+	m, _ = updateModel(t, m, press(tea.KeyLeft))
+
+	if !cursorOnCluster(t, composerRowOf(t, m, "да "), marked) {
+		t.Fatalf("the letter and its mark are in different runs: %q", composerRowOf(t, m, "да "))
+	}
+}
+
+// A terminal that prints no attributes prints no reverse either, so the
+// cursor has to be a character there: a bar in front of the cell it is at,
+// and the row gives up the column it takes.
+func TestNoColorDrawsTheCursorAsACharacter(t *testing.T) {
+	m := openedProgramModel(t, theme.ProfileNoColor, 100, 24)
+	m.focus = FocusComposer
+	m, _ = updateModel(t, m, pressRunes("abc"))
+
+	m, _ = updateModel(t, m, press(tea.KeyLeft))
+	if row := plain(composerRowOf(t, m, "ab")); !strings.Contains(row, "ab"+cursorBar+"c") {
+		t.Fatalf("the cursor is not drawn in the middle: %q", row)
+	}
+
+	m, _ = updateModel(t, m, press(tea.KeyHome))
+	if row := plain(composerRowOf(t, m, "abc")); !strings.Contains(row, cursorBar+"abc") {
+		t.Fatalf("the cursor is not drawn at the start: %q", row)
+	}
+
+	for index, line := range viewLines(m.View()) {
+		if got := cellWidth(line); got > m.width {
+			t.Fatalf("row %d is %d columns, want at most %d", index, got, m.width)
+		}
+	}
+}
+
+// composerRowOf returns the rendered composer row that holds a piece of
+// the draft.
+//
+// It is found by what is in the row and not by the row of the layout: the
+// cursor bar comes between the parts of a row, so the text of the row is
+// not a substring of the line that draws it.
+func composerRowOf(t *testing.T, m Model, want string) string {
+	t.Helper()
+
+	for _, line := range viewLines(m.View()) {
+		if strings.Contains(plain(line), want) {
+			return line
+		}
+	}
+
+	t.Fatalf("the composer row with %q is not on the screen:\n%s", want, plain(m.View()))
+
+	return ""
+}
+
+// cursorOnCluster reports whether a whole cluster sits inside one style
+// run of a rendered row, which is what "the cursor is on it" means once
+// the escape sequences are stripped.
+func cursorOnCluster(t *testing.T, rendered, cluster string) bool {
+	t.Helper()
+
+	for _, run := range splitStyleRuns(rendered) {
+		if strings.Contains(run, cluster) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// splitStyleRuns returns the pieces of a rendered row between the escape
+// sequences, which is how a terminal reads it.
+func splitStyleRuns(rendered string) []string {
+	var (
+		runs    []string
+		current strings.Builder
+	)
+
+	for index := 0; index < len(rendered); index++ {
+		if rendered[index] == 0x1b {
+			if current.Len() > 0 {
+				runs = append(runs, current.String())
+				current.Reset()
+			}
+
+			for index < len(rendered) && rendered[index] != 'm' {
+				index++
+			}
+
+			continue
+		}
+		current.WriteByte(rendered[index])
+	}
+
+	if current.Len() > 0 {
+		runs = append(runs, current.String())
+	}
+
+	return runs
 }

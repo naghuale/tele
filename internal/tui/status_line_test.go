@@ -424,6 +424,14 @@ func modelWithSummaryAndPaused(
 		t.Fatalf("NewModelWithDependencies: %v", err)
 	}
 
+	// The model reads the clock and the zone through two fields that are
+	// the machine's clock and the machine's zone until something pins
+	// them, so everything that goes through this builder starts pinned.
+	// A status line says when somebody was last there and when a message
+	// will be tried again, and both are moments: a test that lets them be
+	// the machine's is a test that changes its answer at 16:00 UTC.
+	model = withClock(model, testClock, time.UTC)
+
 	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: width, Height: height})
 	model, _ = updateModel(t, model, chatsLoadedMsg{chats: []Chat{{ID: 7, Title: "A"}}})
 	model, _ = updateModel(t, model, press(tea.KeyEnter))

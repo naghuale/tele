@@ -398,6 +398,110 @@ func wallClock() time.Time {
 	return time.Now()
 }
 
+// The presence is a statement about two things the model has to read: the
+// moment it is drawing at, and the zone it draws times in. A test that
+// pinned neither was a test about the machine it ran on, and the machine
+// changes its answer at 16:00 UTC on a day written into a fixture somebody
+// read as "recently" when they wrote it.
+//
+// The cases below are moments and zones no machine is on. Each one fails if
+// anything on the path from the fixture to the header reads the real clock
+// or the real zone: the first fails on the real clock (a presence an hour
+// of online left is long expired by now), the second on a clock left
+// behind (a presence of 2026 read at 2031 is six years gone, and a model
+// still reading testClock would call it online), the third on the zone (the
+// same two moments are the same day in Vladivostok and the day before in
+// Adak, so the zone is the only thing that can tell the two words apart).
+func TestThePresenceIsDrawnFromTheClockOfTheCaseAndNotTheMachine(t *testing.T) {
+	// A moment and a zone no machine is on. Adak is nine hours behind and
+	// Vladivostok ten hours ahead, so a time in one of them is a different
+	// day from the same time in the other for most of the day.
+	far := time.Date(2031, 7, 1, 0, 0, 0, 0, time.UTC)
+	adak, err := time.LoadLocation("America/Adak")
+	if err != nil {
+		t.Skipf("the zone database is not here: %v", err)
+	}
+	vladivostok, err := time.LoadLocation("Asia/Vladivostok")
+	if err != nil {
+		t.Skipf("the zone database is not here: %v", err)
+	}
+
+	for name, testCase := range map[string]struct {
+		presence Presence
+		now      time.Time
+		zone     *time.Location
+		want     string
+	}{
+		// The fixture's own moment, drawn an hour before it runs out. A
+		// model that read the real clock says "last seen" from 2026-09-28
+		// 16:00 UTC on, in whatever zone the runner is in.
+		"the moment of the fixture": {
+			presence: Presence{
+				Kind:      PresenceUser,
+				ExpiresAt: testClock.Add(time.Hour),
+			},
+			now:  testClock,
+			zone: time.UTC,
+			want: "Online",
+		},
+		// Six years on, the same presence is long gone, and the header says
+		// the day rather than the hour: the days are years apart, so
+		// neither "today" nor "yesterday" is the answer.
+		"a moment no machine is on": {
+			presence: Presence{
+				Kind:      PresenceUser,
+				ExpiresAt: testClock.Add(time.Hour),
+			},
+			now:  far,
+			zone: adak,
+			want: "last seen 28 Sep",
+		},
+		// The zone is the point: 2031-06-02 00:00 UTC is 10:00 in
+		// Vladivostok and 15:00 on the day before in Adak, and a model
+		// reading the runner's zone says one or the other.
+		"a zone no machine is on": {
+			presence: Presence{
+				Kind:       PresenceUser,
+				LastSeenAt: time.Date(2031, 6, 2, 0, 0, 0, 0, time.UTC),
+			},
+			now:  far.Add(-29 * 24 * time.Hour),
+			zone: adak,
+			want: "last seen at 15:00",
+		},
+		// The word of an online presence, drawn years on. A model with a
+		// clock left behind at testClock would still say it here — the
+		// case above is the one that catches that — and this one says that
+		// a presence an hour of online left is Online at whatever hour it
+		// is looked at, which is the half of §4.3 the other cases do not
+		// reach.
+		"online at a moment no machine is on": {
+			presence: Presence{
+				Kind:      PresenceUser,
+				ExpiresAt: time.Date(2032, 1, 1, 0, 0, 0, 0, time.UTC),
+			},
+			now:  far,
+			zone: vladivostok,
+			want: "Online",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			model := modelWithPresenceAt(
+				t, theme.ProfileNoColor, 100, 24,
+				testCase.presence, StatusSummary{},
+				testCase.now, testCase.zone,
+			)
+
+			if got := statusLineOf(t, model); got != testCase.want {
+				t.Fatalf(
+					"status line = %q, want %q: the header is drawn from "+
+						"the moment and the zone of the case",
+					got, testCase.want,
+				)
+			}
+		})
+	}
+}
+
 // testClock is the moment every presence test draws at. A fixed moment and
 // a fixed zone are what make "last seen at 14:05" a fact about the code
 // rather than about the machine the test runs on.
@@ -405,7 +509,21 @@ var testClock = time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC)
 
 // ---- helpers ----
 
-// modelWithPresence is a conversation with a presence and a summary read.
+// modelWithPresence is a conversation with a presence and a summary read,
+// reading the clock and the zone of testClock.
+//
+// The clock and the zone are pinned here rather than in each test, and that
+// is the whole of the fix for a test that used to answer for the machine it
+// ran on. A model reads the clock through two doors: `m.now`, which is
+// `time.Now` until something pins it, and `m.location`, which is
+// `time.Local` until something pins that. A presence test that pinned
+// neither judged a presence of 2026-09-28 against a clock of whenever the
+// test happened to run, and on 28 September 2026 at 16:00 UTC the answer
+// turned from "Online" to "last seen at 02:00" — in the zone of the machine,
+// which is a second thing nobody pinned.
+//
+// Every presence test builds its model here, so every presence test now has
+// both. A test that wants another moment or another zone says so after.
 func modelWithPresence(
 	t *testing.T,
 	profile theme.Profile,
@@ -416,12 +534,31 @@ func modelWithPresence(
 ) Model {
 	t.Helper()
 
+	return modelWithPresenceAt(
+		t, profile, width, height, presence, summary, testClock, time.UTC,
+	)
+}
+
+// modelWithPresenceAt is the same conversation, reading the clock and the
+// zone the case names.
+func modelWithPresenceAt(
+	t *testing.T,
+	profile theme.Profile,
+	width int,
+	height int,
+	presence Presence,
+	summary StatusSummary,
+	now time.Time,
+	location *time.Location,
+) Model {
+	t.Helper()
+
 	source := &summarySource{summary: summary}
 	source.summary.Presence = presence
 	model := modelWithSummarySource(t, profile, width, height, source, summary)
 	model, _ = updateModel(t, model, model.statusRefresh(t, source))
 
-	return model
+	return withClock(model, now, location)
 }
 
 // withClock pins the clock and the zone a model reads times from.

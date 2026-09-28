@@ -1330,17 +1330,28 @@ TestEveryFrameIsTheSizeOfTheWindow
 
 Тест, который строит проверяемое из системных часов, — это тест, который
 проходит сегодня и падает в тот день, когда выбранные им данные кончатся.
-`TestPresencePrintsWithoutTheStatus` был таким: он строил presence со
-сроком действия и рисовал его через `time.Now()`, и 28 сентября 2026 в
-15:00 UTC срок истёк, экран сказал «last seen at 15:00», а тест счёл это
-утечкой времени — правильно про текст и неправильно про момент.
+`TestPresencePrintsWithoutTheStatus` был таким: он строил presence со сроком
+действия и рисовал его через `time.Now()`, и 28 сентября 2026 в 15:00 UTC срок
+истёк, экран сказал «last seen at 15:00», а тест счёл это утечкой времени —
+правильно про текст и неправильно про момент.
 
-Все тесты `internal/tui` рисуют в `testClock` — фиксированный момент в
-фиксированной зоне. Системные часы читаются в одном месте, `wallClock`, и
-только для того, что про время, а не про проверяемое: дедлайн ожидания и
-затраченное время. `TestNoTestOfThisPackageBuildsItsDataFromTheWallClock`
-grep-ает тестовые файлы пакета и называет файл, который прочитал часы
-не по назначению.
+Часы у модели — это два поля, а не вызов: `m.now` (по умолчанию `time.Now`) и
+`m.location` (по умолчанию `time.Local`). Тест, который их не закрепляет,
+рисует присутствие по часам машины, а наборщик (`modelWithPresence`,
+`modelWithSummaryAndPaused`) закрепляет и то и другое, так что статусная строка
+читает `testClock` и UTC. Проверка: `TestThePresenceIsDrawnFromTheClockOfTheCaseAndNotTheMachine`
+рисует присутствие в 2031 году в `America/Adak` и в `Asia/Vladivostok` и
+требует именно тот текст, который дают момент и зона случая, —
+`TestThePresenceIsDrawnBeforeTheConnection` без закрепления даёт
+«last seen at 02:00» вместо «Online» в зоне машины.
+
+Системные часы читаются в одном месте, `wallClock`, и только для того, что про
+время, а не про проверяемое: дедлайн ожидания и затраченное время.
+`TestNoTestOfThisPackageBuildsItsDataFromTheWallClock` grep-ает тестовые файлы
+пакета и называет файл, который прочитал часы не по назначению.
+
+Проверять: `TZ=UTC go test -count=1 -run Presence ./internal/tui` и то же в
+`Asia/Vladivostok` и `America/Adak`.
 
 ## 22. Порядок PR
 

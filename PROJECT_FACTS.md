@@ -917,6 +917,17 @@
     at 2026-09-28 15:00 UTC;
     `TestNoTestOfThisPackageBuildsItsDataFromTheWallClock` greps the test
     files of the package and names the file that read the clock for data
+  - the clock of a model is two fields and not a call: `m.now` is
+    `time.Now` until pinned and `m.location` is `time.Local` until
+    pinned (`Model.clock`, `Model.timeZone`). A presence test that pinned
+    neither judged a presence of 2026-09-28 against the clock of the
+    runner, and from 16:00 UTC that day the header said "last seen" in the
+    zone of the runner. The builders pin both (`modelWithPresence`,
+    `modelWithSummaryAndPaused`), and
+    `TestThePresenceIsDrawnFromTheClockOfTheCaseAndNotTheMachine` draws a
+    presence in 2031 in `America/Adak` and `Asia/Vladivostok` and asks for
+    the text those moments give, which a real clock or a real zone cannot
+    answer. The snapshot suite has its own `snapshotClock`
   - the presence is the first part of the status line and the last one
     dropped when the line does not fit: the queue can be read again in two
     seconds, and a person cannot

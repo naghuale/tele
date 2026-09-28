@@ -184,6 +184,18 @@ func TestOnlyFocusedRegionHasAccentLine(t *testing.T) {
 		"narrow list":         {model: sizedModel(t, 60, 30), want: listPane},
 		"short conversation":  {model: openedModel(t, 120, 12), want: conversationPane},
 		"composer only":       {model: openedModel(t, 120, 5), want: conversationPane},
+		"search": {
+			model: searching(t, sizedModel(t, 120, 30)),
+			want:  listPane,
+		},
+		"search beside a chat": {
+			model: searching(t, focusedOn(openedModel(t, 120, 30), FocusChatList)),
+			want:  listPane,
+		},
+		"narrow search": {
+			model: searching(t, sizedModel(t, 60, 30)),
+			want:  listPane,
+		},
 		"uncoloured": {
 			model: uncolored(openedModel(t, 120, 30)),
 			want:  conversationPane,
@@ -199,6 +211,17 @@ func TestOnlyFocusedRegionHasAccentLine(t *testing.T) {
 			assertFocusColumn(t, testCase.model, focusColumnOf(testCase.model, testCase.want))
 		})
 	}
+}
+
+// searching returns a model with the search over the chat list open and
+// the keys in it.
+func searching(t *testing.T, m Model) Model {
+	t.Helper()
+
+	m, _ = updateModel(t, m, pressRunes("/"))
+	m, _ = updateModel(t, m, pressRunes("dev"))
+
+	return m
 }
 
 // focusedOn returns a model with the focus on a region.

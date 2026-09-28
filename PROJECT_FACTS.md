@@ -312,13 +312,17 @@
     chat and the selected message carry a chevron of their own
     (theme.SelectionMark, §4.1/§5.2) and keep it while the focus is
     elsewhere; it is not the focus bar, because a list that marked both
-    with `▌` read as a double line. Styles: styles.go
-  - Esc hierarchy (§8.5): composer to timeline, timeline to the chat
-    list, and then it stops. On a two-pane screen the third step
-    focuses the list beside the conversation instead of throwing the
-    conversation away. A draft is never discarded
+    with `▌` read as a double line. The search above the chat list is a
+    region of its own while it is open (FocusSearch, §5/§9) and is
+    stacked above the rows, so the list gives up the column rather than
+    there being two of them. Styles: styles.go
+  - Esc hierarchy (§8.5): search to composer, composer to timeline,
+    timeline to the chat list, and then it stops. On a two-pane screen
+    the third step focuses the list beside the conversation instead of
+    throwing the conversation away. A draft is never discarded
   - `q` leaves the program from the chat list and is a letter in the
-    composer; Esc in the list does nothing. Ctrl+C quits everywhere
+    composer and in the chat search; Esc in the list does nothing.
+    Ctrl+C quits everywhere
   - Enter in the list opens the chat and focuses the composer, and the
     conversation follows the selection while it is beside the list
   - widths are terminal columns (truncateCells, fitCells, wrapCells),
@@ -396,6 +400,65 @@
     dedup by Message.ID
   - on error composer is preserved and sendState becomes
     sendStateError
+- Chat search: internal/tui/chat_search.go, view_chat_search.go,
+  view_chats.go, model.go (PR-10A.6, §4.1, §5, §8.2, §8.5, §9, §17)
+  - `/` in the chat list opens a line above the list and puts the focus in
+    it. It is a focus region of its own (FocusSearch, §5), not a mode of
+    the list: it is a region stacked above the rows, so the list gives up
+    the accent column while the keys are in it and the screen still has
+    one accent column (§5.2)
+  - while the focus is in the search, letters are the query: q does not
+    quit, j/k do not walk the list, g does not jump, R does not reload.
+    The arrow keys are the way to walk the results. Ctrl+C still quits
+    everywhere
+  - Tab walks the search and the list (they are two regions while the
+    search is open), Esc closes the search from either of them, and Esc
+    puts the cursor back on the chat it was on before (§8.5, §9)
+  - the filter is over the loaded chats and asks TDLib nothing: a chat
+    Telegram has not loaded cannot be found by a list that does not have
+    it. Search over messages is PR-10D
+  - matching is Unicode simple case folding rune by rune, the folding of
+    strings.EqualFold (foldIndexOf, foldRuneEqual): "dev" finds "Dev",
+    "ПРИВЕТ" finds "Привет", the Kelvin sign folds into k. It does not
+    fold ё into е and it does not normalise anything else, so a search
+    never rewrites what somebody typed. An empty query does not filter
+  - the results keep the order of the whole list, and the first of them is
+    selected on every keystroke (§9). selectedChat is an index into the
+    whole list, not into the results, so a filter renumbers nothing the
+    model knows
+  - ↑/↓, and the list's j/k after Tab, walk the results and stop at their
+    ends; g and G go to the first and the last result. While the search is
+    open the conversation beside the list does NOT follow the selection:
+    Enter is the key that opens a chat, and following the cursor would
+    open a chat for every result the user arrows past
+  - Enter opens the selected result and closes the search; a query that
+    found nothing opens nothing and keeps the search. Nothing is opened
+    out of an empty result
+  - edits are the readline ones of §8.4 that work backwards from the end
+    of the query: Backspace (per cluster), Ctrl+U, Ctrl+W. The cursor is
+    at the end of the query and does not move into it, so Ctrl+K could
+    only ever do nothing and is not offered
+  - the matched fragment is drawn in the Focus token in bold, in runs
+    split on grapheme cluster boundaries, and never inside one: an emoji
+    or a letter with a combining accent is drawn whole or not at all. The
+    title is fitted to the width of the row first, so a highlight is never
+    in a part of a title that the pane cut. Under NO_COLOR there is no
+    highlight and the narrowed list is the meaning (§2.7)
+  - the line is one row at every width and shows a window of the query
+    that ends at the cursor, so a query longer than a 14-column pane
+    shows what is being typed. Nothing is ever cut in the middle of a
+    character
+  - the header of the list is "/ Search · N unread" (§4.1), and the hint
+    bar of the list names "/ search". On a narrow screen the status block
+    keeps the second line of the header (§3.3) and the search is named in
+    the hint bar. The hint bar of the search is "Enter open · Esc
+    cancel" and does not name q, which is a letter in it
+  - "No chats found" (§17) is what a query that matched nothing leaves:
+    a calm sentence, and chatsState and loadErr are untouched so it
+    cannot be mistaken for a list that failed
+  - a resize that hides the chat list (wide to narrow with a conversation
+    open) closes the search: a field that is not on the screen is not one
+    anybody can type into
 - Auth TUI: internal/tui/screen_auth.go
   - ScreenAuth with phone/code/password prompts
   - password masked as •
@@ -794,7 +857,8 @@
     open chat: accepted
   - PR-10A.5 action sheet and the uncertain decision, cancel of a queued
     message, copy through OSC 52: accepted
-  - 10A.5 action sheet, 10A.6 chat search, 10A.7 snapshots: pending
+  - PR-10A.6 chat search over the loaded chat list: accepted
+  - 10A.7 snapshots: pending
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

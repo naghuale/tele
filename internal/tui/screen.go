@@ -39,12 +39,19 @@ const (
 	FocusChatList Focus = iota
 	FocusHistory
 	FocusComposer
+
+	// FocusSearch is the search line above the chat list (§9). It is a
+	// focus region of its own rather than a mode of the list: §5 counts
+	// the search among the regions exactly one of which is focused, and a
+	// line that is being typed into deserves to be the thing whose accent
+	// says so.
+	FocusSearch
 )
 
 // Valid reports whether f is a known Focus.
 func (f Focus) Valid() bool {
 	switch f {
-	case FocusChatList, FocusHistory, FocusComposer:
+	case FocusChatList, FocusHistory, FocusComposer, FocusSearch:
 		return true
 	}
 	return false
@@ -59,6 +66,8 @@ func (f Focus) String() string {
 		return "history"
 	case FocusComposer:
 		return "composer"
+	case FocusSearch:
+		return "search"
 	default:
 		return "unknown"
 	}

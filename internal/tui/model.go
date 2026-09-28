@@ -120,6 +120,13 @@ type Model struct {
 	selectedChat int
 	selectedMsg  int
 
+	// chatSearch is the search of §9: the line above the list, the query
+	// in it, and the list it narrows. It is a value on the model rather
+	// than a screen, for the reason the action sheet is one: it is drawn
+	// over the chat list rather than instead of it, and it has one entry
+	// in the Esc hierarchy above the list (§8.5).
+	chatSearch chatSearch
+
 	chatsState   loadState
 	historyState loadState
 	loadErr      error
@@ -416,7 +423,18 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	// took a region away must not leave the keys on a region that is no
 	// longer drawn, and a narrower screen shows the same message at the
 	// top of the window (§10.5).
-	return m.normalizeTimeline().normalizeFocus(), nil
+	m = m.normalizeTimeline().normalizeFocus()
+
+	// The search is a region of the chat list, and a narrow screen has no
+	// chat list beside the conversation. A search that is not on the
+	// screen is not one anybody can type into, so the resize that hides
+	// it closes it — the same rule as the focus: a region that is not
+	// drawn does not keep the keys.
+	if m.chatSearch.open && !m.chatListDrawn() {
+		m = m.cancelChatSearch()
+	}
+
+	return m, nil
 }
 
 func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
@@ -445,6 +463,15 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	if m.selectedChat >= len(m.chats) {
 		m.selectedChat = len(m.chats) - 1
 	}
+
+	// A search that is open narrows whatever arrived, and the cursor goes
+	// to the first of it: the list the user was looking at is a different
+	// list now, and the chat under the cursor has to be one of the chats
+	// that are on the screen.
+	if m.chatSearch.open {
+		m.selectFirstChatMatch()
+	}
+
 	return m, nil
 }
 
@@ -855,6 +882,15 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
 	}
 
+	// §8.5 puts the search above the composer in the Esc hierarchy, so
+	// Esc closes it before it means anything else — including when the
+	// focus has moved on to another region while the search is open. A
+	// popup is higher in the hierarchy still, and it is the thing whose
+	// question or menu the Esc is about.
+	if m.chatSearch.open && msg.Type == tea.KeyEsc && !m.popupOpen() {
+		return m.cancelChatSearch(), nil
+	}
+
 	switch m.screen {
 	case ScreenChats:
 		return m.updateChatsKey(msg)
@@ -874,6 +910,13 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // a key that quits is a key a user presses by accident, and there is
 // Ctrl+C for the deliberate case.
 func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The search line is a region of the list (§5), so while the keys are
+	// in it they are its: the list keeps its own keys for when the focus
+	// has been moved back to the rows.
+	if m.focus == FocusSearch {
+		return m.updateChatSearchKey(msg)
+	}
+
 	switch {
 	case msg.Type == tea.KeyEsc:
 		return m, nil
@@ -885,11 +928,25 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// the way out.
 		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
 
+	case isTab(msg):
+		// §8.1 makes Tab a key of the whole interface, and with a search
+		// open the chat list is two regions rather than one (§5). With no
+		// search there is nothing to walk to, which is what the key has
+		// always done on this screen.
+		return m.cycleFocus(1), nil
+
+	case isShiftTab(msg):
+		return m.cycleFocus(-1), nil
+
 	case isReloadChats(msg):
 		// §18: the waiting is over and the load is asked again. R is a
 		// key of the list and not of the composer, where §8.4 turns
 		// single letters back into text.
 		return m, m.startChatsLoad()
+
+	case isChatSearch(msg):
+		// §9: the search line opens above the list and takes the keys.
+		return m.openChatSearch(), nil
 
 	case msg.Type == tea.KeyEnter:
 		if len(m.chats) == 0 {
@@ -898,8 +955,10 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Enter opens the selected chat and puts the cursor where the
 		// next message is written. Every mock screen of §3.1 to §3.3
 		// shows an open conversation with the composer focused, and a
-		// user who opened a chat is about to write in it.
-		return m.openSelectedChat(true)
+		// user who opened a chat is about to write in it. A search
+		// narrows what Enter means to the results, and the search is
+		// left behind.
+		return m.openSelectedResult(true)
 
 	case isUp(msg):
 		return m.moveChatSelection(-1)
@@ -908,10 +967,10 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.moveChatSelection(1)
 
 	case isFirst(msg):
-		return m.selectChatAt(0)
+		return m.selectChatAt(m.chatListEdgeIndex(false))
 
 	case isLast(msg):
-		return m.selectChatAt(len(m.chats) - 1)
+		return m.selectChatAt(m.chatListEdgeIndex(true))
 	}
 
 	return m, nil
@@ -920,10 +979,21 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // moveChatSelection moves the selected chat by delta, clamped to the
 // list.
 //
+// A search narrows what the list is, so the movement is over the results
+// and clamped to them: a cursor on a chat the query left out is a cursor
+// on nothing the user can see.
+//
 // On a two-pane screen the conversation follows the selection, because it
-// is drawn from it. On a single-pane screen nothing is opened, so the
-// selection is all that moves.
+// is drawn from it — but not while a search is open, where following it
+// would open a chat for every result the user arrows past, and a history
+// request is not something a user asks for by looking at a list. Enter is
+// the key that opens a chat. On a single-pane screen nothing is opened at
+// all, so the selection is all that moves.
 func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
+	if m.chatSearch.open {
+		return m.moveChatSearchSelection(delta), nil
+	}
+
 	target := m.selectedChat + delta
 	if target < 0 {
 		target = 0
@@ -939,7 +1009,9 @@ func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
 //
 // An open conversation follows the selection without the focus moving to
 // the composer: the user is still walking the list, and Tab or Enter says
-// where they want the keys to go.
+// where they want the keys to go. A search is the one case where the
+// conversation stays where it is: the list is a filter here, not a
+// selection of what to read.
 func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 	if chatIndex < 0 || chatIndex >= len(m.chats) {
 		return m, nil
@@ -952,6 +1024,7 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 	// the conversation share the screen. Everywhere else the selection is
 	// only a selection, and nothing is opened behind the user's back.
 	if moved &&
+		!m.chatSearch.open &&
 		m.screen == ScreenConversation &&
 		LayoutFor(m.width, m.height).TwoPane() {
 		return m.openSelectedChat(false)
@@ -1073,6 +1146,8 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateHistoryKey(msg)
 	case FocusComposer:
 		return m.updateComposerKey(msg)
+	case FocusSearch:
+		return m.updateChatSearchKey(msg)
 	}
 	return m, nil
 }
@@ -1197,14 +1272,27 @@ func (m Model) normalizeFocus() Model {
 // visibleFocusRegions returns the regions Tab visits, in order.
 func (m Model) visibleFocusRegions() []Focus {
 	if m.screen != ScreenConversation {
-		return []Focus{FocusChatList}
+		return m.chatListFocusRegions()
 	}
 
 	if !LayoutFor(m.width, m.height).TwoPane() {
 		return []Focus{FocusHistory, FocusComposer}
 	}
 
-	return []Focus{FocusChatList, FocusHistory, FocusComposer}
+	return append(m.chatListFocusRegions(), FocusHistory, FocusComposer)
+}
+
+// chatListFocusRegions returns the regions of the chat list, which are the
+// list itself and the search above it while the search is open (§5).
+//
+// They are one after the other because the search belongs to the list: a
+// user who Tabs past it and Tabs back arrives where they left.
+func (m Model) chatListFocusRegions() []Focus {
+	if m.chatSearch.open {
+		return []Focus{FocusChatList, FocusSearch}
+	}
+
+	return []Focus{FocusChatList}
 }
 
 // updateComposerKey handles the keys of the composer (§8.4, §7.4).

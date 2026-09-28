@@ -6,8 +6,8 @@ package tui
 // §4.6 asks for both: the hints depend on the focus, not only on the
 // width, and they are shorter as the screen narrows. What is left out
 // matters as much as what is in: a hint for a key that does nothing yet is
-// a promise the interface cannot keep, so there is no `/ search` before
-// PR-10A.6 and no `Shift+Enter` before PR-10A.3.
+// a promise the interface cannot keep, so there is no `Shift+Enter` before
+// PR-10A.3 and none for the search in a conversation, which is PR-10D.
 //
 // A hint is dropped by the width class, never by what the key does. Tab
 // moves the focus on a medium screen as well as on a wide one; the medium
@@ -39,6 +39,14 @@ func (m Model) hintText(layout Layout) string {
 	}
 	if m.actionSheet.open {
 		return hintActionSheet
+	}
+
+	// §5: the search is a focus region of its own, so it names its own
+	// keys. While they are in it, Enter opens a result and Esc leaves it,
+	// and q is a letter rather than the way out of the program — which is
+	// why the bar names Esc and not q.
+	if m.focus == FocusSearch {
+		return hintChatSearch
 	}
 
 	if m.screen == ScreenChats || m.focus == FocusChatList {
@@ -116,9 +124,19 @@ const (
 	hintModal       = "j/k select · Enter answer · Esc cancel"
 )
 
+// hintChatSearch is what the search line says.
+//
+// Esc is named with the thing it does and not with the letter that leaves
+// the program: while the search is open `q` is a character, and a hint
+// bar that said "q quit" next to a query a user is typing into would name
+// a key that does something else.
+const hintChatSearch = "Enter open · Esc cancel"
+
 // hintChatList is what the chat list says at every width.
 //
-// The list has two keys and a medium screen has room for both, so there is
-// nothing to take away: §4.6 asks for a shorter bar as the screen narrows,
-// and this is already the shortest one the interface has.
-const hintChatList = "Enter open · q quit"
+// The search is in it because the list is the one region where a key can
+// be reached for and not found, and §4.6 has no hint for a key that does
+// nothing. The bar is the shortest one the interface has at every width,
+// and a list that can be searched says so rather than making a user read
+// the header to find out.
+const hintChatList = "Enter open · / search · q quit"

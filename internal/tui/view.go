@@ -301,7 +301,34 @@ func (m Model) conversationPaneRegion(layout Layout) string {
 
 // chatListRegion draws the chat list pane at the given content width and
 // height.
+//
+// The search line of §9 is a region stacked above the list and not a
+// header line inside it: while it is open it is where the keys are, so it
+// is what carries the accent, and the list below gives up the column. The
+// two together take exactly the height the list alone would have taken,
+// so nothing under them moves.
 func (m Model) chatListRegion(layout Layout, width, height int) string {
+	if !m.chatSearch.open {
+		return m.chatListBodyRegion(layout, width, height)
+	}
+
+	return m.joinRegions(
+		m.chatSearchRegion(width),
+		m.chatListBodyRegion(
+			layout,
+			width,
+			maxInt(height-searchRegionHeight, 1),
+		),
+	)
+}
+
+// chatListBodyRegion draws the list itself: the header, the rows, and the
+// empty state of §17.
+func (m Model) chatListBodyRegion(
+	layout Layout,
+	width int,
+	height int,
+) string {
 	return m.renderRegion(
 		m.styles().list,
 		m.focus == FocusChatList,

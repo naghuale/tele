@@ -267,6 +267,23 @@ func (s viewStyles) rowText(selected bool) lipgloss.Style {
 	return s.text(s.theme.Tokens.PrimaryText)
 }
 
+// matchRun is the style of the part of a chat title a search matched
+// (§9: "match fragment подсвечивается").
+//
+// It is the accent of the theme in bold, which is what the interface marks
+// things with everywhere else, rather than a second colour on the row: a
+// match has to be visible on a row that is already in the selection's
+// colour, and the accent is the one thing that differs from both the
+// ordinary text and the selected text.
+//
+// Under the no-colour profile this style is empty, and the search is
+// still a search: §2.7 asks for a meaning that does not depend on
+// colour, and a list a query has narrowed is short without any highlight
+// in it at all.
+func (s viewStyles) matchRun() lipgloss.Style {
+	return s.text(s.theme.Tokens.Focus).Bold(true)
+}
+
 // attributesVisible reports whether the profile can print bold, reverse
 // and the rest of the SGR attributes.
 //

@@ -130,8 +130,13 @@ func TestResizeKeepsChatConversationAndDraft(t *testing.T) {
 }
 
 // paneOf returns the pane a focus belongs to.
+//
+// The search is a region of the chat list rather than a region of its own
+// column (§9): it is stacked above the list, so both draw their accent in
+// the first column of the list and the screen has one accent column
+// either way.
 func paneOf(focus Focus) pane {
-	if focus == FocusChatList {
+	if focus == FocusChatList || focus == FocusSearch {
 		return listPane
 	}
 
@@ -271,9 +276,22 @@ func TestHintBarFollowsFocusAndWidth(t *testing.T) {
 
 	// Nothing that does not work yet is offered.
 	view := sizedModel(t, 120, 30).View()
-	for _, absent := range []string{"/ search", "Shift+Enter", "Ctrl+U"} {
+	for _, absent := range []string{"Shift+Enter", "Ctrl+U"} {
 		if strings.Contains(view, absent) {
 			t.Fatalf("the hint bar offers %q, which does nothing yet:\n%s", absent, view)
 		}
+	}
+
+	// §9: the search names its own keys, and it does not name q: while
+	// the query is being typed, q is a letter in it.
+	searching := sizedModel(t, 120, 30)
+	searching, _ = updateModel(t, searching, pressRunes("/"))
+	searching, _ = updateModel(t, searching, pressRunes("dev"))
+	searched := searching.View()
+	if !strings.Contains(searched, hintChatSearch) {
+		t.Fatalf("the search has no hints of its own:\n%s", searched)
+	}
+	if strings.Contains(searched, hintChatList) {
+		t.Fatalf("the search offers the keys of the list:\n%s", searched)
 	}
 }

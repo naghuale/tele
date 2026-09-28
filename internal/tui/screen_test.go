@@ -27,7 +27,12 @@ func TestScreenString(t *testing.T) {
 }
 
 func TestFocusValid(t *testing.T) {
-	for _, f := range []Focus{FocusChatList, FocusHistory, FocusComposer} {
+	for _, f := range []Focus{
+		FocusChatList,
+		FocusHistory,
+		FocusComposer,
+		FocusSearch,
+	} {
 		if !f.Valid() {
 			t.Fatalf("%v must be valid", f)
 		}
@@ -42,6 +47,7 @@ func TestFocusString(t *testing.T) {
 		FocusChatList: "chat_list",
 		FocusHistory:  "history",
 		FocusComposer: "composer",
+		FocusSearch:   "search",
 		Focus(42):     "unknown",
 	}
 	for f, want := range cases {

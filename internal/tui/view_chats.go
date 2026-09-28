@@ -23,13 +23,17 @@ const chatListTitle = "Chats"
 // first thing to go on a short screen (§3.4), because a name without a
 // preview still says who someone is while a preview without a name says
 // nothing about who said it.
+//
+// A search narrows the rows to the chats that matched and nothing else:
+// the list on the screen is the list there is, so the rows that are drawn
+// are the ones the query left.
 func (m Model) chatListLines(layout Layout, width, height int) []string {
 	lines := []string{
 		m.styles().text(m.tokens().PrimaryText).Render(chatListTitle),
 		m.chatListHeaderSecondLine(layout, width),
 	}
 
-	rows := m.chatListRows(layout, width)
+	rows, selected := m.chatListRows(layout, width)
 	if len(rows) == 0 {
 		return append(lines, m.chatListEmptyLines(layout, width)...)
 	}
@@ -37,7 +41,7 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 	budget := height - layout.hintLines() - len(lines)
 	rowHeight := m.chatListRowHeight(layout)
 
-	start, end := visibleRange(len(rows), m.selectedChat, budget/rowHeight)
+	start, end := visibleRange(len(rows), selected, budget/rowHeight)
 
 	for index := start; index < end; index++ {
 		lines = append(lines, rows[index]...)
@@ -67,11 +71,12 @@ func (m Model) chatListHeaderSecondLine(layout Layout, width int) string {
 }
 
 // chatListSummaryLine is the second line of the header where there is no
-// status: how much of the list is unread.
+// status: how to search the list, and how much of it is unread.
 //
-// §4.1 puts a search and an unread count there. The search is PR-10A.6 and
-// is not on the screen yet, so the line says the one half that is true
-// today rather than a key that does nothing.
+// §4.1 puts a search and an unread count there, and the key is in the line
+// rather than only in the hint bar because the header is what a user reads
+// before deciding to do anything at all, and a list that can be searched
+// has to say so somewhere that is not behind a key they have to know.
 func (m Model) chatListSummaryLine(width int) string {
 	unread := 0
 	for _, chat := range m.chats {
@@ -83,8 +88,12 @@ func (m Model) chatListSummaryLine(width int) string {
 		text = "no unread"
 	}
 
-	return m.styles().dimmed(m.tokens().MutedText).Render(fitCells(text, width))
+	return m.styles().dimmed(m.tokens().MutedText).
+		Render(fitCells(chatListSearchHint+statusSeparator+text, width))
 }
+
+// chatListSearchHint is how the list says that it can be searched.
+const chatListSearchHint = "/ Search"
 
 // chatListRowHeight returns how many lines one chat takes.
 func (m Model) chatListRowHeight(layout Layout) int {
@@ -95,32 +104,46 @@ func (m Model) chatListRowHeight(layout Layout) int {
 	return 2
 }
 
-// chatListRows renders every chat of the list into its lines.
-func (m Model) chatListRows(layout Layout, width int) [][]string {
-	rows := make([][]string, 0, len(m.chats))
+// chatListRows renders every chat the list shows into its lines, and the
+// row the selection is on.
+//
+// The second value is the position of the selection among the rows rather
+// than its index in the whole list: a search puts a chat the query kept
+// first in the rows and last in the list, and the window of §10.5 has to
+// be computed on what is drawn. It is -1 when the chat under the cursor is
+// not one of the rows, which is what a query that found nothing leaves.
+func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
+	entries := m.chatListEntries()
+	rows := make([][]string, 0, len(entries))
+	selected := -1
 
-	for index, chat := range m.chats {
+	for index, entry := range entries {
 		rows = append(
 			rows,
-			m.chatListRowLines(chat, index == m.selectedChat, layout, width),
+			m.chatListRowLines(entry, entry.index == m.selectedChat, layout, width),
 		)
+
+		if entry.index == m.selectedChat {
+			selected = index
+		}
 	}
 
-	return rows
+	return rows, selected
 }
 
 // chatListRowLines renders one chat as a title line and a detail line.
 func (m Model) chatListRowLines(
-	chat Chat,
+	entry chatListEntry,
 	selected bool,
 	layout Layout,
 	width int,
 ) []string {
 	styles := m.styles()
+	chat := entry.chat
 
 	title := chat.Title
 	if title == "" {
-		title = "(untitled)"
+		title = untitledChatTitle
 	}
 
 	// The marker sits against the name and the line below is indented by
@@ -133,8 +156,11 @@ func (m Model) chatListRowLines(
 		styles.selected(selected).Render(
 			styles.selectionMark(selected, m.focus == FocusChatList).
 				Render(theme.SelectionIndicator(selected)) +
-				styles.rowText(selected).Render(
-					fitCells(title, width-selectionMarkerWidth),
+				m.chatTitleLine(
+					styles,
+					title,
+					selected,
+					width-selectionMarkerWidth,
 				),
 		),
 	}
@@ -152,6 +178,13 @@ func (m Model) chatListRowLines(
 
 	return lines
 }
+
+// untitledChatTitle is what a chat with no name is drawn as.
+//
+// It is said rather than left blank: a row with nothing in it is a row a
+// user cannot tell from a row that failed to load, and this one has
+// messages in it.
+const untitledChatTitle = "(untitled)"
 
 // chatListDetail returns the second line of a chat: how much of it is
 // unread, and what it is about.
@@ -243,10 +276,12 @@ const (
 	chatsLoadFailedHint = "Check connection or press R to retry."
 
 	// noChatsText and noChatsHint are §17 for an account with no chats,
-	// and noMessagesHint is §17 for a chat with nothing in it.
-	noChatsText    = "No chats yet"
-	noChatsHint    = "Start a new conversation or wait for chats to load."
-	noMessagesHint = "Write the first message below."
+	// noChatsFoundText is §17 for a search that found nothing, and
+	// noMessagesHint is §17 for a chat with nothing in it.
+	noChatsText      = "No chats yet"
+	noChatsHint      = "Start a new conversation or wait for chats to load."
+	noChatsFoundText = "No chats found"
+	noMessagesHint   = "Write the first message below."
 )
 
 // chatListEmptyState returns the sentences the list is in and the style of
@@ -256,8 +291,17 @@ const (
 // The reason is not on the screen: a cause can name a file, a TDLib error
 // message and a path, and §11.3 and §19 keep those out of a terminal
 // somebody is looking at.
+//
+// A search that found nothing is not a failure and does not borrow the
+// words of one. There is a list, the query is wrong for it, and the only
+// thing the user has to do is change the query — which is a calm sentence
+// and not a red one.
 func (m Model) chatListEmptyState() ([]string, lipgloss.Style) {
 	styles := m.styles()
+
+	if m.chatSearch.filtering() && len(m.chatListEntries()) == 0 {
+		return []string{noChatsFoundText}, styles.dimmed(m.tokens().MutedText)
+	}
 
 	switch m.chatsState {
 	case loadStateLoading:
@@ -283,6 +327,10 @@ func (m Model) chatListEmptyState() ([]string, lipgloss.Style) {
 // chatListEmptyShort is what the list says about itself in one narrow
 // column, with the whole sentence in the pane beside it.
 func (m Model) chatListEmptyShort() string {
+	if m.chatSearch.filtering() && len(m.chatListEntries()) == 0 {
+		return noChatsFoundText
+	}
+
 	switch m.chatsState {
 	case loadStateLoading:
 		return "Loading…"

@@ -5,9 +5,24 @@ repo = "naghuale/tele"
 default_branch = "main"
 language = "ru"
 
+[identity]
+# The executor works as the bot of the GitHub App crewflow-executor (§7i of the crewflow
+# design): a token of an hour for this repository, pushes of the branch of its task only.
+# The owner decided it on 2026-09-29.
+mode = "bot"
+
+[identity.github_app]
+app_id = 5107052
+installation_id = 165781718
+
 [executor]
 command = ["opencode", "run", "--dir", "{worktree}", "--format", "json", "{prompt}"]
 timeout = "90m"
+
+[access]
+# The caches and the toolchain the executor may read outside the worktree.
+read_from = [["go", "env", "GOMODCACHE"], ["go", "env", "GOROOT"]]
+read = []
 
 [worktrees]
 root = "~/.crewflow/worktrees/{repo}"

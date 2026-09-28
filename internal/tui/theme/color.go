@@ -18,6 +18,7 @@ package theme
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -42,6 +43,17 @@ const (
 	// renders it with the colours the user configured for their
 	// terminal, which is the point of using it on a 16-colour terminal.
 	ColorKindBasic
+
+	// ColorKindIndexed is one entry of the 256-colour palette.
+	//
+	// It is named rather than worked out, and the reason is in
+	// CompleteColor: a hex is turned into an entry of the 256-colour
+	// palette in floating point, two entries of a ramp can be the same
+	// distance from a value, and the two architectures a CI runner can be
+	// round that tie differently. A golden file has to be the same on
+	// both, so a colour that is printed on a 256-colour terminal is
+	// written down as the entry it is printed as.
+	ColorKindIndexed
 )
 
 // String names the kind for logs and failure output.
@@ -60,14 +72,23 @@ func (k ColorKind) String() string {
 
 // Color is one colour of the interface.
 //
+// A colour that the interface prints on a terminal with colour carries
+// all three of its values: the hex a 24-bit terminal shows, the entry of
+// the 256-colour palette an indexed one shows, and the index of the
+// basic palette a 16-colour one shows. The last two are written down
+// rather than computed, because a value that is worked out in floating
+// point can come out different on two machines and a golden file cannot
+// be right on one of them. Profile() is what chooses between them.
+//
 // The zero Color means "no colour". That is a real value and not a
 // missing one: it is what every token carries under the No Color profile,
 // where the interface has to stay readable through symbols and
 // attributes instead.
 type Color struct {
-	kind  ColorKind
-	hex   string
-	basic uint8
+	kind    ColorKind
+	hex     string
+	basic   uint8
+	indexed uint8
 }
 
 // RGB returns an RGB colour from a "#rrggbb" string.
@@ -95,6 +116,32 @@ func Basic(index uint8) Color {
 	}
 
 	return Color{kind: ColorKindBasic, basic: index}
+}
+
+// Complete returns a colour with its hex, its entry of the 256-colour
+// palette and its index of the basic palette all written down.
+//
+// An indexed or a basic value of zero means "not named": a background
+// that is left unset on a 16-colour terminal (§2.7) has no basic index
+// because nothing ever prints it as a basic colour, and asking for one
+// would be asking for a colour a user chose rather than a colour this
+// palette happens to have.
+func Complete(hex string, indexed, basic uint8) Color {
+	color := RGB(hex)
+	color.indexed = indexed
+	color.basic = basic
+
+	return color
+}
+
+// Indexed returns one entry of the 256-colour palette.
+//
+// It is a value on its own for a palette that is written in indexed
+// entries rather than in hex, and it is what Profile hands back on an
+// indexed terminal. The entry is a uint8 because 256 entries fit in one
+// byte and because a value outside them cannot be written down as one.
+func Indexed(index uint8) Color {
+	return Color{kind: ColorKindIndexed, indexed: index}
 }
 
 // isHexColor reports whether value is "#" followed by six hex digits.
@@ -129,13 +176,52 @@ func (c Color) Hex() string {
 	return c.hex
 }
 
-// BasicIndex returns the ANSI index, and false for a colour that is not a
-// basic one.
+// BasicIndex returns the index of the basic palette this colour is
+// printed as on a 16-colour terminal, and whether there is one.
 func (c Color) BasicIndex() (uint8, bool) {
-	if c.kind != ColorKindBasic {
+	if c.basic == 0 {
 		return 0, false
 	}
 	return c.basic, true
+}
+
+// IndexedIndex returns the entry of the 256-colour palette this colour is
+// printed as on an indexed terminal, and whether there is one.
+func (c Color) IndexedIndex() (uint8, bool) {
+	if c.indexed == 0 {
+		return 0, false
+	}
+	return c.indexed, true
+}
+
+// IsComplete reports whether the colour names all three of its values.
+//
+// It is what a test asks about every token of a built-in theme: a token
+// without an indexed entry would be reduced to one at run time, and that
+// reduction is float work whose result a golden file cannot depend on.
+func (c Color) IsComplete() bool {
+	return c.kind == ColorKindRGB && c.indexed != 0 && c.basic != 0
+}
+
+// Print returns the value a renderer is given for this colour: the hex on
+// a terminal with 24 bits, the entry of the 256-colour palette on an
+// indexed one, the index of the basic palette on a 16-colour one.
+//
+// It is a string because that is what the styling library takes, and it
+// is why the values above are written down rather than derived: a library
+// given a number prints that number, and a library given a hex works out
+// which number to print, which is the work that cannot be done at run time.
+func (c Color) Print() string {
+	switch c.kind {
+	case ColorKindRGB:
+		return c.hex
+	case ColorKindIndexed:
+		return strconv.FormatUint(uint64(c.indexed), 10)
+	case ColorKindBasic:
+		return strconv.FormatUint(uint64(c.basic), 10)
+	default:
+		return ""
+	}
 }
 
 // String renders the colour for logs and failure output.
@@ -149,6 +235,8 @@ func (c Color) String() string {
 		return c.hex
 	case ColorKindBasic:
 		return fmt.Sprintf("basic:%d", c.basic)
+	case ColorKindIndexed:
+		return fmt.Sprintf("indexed:%d", c.indexed)
 	default:
 		return ""
 	}

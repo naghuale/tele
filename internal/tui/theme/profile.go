@@ -9,6 +9,11 @@ import (
 	"github.com/muesli/termenv"
 )
 
+// termenv is imported for the profile measurement in DetectTerminalProfile
+// and for the values a termenv profile prints; the reduction of a hex to
+// an entry of the 256-colour palette is no longer done here, because it is
+// float work whose result two architectures can round differently.
+
 // Profile is how much colour a terminal can show. It is the axis §2.7
 // describes: a theme is built for one, and the same theme is usable on
 // every other one through the fallbacks below.
@@ -336,13 +341,20 @@ func (tokens Tokens) ForProfile(profile Profile) Tokens {
 		return tokens
 
 	case ProfileANSI256:
+		// The entry of the 256-colour palette is one the palette names
+		// next to its hex, and it is not worked out here. The conversion
+		// from a hex is float work, two entries of a ramp can be the same
+		// distance from a value, and the two architectures a runner can
+		// be round that tie differently — which is not a question about
+		// the interface but one a golden file has to have one answer to.
 		out := tokens
-		eachTokenColor(&out, func(c Color) Color { return indexedColor(c) })
+		eachTokenColor(&out, indexedOf)
 
 		return out
 
 	case ProfileANSI16:
-		// The roles are mapped by name here instead of by hue: on a
+		// A basic colour is mapped by name too, and for the same reason
+		// the palette names one next to each of its hexes: on a
 		// 16-colour terminal the nearest RGB value is a colour the user
 		// never chose, and the point of a basic colour is that the
 		// terminal renders it with the palette the user configured.
@@ -350,29 +362,11 @@ func (tokens Tokens) ForProfile(profile Profile) Tokens {
 		// Backgrounds stay unset so the terminal's own background shows
 		// through: a 16-colour terminal has no room for five shades of
 		// surface, and a flat background is what the user expects.
-		return Tokens{
-			PrimaryText:   Basic(15),
-			SecondaryText: Basic(7),
-			MutedText:     Basic(8),
-			DisabledText:  Basic(8),
+		out := tokens
+		eachTokenColor(&out, basicOf)
+		clearBackgroundRoles(&out)
 
-			Focus:    Basic(14),
-			FocusAlt: Basic(12),
-			Selected: Basic(15),
-			Unread:   Basic(15),
-			Cursor:   Basic(15),
-
-			StatusInfo:      Basic(6),
-			StatusActive:    Basic(11),
-			StatusSuccess:   Basic(2),
-			StatusWarning:   Basic(3),
-			StatusError:     Basic(1),
-			StatusUncertain: Basic(5),
-			StatusCanceled:  Basic(8),
-
-			IncomingMessage: Basic(7),
-			OutgoingMessage: Basic(15),
-		}
+		return out
 
 	default:
 		// No colour at all. Every role becomes unset, and the interface
@@ -419,34 +413,55 @@ func indexedGradient(stops []Color) []Color {
 
 	out := make([]Color, 0, len(limited))
 	for _, stop := range limited {
-		out = append(out, indexedColor(stop))
+		out = append(out, indexedOf(stop))
 	}
 
 	return out
 }
 
-// indexedColor reduces a colour to the closest entry of the 256-colour
-// palette.
+// indexedOf returns the entry of the 256-colour palette a colour is
+// printed as on an indexed terminal.
 //
-// The reduction is the color library's, not a second implementation of
-// it: a theme that picked its own indexed colours could disagree with the
-// renderer about what a colour looks like on a 256-colour terminal.
-func indexedColor(c Color) Color {
-	if c.kind != ColorKindRGB {
+// A colour that names no entry is left as it is, and the terminal reduces
+// it itself. That is a fallback and not the path: every token of every
+// built-in theme names its entry, and a test says so, so nothing the
+// program draws is reduced by arithmetic the golden files cannot predict.
+func indexedOf(c Color) Color {
+	index, named := c.IndexedIndex()
+	if !named {
 		return c
 	}
 
-	converted := termenv.ANSI256.Convert(termenv.RGBColor(c.hex))
+	return Indexed(index)
+}
 
-	indexed, ok := converted.(termenv.ANSI256Color)
-	if !ok {
+// basicOf returns the index of the basic palette a colour is printed as on
+// a 16-colour terminal, and leaves a colour with no index alone.
+func basicOf(c Color) Color {
+	index, named := c.BasicIndex()
+	if !named {
 		return c
 	}
 
-	// The library returns the palette entry as its own index; the theme
-	// keeps it as a value, so a renderer never has to know that an
-	// indexed terminal had a say in it.
-	return RGB(indexed.String())
+	return Basic(index)
+}
+
+// clearBackgroundRoles leaves the surfaces unset on a terminal that has
+// sixteen colours and no room for five shades of it.
+//
+// The terminal's own background shows through, which is what a user of a
+// 16-colour terminal configured: they chose the colours their terminal
+// has, and a background telecli picked for them is a background they did
+// not choose.
+func clearBackgroundRoles(tokens *Tokens) {
+	tokens.AppBackground = Color{}
+	tokens.SidebarBackground = Color{}
+	tokens.ChatBackground = Color{}
+	tokens.ComposerBackground = Color{}
+	tokens.FooterBackground = Color{}
+	tokens.PopupBackground = Color{}
+	tokens.ShadowBackground = Color{}
+	tokens.CodeBackground = Color{}
 }
 
 // eachTokenColor applies fn to every colour of every role.

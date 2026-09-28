@@ -925,7 +925,14 @@
     one is 0 and a test cannot be flattered by it
   - Selected is a background, not a foreground: it is the surface of the
     selected row of the list, and the name on that row is in Focus, so a
-    selected chat is a row and never a marker
+    selected chat is a row and never a marker. Every run of a selected row
+    carries that surface and the gaps between the runs are written with
+    it, because a run without it ends with SGR 0 and takes the surface of
+    the row down with it: what is left is a one-column highlight that
+    reads as a cursor. The unread badge is the one exception, and it keeps
+    the background of the badge on every row: a count drawn in the colour
+    of the list on the background of the selection is a number nobody can
+    read
   - colour profiles: True Color, ANSI-256, ANSI-16 and no colour. The
     terminal is measured through Lip Gloss and the decision is a pure
     function of that measurement, the environment, --no-color and
@@ -944,10 +951,21 @@
     4. auto follows NO_COLOR and then the measurement, believes a Lip
        Gloss that reports no colour, and assumes 16 colours for a
        terminal it could not identify
-  - an indexed terminal gets the color library's own reduction to the 256
-    palette and a gradient of at most three stops; a 16-colour terminal
-    gets basic colours by role, so the terminal renders them with the
-    palette the user configured, and its backgrounds stay unset
+  - every colour of a preset names all three of its values: the hex a
+    24-bit terminal shows, the entry of the 256-colour palette an indexed
+    one shows, and the index of the basic palette a 16-colour one shows
+    (`Complete(hex, indexed, basic)`; `Color.Print` is what a renderer is
+    given). Only the true-colour profile uses the hex
+  - they are named and not derived because the derivation is float work:
+    two entries of a ramp can be the same distance from a value, and
+    arm64 and amd64 round that tie differently, which is not a question
+    about the interface but one a golden file has to have a single answer
+    to. `TestEveryTokenNamesItsIndexedAndBasicEntry` says no built-in
+    token may be left to the arithmetic, and a 16-colour terminal's
+    surfaces are left unset (§2.7) so they have no basic index to name
+  - a gradient is cut to at most three stops on an indexed terminal, and a
+    16-colour terminal renders the basic colours with the palette the user
+    configured
   - nothing depends on colour: the rule under a focused heading, the
     `›` of a selected row where there is no background to show, and the
     symbol-plus-words of every status are theme roles, not view helpers

@@ -111,9 +111,9 @@ func (s viewStyles) region(region themeRegion) lipgloss.Style {
 		MarginLeft(focusColumnWidth).
 		PaddingLeft(contentInsetWidth)
 
-	if region.background.Kind() == theme.ColorKindRGB {
+	if region.background.IsSet() {
 		style = style.Background(
-			lipgloss.Color(region.background.Hex()),
+			lipgloss.Color(region.background.Print()),
 		)
 	}
 
@@ -150,16 +150,20 @@ const focusRuleGlyph = "━"
 
 // text returns the style for a run of text in a colour.
 //
-// A colour that the profile cannot show yields a plain style on purpose:
-// under a basic or uncoloured profile the meaning is carried by a symbol
-// or an attribute, and painting a default colour would undo that.
+// A colour of no colour at all — the No Color profile — yields a plain
+// style on purpose: under it the meaning is carried by a symbol or an
+// attribute, and painting a default colour would undo that. A colour that
+// names an entry of the 256-colour palette or an index of the basic one
+// is printed as that entry, because the theme decided what it looks like
+// on a terminal with those colours and the renderer is not going to
+// decide it again.
 func (s viewStyles) text(color theme.Color) lipgloss.Style {
-	if color.Kind() != theme.ColorKindRGB {
+	if !color.IsSet() {
 		return s.renderer.NewStyle()
 	}
 
 	return s.renderer.NewStyle().
-		Foreground(lipgloss.Color(color.Hex()))
+		Foreground(lipgloss.Color(color.Print()))
 }
 
 // dimmed returns the style for de-emphasized text: the dimmer colour
@@ -191,14 +195,13 @@ func (s viewStyles) dimmed(color theme.Color) lipgloss.Style {
 // the same reason every other style degrades to its text: the words carry
 // the meaning and the colour only repeats it.
 func (s viewStyles) raised(foreground, background theme.Color) lipgloss.Style {
-	if foreground.Kind() != theme.ColorKindRGB ||
-		background.Kind() != theme.ColorKindRGB {
+	if !background.IsSet() {
 		return s.text(foreground)
 	}
 
 	return s.renderer.NewStyle().
-		Foreground(lipgloss.Color(foreground.Hex())).
-		Background(lipgloss.Color(background.Hex()))
+		Foreground(lipgloss.Color(foreground.Print())).
+		Background(lipgloss.Color(background.Print()))
 }
 
 // on returns a style for a run of a row that has a surface of its own.
@@ -213,11 +216,11 @@ func (s viewStyles) raised(foreground, background theme.Color) lipgloss.Style {
 // paints it, and giving it a second background would fight the surface it
 // sits on.
 func (s viewStyles) on(surface theme.Color, style lipgloss.Style) lipgloss.Style {
-	if surface.Kind() != theme.ColorKindRGB {
+	if !surface.IsSet() {
 		return style
 	}
 
-	return style.Background(lipgloss.Color(surface.Hex()))
+	return style.Background(lipgloss.Color(surface.Print()))
 }
 
 // unstyled is the style of a run that has no colour of its own: the
@@ -246,12 +249,12 @@ func (s viewStyles) selected(selectedRow bool) lipgloss.Style {
 		return s.renderer.NewStyle()
 	}
 
-	if s.theme.Tokens.Selected.Kind() != theme.ColorKindRGB {
+	if !s.theme.Tokens.Selected.IsSet() {
 		return s.renderer.NewStyle().Bold(true)
 	}
 
 	return s.renderer.NewStyle().
-		Background(lipgloss.Color(s.theme.Tokens.Selected.Hex()))
+		Background(lipgloss.Color(s.theme.Tokens.Selected.Print()))
 }
 
 // selectionMark is the marker in front of a selected row or message where
@@ -281,7 +284,7 @@ func (s viewStyles) selectionMark(selected, regionFocused bool) lipgloss.Style {
 // a glyph on top of it says it twice. Under no colour there is no
 // background, so the glyph is the only thing left that can say it.
 func (s viewStyles) selectionMarker(selected bool) string {
-	if selected && s.theme.Tokens.Selected.Kind() != theme.ColorKindRGB {
+	if selected && !s.theme.Tokens.Selected.IsSet() {
 		return theme.SelectionMark
 	}
 
@@ -354,12 +357,12 @@ func authorHash(authorID int64) uint64 {
 // the composer rather than a new colour, so a message of this user and the
 // field it was written in are visibly the same thing.
 func (s viewStyles) bubble() lipgloss.Style {
-	if s.theme.Tokens.ComposerBackground.Kind() != theme.ColorKindRGB {
+	if !s.theme.Tokens.ComposerBackground.IsSet() {
 		return s.renderer.NewStyle()
 	}
 
 	return s.renderer.NewStyle().
-		Background(lipgloss.Color(s.theme.Tokens.ComposerBackground.Hex()))
+		Background(lipgloss.Color(s.theme.Tokens.ComposerBackground.Print()))
 }
 
 // pill is the badge of an unread count: a count on a background of its
@@ -370,14 +373,14 @@ func (s viewStyles) bubble() lipgloss.Style {
 // inside it are the words of the surface they are on, and the pill is the
 // one thing in the row that is not a word.
 func (s viewStyles) pill(background theme.Color, surface theme.Color) lipgloss.Style {
-	if background.Kind() != theme.ColorKindRGB || surface.Kind() != theme.ColorKindRGB {
+	if !background.IsSet() || !surface.IsSet() {
 		return s.renderer.NewStyle().Bold(true)
 	}
 
 	return s.renderer.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color(surface.Hex())).
-		Background(lipgloss.Color(background.Hex()))
+		Foreground(lipgloss.Color(surface.Print())).
+		Background(lipgloss.Color(background.Print()))
 }
 
 // body is the style of the text of a message.
@@ -444,7 +447,7 @@ func (s viewStyles) attributesVisible() bool {
 func (s viewStyles) cursor(focused bool) lipgloss.Style {
 	if focused {
 		return s.renderer.NewStyle().
-			Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Hex())).
+			Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Print())).
 			Reverse(true)
 	}
 
@@ -456,12 +459,12 @@ func (s viewStyles) cursor(focused bool) lipgloss.Style {
 // It is a change of style and nothing else: the same words in the accent of
 // the composer, for a moment, and no timer anywhere near the screen.
 func (s viewStyles) litPlaceholder() lipgloss.Style {
-	if s.theme.Tokens.Cursor.Kind() != theme.ColorKindRGB {
+	if !s.theme.Tokens.Cursor.IsSet() {
 		return s.renderer.NewStyle().Bold(true).Reverse(true)
 	}
 
 	return s.renderer.NewStyle().
-		Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Hex())).
+		Foreground(lipgloss.Color(s.theme.Tokens.Cursor.Print())).
 		Bold(true)
 }
 
@@ -487,12 +490,12 @@ func (s viewStyles) popupItem(
 func (s viewStyles) popupTitle(tokens theme.Tokens) lipgloss.Style {
 	return s.popupBase(tokens).
 		Bold(true).
-		Foreground(lipgloss.Color(tokens.PrimaryText.Hex()))
+		Foreground(lipgloss.Color(tokens.PrimaryText.Print()))
 }
 
 func (s viewStyles) popupBody(tokens theme.Tokens) lipgloss.Style {
 	return s.popupBase(tokens).
-		Foreground(lipgloss.Color(tokens.SecondaryText.Hex()))
+		Foreground(lipgloss.Color(tokens.SecondaryText.Print()))
 }
 
 // popupBase is the surface and the padding every popup line shares.
@@ -502,13 +505,13 @@ func (s viewStyles) popupBase(tokens theme.Tokens) lipgloss.Style {
 	// popupFocusBar, which draws it.
 	style := s.renderer.NewStyle()
 
-	if tokens.PopupBackground.Kind() != theme.ColorKindRGB {
+	if !tokens.PopupBackground.IsSet() {
 		return style
 	}
 
 	return style.
-		Background(lipgloss.Color(tokens.PopupBackground.Hex())).
-		BorderForeground(lipgloss.Color(tokens.Focus.Hex()))
+		Background(lipgloss.Color(tokens.PopupBackground.Print())).
+		BorderForeground(lipgloss.Color(tokens.Focus.Print()))
 }
 
 // popupFocusBar is the accent line of a popup, drawn as a character.
@@ -524,12 +527,12 @@ func (s viewStyles) popupFocusBar(tokens theme.Tokens) string {
 // like a line of the conversation, and a user who reads it that way answers
 // the wrong question.
 func (s viewStyles) popupShadow(tokens theme.Tokens, columns int) string {
-	if tokens.ShadowBackground.Kind() != theme.ColorKindRGB {
+	if !tokens.ShadowBackground.IsSet() {
 		return spaces(columns)
 	}
 
 	return s.renderer.NewStyle().
-		Background(lipgloss.Color(tokens.ShadowBackground.Hex())).
+		Background(lipgloss.Color(tokens.ShadowBackground.Print())).
 		Render(spaces(columns))
 }
 
@@ -540,10 +543,10 @@ func (s viewStyles) popupShadow(tokens theme.Tokens, columns int) string {
 // where there are attributes, and only a marker where there are none.
 func popupForegroundColor(tokens theme.Tokens, selected bool) string {
 	if selected {
-		return tokens.Focus.Hex()
+		return tokens.Focus.Print()
 	}
 
-	return tokens.PrimaryText.Hex()
+	return tokens.PrimaryText.Print()
 }
 
 // rowPainter writes the runs of one row of a chat list or a timeline.
@@ -609,6 +612,26 @@ func (p *rowPainter) right(text string, width int, style lipgloss.Style) *rowPai
 
 	return p.pad(width-p.width()-p.widths.StringWidth(text)).
 		add(style, text)
+}
+
+// badge writes a run that has a surface of its own, where every other run
+// of the row takes the row's.
+//
+// The unread count is a badge and not a cell of the row: a count drawn on
+// the background of the selected row in the colour of the list is a
+// number nobody can read, and one drawn in the colour of the badge on the
+// background of the row is a badge that has stopped being a badge. Either
+// way the count disappears on the one row a user is looking at, and the
+// row a user is looking at is the row that has to say what is unread on
+// it.
+func (p *rowPainter) badge(style lipgloss.Style, text string) *rowPainter {
+	if text == "" {
+		return p
+	}
+
+	p.written.WriteString(style.Render(text))
+
+	return p
 }
 
 // width returns how many columns have been written so far, escape

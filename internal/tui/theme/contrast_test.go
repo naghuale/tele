@@ -225,7 +225,10 @@ func TestTheMutedTierOfEveryPresetIsTheFirstReadableStep(t *testing.T) {
 		surfaces := mutedSurfaces(palette, built.Mode != ThemeModeLight)
 		want := readableMuted(palette.Overlay0, palette.Text, surfaces)
 
-		if palette.Muted != want {
+		// The hexes are compared and not the colours: the palette names
+		// the step with its indexed and basic entries beside it, and the
+		// walk does not know what those are.
+		if palette.Muted.Hex() != want.Hex() {
 			t.Errorf(
 				"theme %s: the palette names the muted step %v, want %v",
 				name,

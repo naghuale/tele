@@ -630,8 +630,13 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 				)
 			}
 
+			badge := backgroundParameters(
+				m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
+					Render("x"),
+			)
+
 			for _, row := range rows[0][:2] {
-				assertRowIsOnBackground(t, m, background, row)
+				assertSelectedRow(t, m, background, badge, row)
 			}
 		})
 	}
@@ -662,45 +667,79 @@ func TestEveryColumnOfTheSelectedMessageIsOnItsBackground(t *testing.T) {
 
 	// The first row of a block is the blank line between messages.
 	for _, row := range rows[1:] {
-		assertRowIsOnBackground(t, m, background, row)
+		assertSelectedRow(t, m, background, "", row)
 	}
 }
 
-// assertRowIsOnBackground fails unless every column of a row carries the
-// background it was drawn on.
+// assertSelectedRow fails unless every column of a selected row is on the
+// background of the row, except the columns of a badge, which are on the
+// background of the badge.
+//
+// The badge is the exception on purpose: the unread count of the selected
+// chat drawn in the colour of the list on the background of the selection
+// is a number nobody can read, and drawn in the colour of the badge on the
+// background of the selection it is a badge that has stopped being one. It
+// is the one run of the row with a surface of its own, and saying so here
+// is what keeps it that way.
 //
 // The row is walked a run at a time rather than read as one string: a
 // reset in the middle of a row is invisible in the plain text and in a
 // substring search, and it is the only thing this is about.
-func assertRowIsOnBackground(t *testing.T, m Model, background, row string) {
+func assertSelectedRow(
+	t *testing.T,
+	m Model,
+	selected, badge, row string,
+) {
 	t.Helper()
 
-	onBackground, columns := 0, 0
+	columns := 0
 
 	for _, run := range styleRuns(row) {
 		width := m.widths.StringWidth(run.text)
 		columns += width
 
-		if run.sgr == "" {
-			continue
-		}
-		if strings.Contains(run.sgr, background) {
-			onBackground += width
+		switch {
+		case badge != "" && strings.Contains(run.sgr, badge):
+		case strings.Contains(run.sgr, selected):
+		default:
+			t.Errorf(
+				"%d columns of the row are on neither the selection nor the badge: %q",
+				width,
+				run.text,
+			)
 		}
 	}
 
 	if columns == 0 {
 		t.Fatalf("the row is empty: %q", row)
 	}
-	if onBackground != columns {
-		t.Errorf(
-			"%d of %d columns carry the background %q: %q",
-			onBackground,
-			columns,
-			background,
-			row,
-		)
+}
+
+// The unread badge of the selected chat keeps the background of the badge
+// and not the background of the row, on the row the cursor is on as well
+// as on every other one.
+func TestTheUnreadBadgeKeepsItsPillOnTheSelectedRow(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusChatList,
+	)
+	m.chats[0].Title = "Anna Example"
+	m.chats[0].Preview = "the build is green again"
+	m.chats[0].Unread = 2
+
+	layout := LayoutFor(m.width, m.height)
+	rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+
+	selected := backgroundParameters(m.styles().selected(true).Render("x"))
+	badge := backgroundParameters(
+		m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
+			Render("x"),
+	)
+	if selected == badge {
+		t.Skip("the theme gives the selection and the badge the same colour")
 	}
+
+	assertSelectedRow(t, m, selected, badge, rows[0][1])
 }
 
 // The feed is chronological: the oldest message is on the first row of it

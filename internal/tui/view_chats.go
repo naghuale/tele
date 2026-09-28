@@ -207,13 +207,11 @@ func (m Model) chatListRowLines(
 	if m.chatListRowHeight(layout) == 1 {
 		short := maxInt(nameWidth-badgeColumns-2, 1)
 
-		head := m.chatTitle(
-			m.painter(surface).add(markStyle, markRun),
-			title,
-			selected,
-			short,
-		).
-			right(badgeText, width, badgeStyle).
+		head := m.painter(surface).
+			add(markStyle, markRun).
+			add(styles.rowText(selected),
+				m.widths.TruncateMarked(title, short, ellipsis)).
+			badge(badgeStyle, badgeText).
 			right(at, width, timeStyle).
 			String()
 
@@ -244,7 +242,7 @@ func (m Model) chatListRowLines(
 				m.chatListPreview(chat), previewWidth, ellipsis,
 			),
 		).
-		right(badgeText, width, badgeStyle).
+		badge(badgeStyle, badgeText).
 		String()
 
 	return []string{head, detail, m.painter(surface).pad(width).String()}

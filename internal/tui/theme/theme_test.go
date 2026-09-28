@@ -282,3 +282,65 @@ func gradientRoles(t *testing.T, gradients Gradients) map[string][]Color {
 
 	return roles
 }
+
+// isBackgroundRole reports whether a role is a surface of the screen.
+//
+// A surface is the one role a 16-colour terminal does not need a colour
+// for: the terminal's own background shows through, so a surface has no
+// basic index to name and no run of text is ever printed in one.
+func isBackgroundRole(role string) bool {
+	switch role {
+	case "AppBackground",
+		"SidebarBackground",
+		"ChatBackground",
+		"ComposerBackground",
+		"FooterBackground",
+		"PopupBackground",
+		"ShadowBackground",
+		"CodeBackground":
+		return true
+	default:
+		return false
+	}
+}
+
+// Every token of every built-in theme names the entry of the 256-colour
+// palette and the index of the basic one it is printed as.
+//
+// A token that does not is reduced at run time, and the reduction is
+// float work: two entries of a ramp can be the same distance from a
+// value, and arm64 and amd64 round that tie differently. That is not a
+// question about the interface, it is a question a golden file has to have
+// one answer to, and a palette that leaves the answer to the arithmetic
+// has two.
+func TestEveryTokenNamesItsIndexedAndBasicEntry(t *testing.T) {
+	for _, name := range ThemeNames() {
+		built := mustTheme(t, name)
+
+		for role, color := range colorRoles(t, built.Tokens) {
+			if color.Kind() != ColorKindRGB {
+				t.Errorf("theme %s: %s is %v, want a colour", name, role, color)
+				continue
+			}
+			if _, named := color.IndexedIndex(); !named {
+				t.Errorf(
+					"theme %s: %s (%v) names no entry of the 256-colour palette",
+					name, role, color,
+				)
+			}
+			if isBackgroundRole(role) {
+				// §2.7: a 16-colour terminal shows its own background
+				// through, so a surface is never printed as a basic
+				// colour and has no index to name. Every other role is
+				// one the interface writes words in.
+				continue
+			}
+			if _, named := color.BasicIndex(); !named {
+				t.Errorf(
+					"theme %s: %s (%v) names no index of the basic palette",
+					name, role, color,
+				)
+			}
+		}
+	}
+}

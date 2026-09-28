@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -41,10 +42,15 @@ func TestTrueColorUsesRGBTokens(t *testing.T) {
 	}
 }
 
-// An indexed terminal gets the closest entry of its own palette. The
-// reduction is the color library's, and the test pins the library's
-// answer so a change of library shows up here instead of on a screen.
-func TestANSI256UsesIndexedFallback(t *testing.T) {
+// An indexed terminal gets the entry of its own palette that the palette
+// names next to its hex.
+//
+// It is named rather than worked out, and this is what proves it: the
+// reduction from a hex is float work, two entries of a ramp can be the
+// same distance from a value, and arm64 and amd64 round that tie
+// differently. A test that reduced a colour here would be the same float
+// work with the same two answers, so it asks the palette instead.
+func TestANSI256UsesTheNamedIndexedEntry(t *testing.T) {
 	built := mustTheme(t, ThemeCatppuccinMocha)
 
 	degraded := built.ForProfile(ProfileANSI256)
@@ -55,37 +61,34 @@ func TestANSI256UsesIndexedFallback(t *testing.T) {
 			t.Errorf("%s is not set on ansi-256", role)
 			continue
 		}
-		if color.Kind() != ColorKindRGB {
+		if color.Kind() != ColorKindIndexed {
 			t.Errorf("%s kind = %v, want an indexed value", role, color.Kind())
 		}
-		if color == colorRoles(t, built.Tokens)[role] {
-			// Not a failure on its own: a palette entry can be exactly
-			// representable. It does mean the reduction has to be
-			// checked somewhere, which is what the next assertion does.
-			t.Logf("%s is exactly representable", role)
+		if want, named := colorRoles(t, built.Tokens)[role].IndexedIndex(); !named ||
+			color.String() != "indexed:"+strconv.FormatUint(uint64(want), 10) {
+			t.Errorf(
+				"%s = %v, want the entry the palette names (%d)",
+				role,
+				color,
+				want,
+			)
 		}
 	}
 
-	// A colour outside the 256-colour palette must come back changed, and
-	// a colour inside it must come back as itself. The pair below is
-	// deliberate: #cba6f7 is not an entry of the cube or the grey ramp.
-	outside := RGB("#cba6f7")
-	if indexedColor(outside) == outside {
-		t.Error("a colour outside the indexed palette was not reduced")
-	}
-	if inside := RGB("#ff0000"); indexedColor(inside) != inside {
-		t.Errorf(
-			"an indexed palette entry was changed to %v",
-			indexedColor(inside),
-		)
+	// A colour that names no entry is left alone and the terminal reduces
+	// it. That is a fallback and not the path: the test above says every
+	// token of every built-in theme has one.
+	if unnamed := RGB("#cba6f7"); indexedOf(unnamed) != unnamed {
+		t.Error("a colour that names no entry was changed")
 	}
 
 	// A gradient is cut to what an indexed ramp can show, and the cap is
 	// the documented one.
 	long := Gradients{
 		Focus: []Color{
-			RGB("#cba6f7"), RGB("#89b4fa"),
-			RGB("#a6e3a1"), RGB("#f9e2af"), RGB("#f38ba8"),
+			built.Palette.Accent, built.Palette.AccentAlt,
+			built.Palette.Success, built.Palette.Warning,
+			built.Palette.Error,
 		},
 	}
 	capped := long.ForProfile(ProfileANSI256)
@@ -541,11 +544,17 @@ func TestProfileMapsToTheColorLibrary(t *testing.T) {
 	}
 
 	// And the degraded theme has to be printable with the library profile
-	// it claims, which is what the renderer will hand over.
-	for _, profile := range []Profile{ProfileTrueColor, ProfileANSI256} {
+	// it claims, which is what the renderer will hand over. A colour of
+	// this profile is a value the library takes as it is — a hex, the
+	// digits of an entry of the 256-colour palette, the index of the
+	// basic one — so "printable" is the one thing every role of a profile
+	// with colour has to satisfy.
+	for _, profile := range []Profile{
+		ProfileTrueColor, ProfileANSI256, ProfileANSI16,
+	} {
 		degraded := built.ForProfile(profile)
 
-		if degraded.Tokens.PrimaryText.Hex() == "" {
+		if degraded.Tokens.PrimaryText.Print() == "" {
 			t.Errorf("profile %v has no printable primary text", profile)
 		}
 	}

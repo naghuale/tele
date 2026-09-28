@@ -76,31 +76,34 @@ type Palette struct {
 // status roles, and blue, pink and peach for link, mention and code.
 func catppuccinMochaPalette() Palette {
 	return Palette{
-		Base:     RGB("#1e1e2e"),
-		Mantle:   RGB("#181825"),
-		Crust:    RGB("#11111b"),
-		Surface0: RGB("#313244"),
-		Surface1: RGB("#45475a"),
-		Surface2: RGB("#585b70"),
-		Overlay0: RGB("#6c7086"),
-		Overlay1: RGB("#7f849c"),
-		Overlay2: RGB("#9399b2"),
-		Text:     RGB("#cdd6f4"),
-		Subtext0: RGB("#a6adc8"),
-		Subtext1: RGB("#bac2de"),
+		Base:     Complete("#1e1e2e", 232, 0),
+		Mantle:   Complete("#181825", 232, 0),
+		Crust:    Complete("#11111b", 232, 0),
+		Surface0: Complete("#313244", 59, 0),
+		// surface1 is the surface of the selected row and the popup, and
+		// the only role of it that survives a 16-colour terminal is the
+		// name on the selected row.
+		Surface1: Complete("#45475a", 59, 15),
+		Surface2: Complete("#585b70", 59, 0),
+		Overlay0: Complete("#6c7086", 60, 8),
+		Overlay1: Complete("#7f849c", 103, 8),
+		Overlay2: Complete("#9399b2", 103, 7),
+		Text:     Complete("#cdd6f4", 189, 15),
+		Subtext0: Complete("#a6adc8", 146, 7),
+		Subtext1: Complete("#bac2de", 146, 7),
 
 		// overlay0 lifted towards the text ramp until it reads on the
 		// mantle and the crust: 4.75:1 and 5.07:1.
-		Muted:     RGB("#7e839b"),
-		Accent:    RGB("#cba6f7"),
-		AccentAlt: RGB("#89b4fa"),
-		Success:   RGB("#a6e3a1"),
-		Warning:   RGB("#f9e2af"),
-		Error:     RGB("#f38ba8"),
-		Info:      RGB("#89dceb"),
-		Link:      RGB("#89b4fa"),
-		Mention:   RGB("#f5c2e7"),
-		Code:      RGB("#fab387"),
+		Muted:     Complete("#7e839b", 102, 8),
+		Accent:    Complete("#cba6f7", 183, 14),
+		AccentAlt: Complete("#89b4fa", 111, 12),
+		Success:   Complete("#a6e3a1", 151, 2),
+		Warning:   Complete("#f9e2af", 223, 3),
+		Error:     Complete("#f38ba8", 211, 1),
+		Info:      Complete("#89dceb", 117, 6),
+		Link:      Complete("#89b4fa", 111, 6),
+		Mention:   Complete("#f5c2e7", 218, 5),
+		Code:      Complete("#fab387", 216, 3),
 	}
 }
 
@@ -120,31 +123,31 @@ func catppuccinMochaPalette() Palette {
 // Catppuccin's subtext0 and subtext1 do.
 func tokyoNightStormPalette() Palette {
 	return Palette{
-		Base:     RGB("#24283b"),
-		Mantle:   RGB("#1a1b26"),
-		Crust:    RGB("#15161e"),
-		Surface0: RGB("#292e42"),
-		Surface1: RGB("#3b4261"),
-		Surface2: RGB("#414868"),
-		Overlay0: RGB("#565f89"),
-		Overlay1: RGB("#7aa2f7"),
-		Overlay2: RGB("#a9b1d6"),
-		Text:     RGB("#c0caf5"),
-		Subtext0: RGB("#a9b1d6"),
-		Subtext1: RGB("#565f89"),
+		Base:     Complete("#24283b", 17, 0),
+		Mantle:   Complete("#1a1b26", 232, 0),
+		Crust:    Complete("#15161e", 232, 0),
+		Surface0: Complete("#292e42", 17, 0),
+		Surface1: Complete("#3b4261", 59, 15),
+		Surface2: Complete("#414868", 59, 0),
+		Overlay0: Complete("#565f89", 60, 8),
+		Overlay1: Complete("#7aa2f7", 111, 8),
+		Overlay2: Complete("#a9b1d6", 146, 7),
+		Text:     Complete("#c0caf5", 153, 15),
+		Subtext0: Complete("#a9b1d6", 146, 7),
+		Subtext1: Complete("#565f89", 60, 7),
 
 		// comment lifted towards fg until it reads on the mantle and the
 		// crust: 4.66:1 and 4.90:1.
-		Muted:     RGB("#7e87b2"),
-		Accent:    RGB("#7aa2f7"),
-		AccentAlt: RGB("#bb9af7"),
-		Success:   RGB("#9ece6a"),
-		Warning:   RGB("#e0af68"),
-		Error:     RGB("#f7768e"),
-		Info:      RGB("#7dcfff"),
-		Link:      RGB("#7aa2f7"),
-		Mention:   RGB("#bb9af7"),
-		Code:      RGB("#ff9e64"),
+		Muted:     Complete("#7e87b2", 103, 8),
+		Accent:    Complete("#7aa2f7", 111, 14),
+		AccentAlt: Complete("#bb9af7", 141, 12),
+		Success:   Complete("#9ece6a", 149, 2),
+		Warning:   Complete("#e0af68", 179, 3),
+		Error:     Complete("#f7768e", 210, 1),
+		Info:      Complete("#7dcfff", 117, 6),
+		Link:      Complete("#7aa2f7", 111, 6),
+		Mention:   Complete("#bb9af7", 141, 5),
+		Code:      Complete("#ff9e64", 215, 3),
 	}
 }
 
@@ -163,30 +166,30 @@ func tokyoNightStormPalette() Palette {
 // (bg4), the one step below the text ramp.
 func gruvboxDarkPalette() Palette {
 	return Palette{
-		Base:     RGB("#282828"),
-		Mantle:   RGB("#32302f"),
-		Crust:    RGB("#1d2021"),
-		Surface0: RGB("#3c3836"),
-		Surface1: RGB("#504945"),
-		Surface2: RGB("#665c54"),
-		Overlay0: RGB("#7c6f64"),
-		Overlay1: RGB("#928374"),
-		Overlay2: RGB("#bdae93"),
-		Text:     RGB("#ebdbb2"),
-		Subtext0: RGB("#bdae93"),
-		Subtext1: RGB("#928374"),
+		Base:     Complete("#282828", 232, 0),
+		Mantle:   Complete("#32302f", 232, 0),
+		Crust:    Complete("#1d2021", 232, 0),
+		Surface0: Complete("#3c3836", 59, 0),
+		Surface1: Complete("#504945", 59, 15),
+		Surface2: Complete("#665c54", 59, 0),
+		Overlay0: Complete("#7c6f64", 95, 8),
+		Overlay1: Complete("#928374", 102, 8),
+		Overlay2: Complete("#bdae93", 144, 7),
+		Text:     Complete("#ebdbb2", 223, 15),
+		Subtext0: Complete("#bdae93", 144, 7),
+		Subtext1: Complete("#928374", 102, 7),
 
 		// bg4 lifted towards fg until it reads on the mantle and the
 		// crust: 5.13:1 and 6.02:1.
-		Muted:     RGB("#a69881"),
-		Accent:    RGB("#fabd2f"),
-		AccentAlt: RGB("#d3869b"),
-		Success:   RGB("#b8bb26"),
-		Warning:   RGB("#fe8019"),
-		Error:     RGB("#fb4934"),
-		Info:      RGB("#83a598"),
-		Link:      RGB("#83a598"),
-		Mention:   RGB("#d3869b"),
-		Code:      RGB("#8ec07c"),
+		Muted:     Complete("#a69881", 138, 8),
+		Accent:    Complete("#fabd2f", 214, 14),
+		AccentAlt: Complete("#d3869b", 174, 12),
+		Success:   Complete("#b8bb26", 142, 2),
+		Warning:   Complete("#fe8019", 208, 3),
+		Error:     Complete("#fb4934", 203, 1),
+		Info:      Complete("#83a598", 108, 6),
+		Link:      Complete("#83a598", 108, 6),
+		Mention:   Complete("#d3869b", 174, 5),
+		Code:      Complete("#8ec07c", 108, 3),
 	}
 }

@@ -74,6 +74,12 @@ const (
 	// a state is a line between two other lines, and a snapshot of it says
 	// less about the state.
 	snapshotConversationWidth = 100
+
+	// snapshotShortHeight is below §3.4's shortLayoutHeight, where a
+	// message is one row of words: the name, the time and the state of a
+	// block go, and a block that is one row is the only block with rounded
+	// ends.
+	snapshotShortHeight = 18
 )
 
 var (
@@ -572,6 +578,18 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotMessageSidesRounded", func(t *testing.T) Model {
 			return snapshotMessageSides(t, true)
 		}},
+		{"TestSnapshotChatListRowsSquare", func(t *testing.T) Model {
+			return snapshotChatListRows(t, false)
+		}},
+		{"TestSnapshotChatListRowsRounded", func(t *testing.T) Model {
+			return snapshotChatListRows(t, true)
+		}},
+		{"TestSnapshotOneRowBubbleSquare", func(t *testing.T) Model {
+			return snapshotOneRowBubble(t, false)
+		}},
+		{"TestSnapshotOneRowBubbleRounded", func(t *testing.T) Model {
+			return snapshotOneRowBubble(t, true)
+		}},
 	}
 }
 
@@ -712,6 +730,88 @@ func snapshotMessageSides(t *testing.T, nerdFont bool) Model {
 	f.nerdFont = nerdFont
 
 	return snapshotConversation(t, f)
+}
+
+// snapshotChatListRows is the list of §4.2 with the rows the eye reads
+// longest: a name and a time, a preview cut short of a badge of two digits,
+// and a chat with a name long enough to be cut as well. It is drawn once
+// with the rounded ends of a Nerd Font and once without them, for the same
+// reason the pair of conversations is drawn twice: the setting changes the
+// ends of a message and the ends of a badge and nothing else, and a
+// reviewer has to see both of them to believe the list is a list.
+//
+// The count is 22 rather than 2 on purpose. A badge of one digit is a
+// column wide and a badge of two is two, and the row the badge is in has
+// to give up its preview for it either way — the part of §4.2 that says a
+// preview is cut at least two columns before the badge, so the two never
+// touch, is only visible on the row with the longer of the two.
+func snapshotChatListRows(t *testing.T, nerdFont bool) Model {
+	t.Helper()
+
+	f := wide(theme.ProfileTrueColor)
+	f.nerdFont = nerdFont
+	f.chats = []Chat{
+		{
+			ID: 1, Title: "Anna Example", Unread: 22, Time: "12:07",
+			Preview: "the build is green again and the review is done with it",
+		},
+		{
+			ID: 2, Title: "Release Room", Time: "12:05", Kind: ChatKindGroup,
+			Preview: "the tag is pushed",
+		},
+		{
+			ID: 3, Title: "Команда Разработки", Unread: 1, Time: "11:40",
+			Preview: "созвон в 15:00", Kind: ChatKindChannel,
+		},
+		{
+			ID: 4, Title: "Standup", Time: "11:31",
+			Preview: "everything that came out of it is in the notes",
+		},
+	}
+
+	return snapshotChatList(t, f)
+}
+
+// snapshotOneRowBubble is a conversation of one-row blocks, drawn once
+// with the rounded ends of a Nerd Font and once without them.
+//
+// A block of one row is the only block with rounded ends: the half circles
+// of §4.4 are one row tall, so a block of two rows with them is two pills
+// stacked on each other. A message of this screen is one row of words —
+// §3.4 takes the name, the time and the state away when the screen is
+// shorter than twenty rows — which is the one place a block is a pill
+// rather than a rectangle, and so the one screen where the setting has a
+// shape to change.
+func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
+	t.Helper()
+
+	f := wide(theme.ProfileTrueColor)
+	f.height = snapshotShortHeight
+	f.nerdFont = nerdFont
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page: HistoryPage{Messages: []Message{
+			{
+				ID: 1, Text: "the build is green again", Time: "12:02",
+				Author: "Anna Example", AuthorID: 5,
+			},
+			{
+				ID: 2, Text: "ok", Time: "12:04", Outgoing: true,
+			},
+			{
+				ID: 3, Text: "I will take the release notes", Time: "12:05",
+				Author: "Boris", AuthorID: 6,
+			},
+		}},
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	return m
 }
 
 // snapshotThemed is the wide conversation in a named theme, which is the
@@ -1010,6 +1110,34 @@ func TestSnapshotMessageSidesSquare(t *testing.T) {
 
 func TestSnapshotMessageSidesRounded(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotMessageSidesRounded"))
+}
+
+// The same two looks on the list: the air above and below the selected
+// row is a half block in the two profiles, and the badge around its count
+// is a pill with a Nerd Font and a block of colour without one. The golden
+// with the font is also the proof that the two columns of air on each side
+// of a row are still there with it: they are the same two columns in both
+// of the pair, and the setting is not a licence to spend them.
+func TestSnapshotChatListRowsSquare(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListRowsSquare"))
+}
+
+func TestSnapshotChatListRowsRounded(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListRowsRounded"))
+}
+
+// A block of one row with the setting on is a pill and with it off is a
+// rectangle, and these two files are the whole of that difference. They are
+// the counterpart of the pair above, which is two files that are the same
+// screen: a block of more than one row is a rectangle either way, and a
+// pair of goldens that shows nothing is the proof that the setting does not
+// reach into a block it would have to break the shape of.
+func TestSnapshotOneRowBubbleSquare(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotOneRowBubbleSquare"))
+}
+
+func TestSnapshotOneRowBubbleRounded(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotOneRowBubbleRounded"))
 }
 
 // ---- what every snapshot has to satisfy ----

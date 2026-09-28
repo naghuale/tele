@@ -247,12 +247,19 @@ func TestAConversationShorterThanTheFeedSitsAboveTheComposer(t *testing.T) {
 	rows := rowsOfTheFeed(t, m)
 	messages := m.selected().Messages
 
-	if got := plain(rows[len(rows)-1]); !strings.Contains(got, messages[2].Text) {
-		t.Fatalf("the last row of the area is %q, want the newest message", got)
+	// The newest message is at the bottom of the area, and the last row of
+	// its block is the half block of air under its words (§4.4).
+	if !rowsEndWith(rows, messages[2].Text) {
+		t.Fatalf(
+			"the last two rows of the area are %q and %q, want the newest message",
+			plain(rows[len(rows)-2]),
+			plain(rows[len(rows)-1]),
+		)
 	}
 
 	// The first message of the conversation is the first row that holds
-	// something, and every row above it is empty.
+	// something, and every row above it is empty. That row is the air
+	// above the block now, the way the last one is the air below it.
 	first := -1
 	for index, row := range rows {
 		if strings.TrimSpace(plain(row)) != "" {
@@ -267,8 +274,19 @@ func TestAConversationShorterThanTheFeedSitsAboveTheComposer(t *testing.T) {
 			first+1, strings.Join(viewLines(m.View()), "\n"),
 		)
 	}
-	if got := plain(rows[first+1]); !strings.Contains(got, messages[0].Text) {
-		t.Fatalf("row %d holds %q, want the oldest message", first+2, got)
+	// The oldest message is the first thing in the feed, and it takes up to
+	// three rows to say so: the air that opens its block, the name of
+	// whoever sent it, and the text under the name. Whether the air is a
+	// row of half blocks or a row of spaces depends on the profile the
+	// test is drawn with, so the name and the text are looked for in the
+	// three rows the message can start in rather than on one of them.
+	if !rowHolds(rows, first, first+3, messages[0].Text) {
+		t.Fatalf(
+			"the first three rows of the conversation hold %q, %q and %q, want the oldest message",
+			plain(rows[first]),
+			plain(rows[first+1]),
+			plain(rows[first+2]),
+		)
 	}
 }
 
@@ -307,14 +325,38 @@ func TestAChatWhoseHistoryArrivesInPagesEndsWithTheFeedFull(t *testing.T) {
 			strings.Join(viewLines(m.View()), "\n"),
 		)
 	}
-
 	newest := m.selected().Messages[len(m.selected().Messages)-1]
-	if last := plain(rows[len(rows)-1]); !strings.Contains(last, messageOf(m, newest)) {
+	if !rowsEndWith(rows, messageOf(m, newest)) {
 		t.Fatalf(
-			"the last row is %q, want the newest message (%q)",
-			last, messageOf(m, newest),
+			"the last two rows are %q and %q, want the newest message (%q)",
+			plain(rows[len(rows)-2]),
+			plain(rows[len(rows)-1]),
+			messageOf(m, newest),
 		)
 	}
+}
+
+// rowsEndWith reports whether the last two rows of a feed hold a message.
+//
+// A block of §4.4 ends with the half block of air under its words, so the
+// newest message of a full feed is in the two rows that end it rather than
+// in the last one. It is the same statement as before the air was drawn —
+// the newest message is at the bottom of the feed — said about the two rows
+// a block with one line of text in it now takes.
+func rowsEndWith(rows []string, message string) bool {
+	return rowHolds(rows, len(rows)-2, len(rows), message)
+}
+
+// rowHolds reports whether one of the rows between two of them holds a
+// message.
+func rowHolds(rows []string, from, to int, message string) bool {
+	for _, row := range rows[maxInt(from, 0):minInt(to, len(rows))] {
+		if strings.Contains(plain(row), message) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // A page of older messages must not move the messages a reader is looking

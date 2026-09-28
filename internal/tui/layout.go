@@ -71,18 +71,31 @@ const (
 	feedMargin       = 3
 	feedMarginNarrow = 1
 
-	// bubbleInset is the space inside the block of a message of this user
-	// on each side of its text, and bubbleInsetNarrow the same on a
-	// single-pane screen.
+	// bubbleInset is the space inside the block of a message on each side
+	// of its text.
 	//
-	// Two columns is the air inside the block: text flush against the
-	// background of the block reads as a highlight rather than as a
-	// message, and a highlight is not something a person can be on the
-	// right-hand side of. The narrow screen has one, because the block
-	// there is nearly the whole width and the message would otherwise be
-	// a word and a half wide.
-	bubbleInset       = 2
-	bubbleInsetNarrow = 1
+	// Two columns is the air inside the block, and it is two at every
+	// width: text flush against the background of its own block reads as
+	// a highlight rather than as a message, and a single column of air
+	// reads as a mistake on the way to the same thing. A single-pane
+	// screen is narrower and gets the same two, because the block there
+	// is already as wide as the feed allows and the inset is the only
+	// thing between the words and the edge of the screen.
+	bubbleInset = 2
+
+	// bubbleMinTextColumns is the narrowest a block of a message may be
+	// inside, its insets and its rounded ends not counted.
+	//
+	// A block that is as wide as its words is the right answer for a
+	// message and the wrong one for a word: "ok" in a block of six columns
+	// is a sliver, and a sliver is a shape a user has to aim at. Sixteen
+	// columns is about two ordinary words with the space around them, which
+	// is where a block stops being a mark on the screen and starts being
+	// something with words in it. The lines under the text — the name of
+	// whoever sent it, the state of a message of this user — are as wide as
+	// they are whatever this is, so the floor never cuts a name or a state
+	// short to reach it.
+	bubbleMinTextColumns = 16
 )
 
 // focusColumnWidth is the single column a focus marker occupies, and
@@ -273,15 +286,9 @@ func (l Layout) FeedMargin() int {
 	return feedMargin
 }
 
-// BubbleInset returns the space inside the block of a message of this
-// user on each side of its text.
-func (l Layout) BubbleInset() int {
-	if l.Kind == LayoutNarrow {
-		return bubbleInsetNarrow
-	}
-
-	return bubbleInset
-}
+// BubbleInset returns the space inside the block of a message on each
+// side of its text, which is the same at every width.
+func (l Layout) BubbleInset() int { return bubbleInset }
 
 // visibleRange returns the [start, end) slice window of a list of total
 // items such that selected is included. end is exclusive.

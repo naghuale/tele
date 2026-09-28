@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -170,9 +171,12 @@ func TestNoColorMarksTheSelectedChatWithAGlyphInItsOwnColumn(t *testing.T) {
 	}
 }
 
-// A chat is a name with a time and a preview with a badge, and a blank line
-// between it and the next one. Two chats with no gap between them are one
-// block of four lines, and a user has to read them to tell them apart.
+// A chat is a name with a time and a preview with a badge, with half a row
+// of air above it and half a row below. Two chats with no gap between them
+// are one block of eight lines, and a user has to read them to tell them
+// apart — the air is what tells them apart, and on a row that is not
+// selected it is the background of the list, so the gap between two chats
+// is a gap of nothing and the names still have a row of their own.
 func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
 	m := sizedModel(t, 120, 30)
 	layout := LayoutFor(m.width, m.height)
@@ -183,16 +187,22 @@ func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
 	}
 
 	first := rows[0]
-	if len(first) != 3 {
-		t.Fatalf("a chat takes %d rows, want a name, a preview and a gap", len(first))
+	if len(first) != 4 {
+		t.Fatalf(
+			"a chat takes %d rows, want air above, a name, a preview and air below",
+			len(first),
+		)
 	}
-	if strings.TrimSpace(plain(first[0])) == "" {
-		t.Fatalf("the first row of a chat is empty: %q", plain(first[0]))
+	if !strings.Contains(plain(first[0]), termwidth.HalfBlockLower) {
+		t.Fatalf("the row of air above a chat is not there: %q", plain(first[0]))
 	}
-	if strings.TrimSpace(plain(first[2])) != "" {
-		t.Fatalf("the gap under a chat is not empty: %q", plain(first[2]))
+	if !strings.Contains(plain(first[3]), termwidth.HalfBlockUpper) {
+		t.Fatalf("the row of air below a chat is not there: %q", plain(first[3]))
 	}
-	if rows[1][0] == first[0] {
+	if strings.TrimSpace(plain(first[1])) == "" {
+		t.Fatalf("the name of a chat is empty: %q", plain(first[1]))
+	}
+	if rows[1][1] == first[1] {
 		t.Fatal("two chats are drawn on the same line")
 	}
 }
@@ -281,10 +291,12 @@ func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
 		t.Fatalf("the message is not on the screen:\n%s", view)
 	}
 
-	// The band is a blank line, the prompt and the hints, so the text of
-	// the newest message is three rows above the prompt and the empty rows
-	// of the feed are all above the author line.
-	if composer-text != 2 {
+	// The band is the air under the block and the last row of the region
+	// the conversation is drawn in, so the text of the newest message is
+	// three rows above the prompt — the lower half block and the row the
+	// conversation ends on — and the empty rows of the feed are all above
+	// the name of whoever sent it.
+	if composer-text != 3 {
 		t.Fatalf(
 			"the text is on row %d and the composer on row %d, want them against the field:\n%s",
 			text,
@@ -632,9 +644,9 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 			layout := LayoutFor(m.width, m.height)
 			rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
 
-			if len(rows[0]) != 3 {
+			if len(rows[0]) != 4 {
 				t.Fatalf(
-					"a chat takes %d rows, want its name, its preview and a gap",
+					"a chat takes %d rows, want air above, a name, a preview and air below",
 					len(rows[0]),
 				)
 			}
@@ -643,9 +655,14 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 				m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
 					Render("x"),
 			)
+			list := backgroundParameters(
+				m.styles().
+					on(m.tokens().SidebarBackground, m.styles().unstyled()).
+					Render("x"),
+			)
 
-			for _, row := range rows[0][:2] {
-				assertSelectedRow(t, m, background, badge, row)
+			for _, row := range rows[0][1:3] {
+				assertSelectedRow(t, m, background, badge, list, row)
 			}
 		})
 	}
@@ -726,15 +743,17 @@ func assertSelectedBlock(
 }
 
 // assertSelectedRow fails unless every column of a selected row is on the
-// background of the row, except the columns of a badge, which are on the
-// background of the badge.
+// background of the row, or on the background of the list where the row
+// keeps its two columns of air, or on the background of the badge.
 //
-// The badge is the exception on purpose: the unread count of the selected
-// chat drawn in the colour of the list on the background of the selection
-// is a number nobody can read, and drawn in the colour of the badge on the
-// background of the selection it is a badge that has stopped being one. It
-// is the one run of the row with a surface of its own, and saying so here
-// is what keeps it that way.
+// The two exceptions are on purpose. The air is what the row keeps between
+// the edge of the selection and the words in it — the same two columns a
+// message keeps inside its block — and a selection that ran the width of
+// the list would be the band the list stopped having. The badge is the
+// other: the unread count of the selected chat drawn in the colour of the
+// list on the background of the selection is a number nobody can read, and
+// drawn in the colour of the badge on the background of the selection it
+// is a badge that has stopped being one.
 //
 // The row is walked a run at a time rather than read as one string: a
 // reset in the middle of a row is invisible in the plain text and in a
@@ -742,7 +761,8 @@ func assertSelectedBlock(
 func assertSelectedRow(
 	t *testing.T,
 	m Model,
-	selected, badge, row string,
+	selected, badge, list string,
+	row string,
 ) {
 	t.Helper()
 
@@ -755,9 +775,10 @@ func assertSelectedRow(
 		switch {
 		case badge != "" && strings.Contains(run.sgr, badge):
 		case strings.Contains(run.sgr, selected):
+		case list != "" && strings.Contains(run.sgr, list):
 		default:
 			t.Errorf(
-				"%d columns of the row are on neither the selection nor the badge: %q",
+				"%d columns of the row are on neither the selection, the air nor the badge: %q",
 				width,
 				run.text,
 			)
@@ -789,11 +810,15 @@ func TestTheUnreadBadgeKeepsItsPillOnTheSelectedRow(t *testing.T) {
 		m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
 			Render("x"),
 	)
+	list := backgroundParameters(
+		m.styles().on(m.tokens().SidebarBackground, m.styles().unstyled()).
+			Render("x"),
+	)
 	if selected == badge {
 		t.Skip("the theme gives the selection and the badge the same colour")
 	}
 
-	assertSelectedRow(t, m, selected, badge, rows[0][1])
+	assertSelectedRow(t, m, selected, badge, list, rows[0][2])
 }
 
 // The feed is chronological: the oldest message is on the first row of it

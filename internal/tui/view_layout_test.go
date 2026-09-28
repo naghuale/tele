@@ -228,19 +228,25 @@ func TestSidebarContainsNoRightBorder(t *testing.T) {
 
 	view := m.View()
 	for index, line := range viewLines(view) {
-		if m.widths.StringWidth(line) < layout.SidebarWidth() {
+		cells := renderedCells(t, m, line)
+		if len(cells) < layout.SidebarWidth() {
 			continue
 		}
 
 		// The column after the sidebar is the gap, and the gap is a space.
 		// A border glyph here would be a vertical rule drawn between the
 		// panes.
-		gap := line[layout.SidebarWidth():]
-		if !strings.HasPrefix(gap, " ") {
+		//
+		// The column is counted, not sliced: the rows of the sidebar keep
+		// the half blocks of the air around a row (§4.2), and a half block
+		// is one column and three bytes, so the byte after the thirty-second
+		// column of such a row is the middle of a glyph rather than the
+		// gap the test is about.
+		if cell := cells[layout.SidebarWidth()]; cell.text != " " {
 			t.Fatalf(
 				"line %d has %q after the sidebar, want a space:\n%s",
 				index,
-				gap[:minInt(2, m.widths.StringWidth(gap))],
+				cell.text,
 				view,
 			)
 		}

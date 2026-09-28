@@ -350,29 +350,55 @@ func authorHash(authorID int64) uint64 {
 	return hash
 }
 
-// roundedEnd is the style of one half of a rounded end of a block of a
-// message of this user: the colour of the block, on the background of the
-// feed.
+// blockEdge is the style of one half of a rounded edge of a block of a
+// message: the colour of the block, on the background behind the block.
 //
-// It is a semicircle in the colour of the block standing on the colour of
-// the feed, which is how a Nerd Font draws the two halves of a rounded
-// rectangle: what the block has at its ends is not a curve but two of
-// them, and the space between them is the feed showing through. Painting
-// the half in the block's own colour is what makes it the block's corner
-// rather than a glyph on top of it.
+// There are two kinds and they are the same drawing. Beside the text of a
+// block they are the two halves of a rounded rectangle out of a Nerd Font,
+// one column each; above and below it they are the lower and the upper
+// half block, one column each, which round a block whose ends are square
+// in a font every terminal has. Painting a half in the colour of the
+// block is what makes it the block's corner rather than a glyph on top of
+// it, and it is why the background behind it is named: the space between
+// the two halves of a row is the feed showing through, and the space
+// above a row of half blocks is the feed showing through too.
 //
-// A block with no background of its own has nothing for the half to be
-// the colour of, and the style is empty: under the no-colour profile the
-// ends are not drawn at all, which is the same reason the background of
-// the block is not drawn there.
-func (s viewStyles) roundedEnd(block, feed theme.Color) lipgloss.Style {
-	if !block.IsSet() || !feed.IsSet() {
+// A block with no background of its own has nothing for a half to be the
+// colour of, and the style is empty: under the no-colour profile no edge
+// is drawn at all, which is the same reason the background of the block is
+// not drawn there.
+func (s viewStyles) blockEdge(block, behind theme.Color) lipgloss.Style {
+	if !block.IsSet() || !behind.IsSet() {
 		return s.renderer.NewStyle()
 	}
 
 	return s.renderer.NewStyle().
 		Foreground(lipgloss.Color(block.Print())).
-		Background(lipgloss.Color(feed.Print()))
+		Background(lipgloss.Color(behind.Print()))
+}
+
+// halfRow is one row of a half block drawn in a style, or one row of
+// spaces where the style has no colour to draw the half in.
+//
+// The half blocks above and below a block of a message, and the ones above
+// and below a row of the list, are drawn in the colour of what they belong
+// to. A screen with no colours has no such colour — the same reason
+// blockEdge is an empty style there and the background of a block is not
+// drawn — and a half block with no colour is a glyph: a quarter of a
+// rectangle the user did not ask for, sitting on a line of words they are
+// reading, in the middle of a screen that was asked to be plain. So the
+// row is blank, and the air it was drawn with is the space it always was.
+//
+// drawn is the caller's answer to whether the colour is there, because
+// that is a question about the tokens of the theme and not about a style:
+// the style is empty exactly where the tokens are unset, and a caller
+// that asked the style would be asking a map for its own contents.
+func halfRow(style lipgloss.Style, drawn bool, glyph string, width int) string {
+	if !drawn {
+		return spaces(width)
+	}
+
+	return style.Render(strings.Repeat(glyph, width))
 }
 
 // pill is the badge of an unread count: a count on a background of its
@@ -624,20 +650,6 @@ func (p *rowPainter) right(text string, width int, style lipgloss.Style) *rowPai
 		add(style, text)
 }
 
-// badge writes a run that has a surface of its own, where every other run
-// of the row takes the row's.
-//
-// The unread count is a badge and not a cell of the row: a count drawn on
-// the background of the selected row in the colour of the list is a
-// number nobody can read, and one drawn in the colour of the badge on the
-// background of the row is a badge that has stopped being a badge. Either
-// way the count disappears on the one row a user is looking at, and the
-// row a user is looking at is the row that has to say what is unread on
-// it.
-func (p *rowPainter) badge(style lipgloss.Style, text string) *rowPainter {
-	return p.own(style, text)
-}
-
 // own writes a run of the row that carries its own background, and takes
 // the surface of the row only where the run has none.
 //
@@ -648,6 +660,14 @@ func (p *rowPainter) badge(style lipgloss.Style, text string) *rowPainter {
 // through the surface of the row would paint the pill in the row's colour
 // and the semicircle over the block, and neither of those is what either
 // of them is.
+//
+// The count is a badge and not a cell of the row for the same reason: a
+// count drawn on the background of the selected row in the colour of the
+// list is a number nobody can read, and one drawn in the colour of the
+// badge on the background of the row is a badge that has stopped being a
+// badge. Either way the count disappears on the one row a user is looking
+// at, and the row a user is looking at is the row that has to say what is
+// unread on it.
 func (p *rowPainter) own(style lipgloss.Style, text string) *rowPainter {
 	if text == "" {
 		return p
@@ -656,30 +676,6 @@ func (p *rowPainter) own(style lipgloss.Style, text string) *rowPainter {
 	p.written.WriteString(style.Render(text))
 
 	return p
-}
-
-// rightOwn writes a run that has a surface of its own at the end of a row
-// of the given width, with the columns that are missing filled in before
-// it.
-//
-// It is what puts the unread count in the same column of every row: a
-// count that sits wherever the preview of its chat happened to end is a
-// column the eye has to find on every row, and a column the eye has to
-// find is a column that is not there. The run is the last one on the row
-// for the same reason — a badge followed by the time of the chat is a
-// badge that has moved, and the times are the column this list is read
-// down.
-func (p *rowPainter) rightOwn(
-	text string,
-	width int,
-	style lipgloss.Style,
-) *rowPainter {
-	if text == "" {
-		return p.pad(width - p.width())
-	}
-
-	return p.pad(width-p.width()-p.widths.StringWidth(text)).
-		own(style, text)
 }
 
 // width returns how many columns have been written so far, escape

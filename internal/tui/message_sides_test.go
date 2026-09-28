@@ -214,6 +214,30 @@ func feedBackground(m Model) string {
 	)
 }
 
+// selectionForeground is the SGR foreground a half block of the selection
+// is painted in, which is how a rounded edge of a row is found: the colour
+// of an edge is the colour of the glyph and the background of the row
+// behind it.
+//
+// It is the style the air rows are written with rather than the Selected
+// token on its own, because the Selected token is a background and the
+// edge is a foreground: asking the token for a foreground would ask it a
+// question it does not answer.
+func selectionForeground(m Model) string {
+	edge := m.styles().blockEdge(
+		m.tokens().Selected, m.tokens().SidebarBackground,
+	)
+
+	return foregroundOf(edge.Render(termwidth.HalfBlockLower))
+}
+
+func listBackground(m Model) string {
+	return backgroundParameters(
+		m.styles().on(m.tokens().SidebarBackground, m.styles().unstyled()).
+			Render("x"),
+	)
+}
+
 func selectionBackground(m Model) string {
 	return backgroundParameters(m.styles().selected(true).Render("x"))
 }
@@ -308,9 +332,44 @@ func cellText(row []renderedCell) string {
 	return out.String()
 }
 
+// blockBody returns the rows of a block that carry its words, without the
+// blank row above it and the two rows of half blocks around it.
+//
+// The half blocks are not part of the block the words are in: they are the
+// air around it, they are half a row high, and a test about the width of
+// the block or about the words in it is not about them. A block of a short
+// screen has no air around it at all, so the rows are taken off both ends
+// until what is left has words in it rather than by their number.
+func blockBody(rows [][]renderedCell) [][]renderedCell {
+	first, last := 0, len(rows)
+	for first < last && isAirRow(rows[first]) {
+		first++
+	}
+	for last > first && isAirRow(rows[last-1]) {
+		last--
+	}
+
+	return rows[first:last]
+}
+
+// isAirRow reports whether a row is nothing but a half block, which is a
+// row of air around a block and not a row of its words.
+func isAirRow(row []renderedCell) bool {
+	for _, cell := range row {
+		switch cell.text {
+		case termwidth.HalfBlockLower, termwidth.HalfBlockUpper:
+		case " ":
+		default:
+			return false
+		}
+	}
+
+	return true
+}
+
 // entryRows renders one message of a conversation the way the timeline
 // does, at a given width of the feed, and returns the cells of every row it
-// takes — the blank row above it included.
+// takes — the blank row above it and the air around it included.
 func entryRows(
 	t *testing.T,
 	m Model,
@@ -346,6 +405,30 @@ func conversationColumns(m Model) (first, last int) {
 	return first, m.width - 1
 }
 
+// bandOfForeground returns the first and the last column of the cells of a
+// row that hold a colour as their glyph, and how many there were. Both are
+// -1 for a row with none.
+//
+// It is what a half block is found with: the colour of a rounded edge is
+// the colour of the glyph and the background of the row behind it, because
+// that is what puts the edge in half of one cell.
+func bandOfForeground(cells []renderedCell, colour string) (first, last, count int) {
+	first, last = -1, -1
+
+	for index, cell := range cells {
+		if cell.foreground != colour {
+			continue
+		}
+		if first < 0 {
+			first = index
+		}
+		last = index
+		count++
+	}
+
+	return first, last, count
+}
+
 // feedColumns returns the columns of the lane the messages of a
 // conversation are drawn in: the feed less the margin it keeps on each
 // side.
@@ -365,11 +448,64 @@ func unmeasured(mode termwidth.Mode) termwidth.WidthModel {
 	return model
 }
 
+// A block is never narrower than bubbleMinTextColumns of text, so a word in
+// a message is a bubble and not a sliver.
+//
+// The floor is of the text and not of the block: the insets and the ends
+// are added to it, and a test that measured the block would be measuring
+// the insets along with the answer. It is also never larger than the name
+// or the state of the message has to be — a block that cut "Anna Example
+// <something long>" to sixteen columns to reach the floor would be a block
+// that cannot say who sent the message.
+func TestABlockIsNeverNarrowerThanSixteenColumnsOfText(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	layout := LayoutFor(m.width, m.height)
+	inset := layout.BubbleInset()
+	block := blockBackground(m, sideIncoming)
+
+	for name, message := range map[string]Message{
+		"a word":   {ID: 1, Text: "ok", Author: "Anna", AuthorID: 5},
+		"a name":   {ID: 2, Text: "ok", Author: strings.Repeat("n", 40), AuthorID: 5},
+		"a text":   {ID: 3, Text: strings.Repeat("t", 30), Author: "Anna", AuthorID: 5},
+		"nothing":  {ID: 4, Text: "", Author: "Anna", AuthorID: 5},
+		"an emoji": {ID: 5, Text: "ok", Author: "Anna 🌍", AuthorID: 5},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rows := blockBody(entryRows(t, m, layout, feedTestWidth, message))
+			if len(rows) == 0 {
+				t.Fatal("the message took no rows")
+			}
+
+			first, last, count := bandOf(rows[0], block)
+			if count == 0 {
+				t.Fatalf("row 1 of the block has no block on it: %q", cellText(rows[0]))
+			}
+
+			want := maxInt(bubbleMinTextColumns, m.widths.StringWidth(message.Author))
+			if got := last - first + 1 - 2*inset; got < want {
+				t.Errorf(
+					"the block is %d columns of text, want at least %d",
+					got, want,
+				)
+			}
+		})
+	}
+}
+
 // The width of the feed the geometry below is proved on. It is a round
 // number on purpose: a block is a number of columns and a share of a
 // number, and a test that had to divide by whatever the pane turned out to
 // be would be proving the pane and not the block.
 const feedTestWidth = 90
+
+// shortTestHeight is a screen below §3.4's shortLayoutHeight, where a
+// message is its text and one row of it and nothing else. It is the screen
+// a one-row block is drawn on: a block with a name or a state in it has a
+// row for each, so the pill of §4.4 is a shape of a short screen.
+const shortTestHeight = 16
 
 // A message of this user is a block on the right, as wide as the widest
 // line in it and no wider, ending at the right margin of the feed.
@@ -396,11 +532,12 @@ func TestAnOutgoingBlockIsAsWideAsItsTextAndEndsAtTheRightMargin(t *testing.T) {
 	wantWidth := maxInt(m.widths.StringWidth(message.Text), m.widths.StringWidth(label)) +
 		2*layout.BubbleInset()
 
-	if len(rows) < 3 {
-		t.Fatalf("the message took %d rows, want a blank, its text and its state", len(rows))
+	rows = blockBody(rows)
+	if len(rows) < 2 {
+		t.Fatalf("the message took %d rows, want its text and its state", len(rows))
 	}
 
-	for index, row := range rows[1:] {
+	for index, row := range rows {
 		first, last, count := bandOf(row, block)
 		if count == 0 {
 			t.Fatalf("row %d of the block has no block on it", index+1)
@@ -635,16 +772,17 @@ func TestTheNameOfTheSenderIsInsideTheBlockOfTheMessage(t *testing.T) {
 	rows := entryRows(t, m, layout, feedTestWidth, message)
 	incoming := blockBackground(m, sideIncoming)
 
-	if len(rows) < 3 {
-		t.Fatalf("the message took %d rows, want a blank, its name and its text", len(rows))
+	rows = blockBody(rows)
+	if len(rows) < 2 {
+		t.Fatalf("the message took %d rows, want its name and its text", len(rows))
 	}
 
-	head, _, count := bandOf(rows[1], incoming)
+	head, _, count := bandOf(rows[0], incoming)
 	if count == 0 {
 		t.Fatal("the row of the name has no block on it")
 	}
-	if !strings.Contains(cellText(rows[1]), messageAuthor(message)) {
-		t.Errorf("the name is not on the first row of the block: %q", cellText(rows[1]))
+	if !strings.Contains(cellText(rows[0]), messageAuthor(message)) {
+		t.Errorf("the name is not on the first row of the block: %q", cellText(rows[0]))
 	}
 	if head != layout.FeedMargin() {
 		t.Errorf("the block starts at column %d, want the left margin at %d", head, layout.FeedMargin())
@@ -652,7 +790,7 @@ func TestTheNameOfTheSenderIsInsideTheBlockOfTheMessage(t *testing.T) {
 
 	// And the text is inside the same block as the name, which is the
 	// whole of what says they are one message.
-	from, to, _ := bandOf(rows[2], incoming)
+	from, to, _ := bandOf(rows[1], incoming)
 	if from != head || to != head+count-1 {
 		t.Errorf(
 			"the block of the text runs from %d to %d, want the same block as the name (%d to %d)",
@@ -680,8 +818,9 @@ func TestTheStateIsInsideTheBlockAndAtItsRightEdge(t *testing.T) {
 	rows := entryRows(t, m, layout, feedTestWidth, message)
 	outgoing := blockBackground(m, sideOutgoing)
 
-	if len(rows) < 3 {
-		t.Fatalf("the message took %d rows, want a blank, its text and its state", len(rows))
+	rows = blockBody(rows)
+	if len(rows) < 2 {
+		t.Fatalf("the message took %d rows, want its text and its state", len(rows))
 	}
 
 	state := rows[len(rows)-1]
@@ -692,7 +831,7 @@ func TestTheStateIsInsideTheBlockAndAtItsRightEdge(t *testing.T) {
 
 	// The state ends at the right edge of the block, and the block is the
 	// same width as the row of the text above it.
-	_, textTo, _ := bandOf(rows[1], outgoing)
+	_, textTo, _ := bandOf(rows[0], outgoing)
 	if to != textTo {
 		t.Errorf("the state ends at column %d, the text above it at %d", to, textTo)
 	}
@@ -704,10 +843,16 @@ func TestTheStateIsInsideTheBlockAndAtItsRightEdge(t *testing.T) {
 	}
 }
 
-// With the setting on, each row of a block opens and closes with one half
-// of a rounded end: a semicircle in the colour of the block, on the
-// background of the feed, one column wide in both of the rules text is
-// counted in.
+// With the setting on, a block of one row is a pill: it opens and closes
+// with one half of a rounded end, a semicircle in the colour of the block
+// on the background of the feed, one column wide in both of the rules text
+// is counted in.
+//
+// The pill is a block of one row because the halves are one row tall. The
+// block proved here is a message from the other side on a screen too short
+// for the name and the time, where a message is one row of words and
+// nothing else — the screen where a one-line reply is one line, which is
+// where the pill is the whole of the shape rather than a row of it.
 //
 // The width is the point of the two rules agreeing on it. A half the
 // interface believes is one column and the terminal draws in two is a
@@ -723,22 +868,30 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 		m.widths = unmeasured(mode)
 		m.nerdFont = true
 
-		layout := LayoutFor(m.width, m.height)
+		layout := LayoutFor(feedTestWidth, shortTestHeight)
 		rows := entryRows(t, m, layout, feedTestWidth, Message{
-			ID: 1, Outgoing: true, Text: "shipped the release notes", Time: "12:05",
+			ID: 1, Text: "the build is green again",
+			Author: "Anna Example", Time: "12:05",
 		})
 
-		ends := m.styles().roundedEnd(
-			m.blockSurface(sideOutgoing, false), m.tokens().ChatBackground,
+		ends := m.styles().blockEdge(
+			m.blockSurface(sideIncoming, false), m.tokens().ChatBackground,
 		)
 		wantForeground := foregroundOf(ends.Render(termwidth.NerdHalfLeft))
-		_, end := feedColumns(feedTestWidth, layout)
+		start, _ := feedColumns(feedTestWidth, layout)
 
 		if wantForeground == "" {
 			t.Fatalf("%v: the rounded end is painted with no colour at all", mode)
 		}
 
-		for index, row := range rows[1:] {
+		if got := len(blockBody(rows)); got != 1 {
+			t.Fatalf(
+				"%v: the block took %d rows of words, want the one row a pill is",
+				mode, got,
+			)
+		}
+
+		for index, row := range blockBody(rows) {
 			if got := len(row); got > feedTestWidth {
 				t.Errorf(
 					"%v: row %d is %d columns, the feed is %d",
@@ -750,7 +903,7 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 			// is what makes them read as cut out of it rather than painted
 			// on it: the band in the middle is the block, and the halves
 			// are the columns on either side of it.
-			inner, last, count := bandOf(row, blockBackground(m, sideOutgoing))
+			inner, last, count := bandOf(row, blockBackground(m, sideIncoming))
 			if count == 0 {
 				t.Fatalf("%v: row %d of the block has no block on it", mode, index+1)
 			}
@@ -768,10 +921,13 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 					mode, index+1, row[closing].text,
 				)
 			}
-			if closing != end {
+			// The block is against the margin of the feed, so the left
+			// half opens one column in from it — the one column the
+			// selection marker stands in.
+			if first != start {
 				t.Errorf(
-					"%v: row %d ends at column %d, want the last column of the feed (%d)",
-					mode, index+1, closing, end,
+					"%v: row %d opens at column %d, want the margin of the feed (%d)",
+					mode, index+1, first, start,
 				)
 			}
 			for _, column := range []int{first, closing} {
@@ -792,18 +948,72 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 	}
 }
 
+// A block of more than one row has no ends at all, with the setting on.
+//
+// The halves are one row tall, so a block of two rows with a half circle on
+// each of them is two pills stacked on each other: a shape that reads as
+// two messages rather than one, and one the report of a screenshot with it
+// as a double and narrow one. So the ends belong to a block of one row, and
+// a block of more is a rectangle with square sides and half a row of air at
+// each end — the air carrying the roundness that the halves cannot.
+//
+// The block below is a message of this user, which is a row of text and a
+// row of state: the shortest block of more than one row there is, and the
+// one a report of a screen would have been about.
+func TestABlockOfMoreThanOneRowHasNoEnds(t *testing.T) {
+	for _, mode := range []termwidth.Mode{termwidth.ModeGrapheme, termwidth.ModeCodepoint} {
+		m := focusedOn(
+			openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+			FocusHistory,
+		)
+		m.widths = unmeasured(mode)
+		m.nerdFont = true
+
+		layout := LayoutFor(m.width, m.height)
+		rows := entryRows(t, m, layout, feedTestWidth, Message{
+			ID: 1, Outgoing: true, Text: "ok", Time: "12:05",
+		})
+
+		if got := len(blockBody(rows)); got < 2 {
+			t.Fatalf(
+				"%v: the block took %d rows of words, want the text and the state",
+				mode, got,
+			)
+		}
+
+		for index, row := range rows {
+			for column, cell := range row {
+				if cell.text != termwidth.NerdHalfLeft &&
+					cell.text != termwidth.NerdHalfRight {
+					continue
+				}
+				t.Errorf(
+					"%v: row %d column %d is %q: the halves are one row tall, "+
+						"so a block of %d rows has none",
+					mode, index, column, cell.text, len(blockBody(rows)),
+				)
+			}
+		}
+	}
+}
+
 // Without the setting there are no halves and the block has square corners,
 // because a terminal without the font draws the halves as empty squares and
 // two empty squares at the ends of every message are worse than the corners
 // they were meant to replace.
+//
+// The block is the one-row block of the pill above, because a block of more
+// than one row has square corners with the setting on as well: without a
+// test of the pill, this one would pass on a block that has no ends to draw
+// in the first place and would be saying nothing at all.
 func TestWithoutANerdFontTheEndsOfABlockAreSquare(t *testing.T) {
 	m := focusedOn(
 		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
 		FocusHistory,
 	)
-	layout := LayoutFor(m.width, m.height)
-	rows := entryRows(t, m, layout, feedTestWidth, Message{
-		ID: 1, Outgoing: true, Text: "shipped the release notes", Time: "12:05",
+	rows := entryRows(t, m, LayoutFor(feedTestWidth, shortTestHeight), feedTestWidth, Message{
+		ID: 1, Text: "the build is green again",
+		Author: "Anna Example", Time: "12:05",
 	})
 
 	for index, row := range rows {
@@ -837,6 +1047,63 @@ func TestNoColorDrawsNeitherTheEndsNorTheBackground(t *testing.T) {
 
 	for index, row := range rows {
 		for column, cell := range row {
+			if cell.text == termwidth.NerdHalfLeft ||
+				cell.text == termwidth.NerdHalfRight {
+				t.Errorf(
+					"row %d column %d draws a rounded end with no colour behind it",
+					index, column,
+				)
+			}
+			if cell.text == termwidth.HalfBlockLower ||
+				cell.text == termwidth.HalfBlockUpper {
+				t.Errorf(
+					"row %d column %d draws a half block with no colour behind it",
+					index, column,
+				)
+			}
+			if cell.background != "" {
+				t.Errorf(
+					"row %d column %d is on %q, want no background at all",
+					index, column, cell.background,
+				)
+			}
+		}
+	}
+}
+
+// The air around a block and the air around a row of the list are the same
+// drawing, so a screen with no colours has to leave both of them out: a
+// half block with nothing behind it is a quarter of a rectangle on a line
+// of words. The chat list is the one with a selection in it, so a screen
+// with no colours is also the one where the selection is a word and not a
+// band, and nothing may be left of the band.
+func TestNoColorDrawsNoAirAroundTheListEither(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileNoColor, 120, 30),
+		FocusChatList,
+	)
+	m.chats[0].Title = "Anna Example"
+	m.chats[0].Unread = 22
+
+	layout := LayoutFor(m.width, m.height)
+	rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+
+	if len(rows[0]) != 4 {
+		t.Fatalf(
+			"a chat takes %d rows, want air above, a name, a preview and air below",
+			len(rows[0]),
+		)
+	}
+
+	for index, row := range rows[0] {
+		for column, cell := range renderedCells(t, m, row) {
+			if cell.text == termwidth.HalfBlockLower ||
+				cell.text == termwidth.HalfBlockUpper {
+				t.Errorf(
+					"row %d column %d draws a half block with no colour behind it",
+					index, column,
+				)
+			}
 			if cell.text == termwidth.NerdHalfLeft ||
 				cell.text == termwidth.NerdHalfRight {
 				t.Errorf(
@@ -902,31 +1169,35 @@ func TestANarrowScreenLetsTheBlockFillTheFeed(t *testing.T) {
 // find is a column that is not there: the number of unread messages is
 // the one thing on this screen a user is scanning for, and a list that
 // makes them look for it is a list they read instead.
+//
+// The column is the one the words end at rather than the edge of the pane,
+// because the row keeps two columns of air inside the selection on each
+// side. The time and the count stop two columns short of the edge together.
 func TestTheUnreadBadgeIsInTheSameColumnAsTheTime(t *testing.T) {
 	for _, preview := range []string{"", "ok", strings.Repeat("word ", 40)} {
 		m := chatListWith(t, preview)
 
-		view := m.View()
-		rows := renderedRows(t, m, view)
 		layout := LayoutFor(m.width, m.height)
 		width := layout.SidebarContentWidth()
+		last := chatListInset + maxInt(width-2*chatListInset, 1) - 1
 
 		for index, chat := range m.chats {
-			badge, badgeStyle := m.chatListUnreadBadge(chat)
-			if badge == "" {
+			badge := m.chatListUnreadBadge(chat, theme.Color{})
+			if badge.inner == "" {
 				continue
 			}
 
 			lines := m.chatListRowLines(m.chatListEntries()[index], false, layout, width)
-			if len(lines) < 2 {
-				t.Fatalf("preview %q: a chat takes %d rows", preview, len(lines))
+			if len(lines) != 4 {
+				t.Fatalf("preview %q: a chat takes %d rows, want two of air and two of words",
+					preview, len(lines))
 			}
 
-			head := renderedCells(t, m, lines[0])
-			detail := renderedCells(t, m, lines[1])
+			head := renderedCells(t, m, lines[1])
+			detail := renderedCells(t, m, lines[2])
 			timeEnd := lastWord(head)
 			from, to, count := bandOf(
-				detail, backgroundParameters(badgeStyle.Render("x")),
+				detail, backgroundParameters(badge.pill.Render("x")),
 			)
 
 			if count == 0 {
@@ -941,64 +1212,201 @@ func TestTheUnreadBadgeIsInTheSameColumnAsTheTime(t *testing.T) {
 					preview, chat.Title, to, timeEnd,
 				)
 			}
-			if to != width-1 {
+			if to != last {
 				t.Errorf(
-					"preview %q: the badge of %q ends at column %d, want the right edge of the row (%d)",
-					preview, chat.Title, to, width-1,
+					"preview %q: the badge of %q ends at column %d, want the last word of the row (%d)",
+					preview, chat.Title, to, last,
 				)
 			}
-			_ = from
-			_ = rows
+			// The preview is cut so that at least two columns stand
+			// between it and the count: a pill one column from the last
+			// letter of the preview is one run with the preview.
+			if gap := from - lastWordBefore(detail, from); gap < chatListBadgeGap {
+				t.Errorf(
+					"preview %q: the badge of %q starts %d columns after the preview, want at least %d",
+					preview, chat.Title, gap, chatListBadgeGap,
+				)
+			}
 		}
 	}
 }
 
-// A selected chat is selected right across: every cell of both of its rows
-// and of the blank row under them, apart from the badge, which is a pill of
-// its own so that the number in it can be read.
+// A selected chat is selected right across: every cell between the two
+// columns of air on each side, on both of its rows of words and on both
+// of its rows of air, and the cells between the end of the preview and
+// the count with it.
 //
 // A selection that stops where the words stop is a highlight under a name
-// rather than a selected row, and a user cannot tell from it which chat the
-// keys will open.
+// rather than a selected row, and one that runs the width of the list is
+// the band the list stopped having. The count is the one run of the row
+// with a surface of its own, so that the number in it can be read.
 func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
 	for _, preview := range []string{"ok", strings.Repeat("word ", 40)} {
 		m := chatListWith(t, preview)
 		layout := LayoutFor(m.width, m.height)
 		width := layout.SidebarContentWidth()
-		_, badgeStyle := m.chatListUnreadBadge(m.chats[0])
-		pill := backgroundParameters(badgeStyle.Render("x"))
+		badge := m.chatListUnreadBadge(m.chats[0], m.tokens().Selected)
+		pill := backgroundParameters(badge.pill.Render("x"))
 
 		lines := m.chatListRowLines(m.chatListEntries()[0], true, layout, width)
-		if len(lines) != 3 {
-			t.Fatalf("a chat takes %d rows, want its name, its preview and a blank", len(lines))
+		if len(lines) != 4 {
+			t.Fatalf("a chat takes %d rows, want two of air and two of words", len(lines))
 		}
 
 		selected := selectionBackground(m)
+		inner := maxInt(width-2*chatListInset, 1)
+		last := chatListInset + inner - 1
+
 		for index, line := range lines {
 			cells := renderedCells(t, m, line)
-			from, to, count := bandOf(cells, selected)
-			_, _, badge := bandOf(cells, pill)
+			// The air rows carry the colour of the selection in the
+			// foreground of a half block and the background of the list
+			// behind it; the rows of words carry it in the background.
+			from, to, count := bandOfForeground(cells, selectionForeground(m))
+			if count == 0 {
+				from, to, count = bandOf(cells, selected)
+			}
+			_, _, badgeColumns := bandOf(cells, pill)
 
-			if count+badge != width {
+			if count+badgeColumns != inner {
 				t.Errorf(
-					"preview %q: row %d has %d selected cells and a badge of %d, want the %d of the row",
-					preview, index, count, badge, width,
+					"preview %q: row %d has %d selected cells and a count of %d, want the %d of the row",
+					preview, index, count, badgeColumns, inner,
 				)
 			}
-			if from != 0 {
+			if from != chatListInset || to+badgeColumns != last {
 				t.Errorf(
-					"preview %q: row %d is selected from column %d, want the first",
-					preview, index, from,
+					"preview %q: row %d is selected from column %d to %d, want %d to %d",
+					preview, index, from, to+badgeColumns, chatListInset, last,
 				)
 			}
-			// The row is selected up to the badge, which is the last
-			// thing in it: the cells between the end of the preview and
-			// the badge are the selection, and a selection that stops
-			// where the words stop is a highlight rather than a row.
-			if to != width-1-badge {
+			for column := 0; column < chatListInset; column++ {
+				if cells[column].background == selected {
+					t.Errorf(
+						"preview %q: row %d column %d is inside the air of the row, not the selection",
+						preview, index, column,
+					)
+				}
+			}
+		}
+	}
+}
+
+// The air of a selected row is two half rows of the colour of the
+// selection, one above the name and one below the preview, and it is
+// drawn on every row of the list so that every chat is the same height.
+//
+// A half row rather than a whole one is the point: the selection looks
+// half a row taller on each side and the rows of the list above and below
+// it are the rows it is drawn in rather than rows taken away from the
+// list. On a row that is not selected the half block is in the background
+// of the list and there is nothing to see, which is also why it has to be
+// drawn there: a row that was four rows long only while it was selected
+// would be a list whose window could not be placed against its rows.
+func TestTheAirOfTheSelectedRowIsTwoHalfRowsOfIt(t *testing.T) {
+	for _, selected := range []bool{false, true} {
+		m := chatListWith(t, "ok")
+		if !selected {
+			m.selectedChat = 1
+		}
+
+		layout := LayoutFor(m.width, m.height)
+		width := layout.SidebarContentWidth()
+		lines := m.chatListRowLines(m.chatListEntries()[0], selected, layout, width)
+		if len(lines) != 4 {
+			t.Fatalf("selected=%v: a chat takes %d rows, want four", selected, len(lines))
+		}
+
+		// The colour of a rounded edge is the colour of the glyph and the
+		// background of the list is behind it, so a selected row is found
+		// by its foreground and a row that is not selected by its
+		// background: an edge with no colour of its own is a row of the
+		// background of the list, and there is nothing to see.
+		highlight := listBackground(m)
+		inForeground := false
+		if selected {
+			highlight, inForeground = selectionForeground(m), true
+		}
+
+		for index, glyph := range map[int]string{
+			0: termwidth.HalfBlockLower,
+			3: termwidth.HalfBlockUpper,
+		} {
+			cells := renderedCells(t, m, lines[index])
+			from, to, count := bandOf(cells, highlight)
+			if inForeground {
+				from, to, count = bandOfForeground(cells, highlight)
+			}
+
+			if count == 0 {
+				t.Errorf("selected=%v: row %d has no row of the highlight on it", selected, index)
+
+				continue
+			}
+			if selected &&
+				(from != chatListInset || to != maxInt(width-chatListInset-1, 0)) {
 				t.Errorf(
-					"preview %q: row %d is selected up to column %d, want the badge to start at %d",
-					preview, index, to, width-badge,
+					"selected=%v: row %d runs from column %d to %d, want %d to %d",
+					selected, index, from, to,
+					chatListInset, width-chatListInset-1,
+				)
+			}
+			if !strings.ContainsRune(cellText(cells), []rune(glyph)[0]) {
+				t.Errorf(
+					"selected=%v: row %d has no %q on it: %q",
+					selected, index, glyph, cellText(cells),
+				)
+			}
+		}
+	}
+}
+
+// The count of a chat is a pill with a space on each side of the number,
+// and with a Nerd Font it is rounded with the two halves the font provides,
+// in the colour of the pill on the background of the row.
+func TestTheCountOfAChatIsAPillAndRoundsWithTheFont(t *testing.T) {
+	for _, nerd := range []bool{false, true} {
+		m := chatListWith(t, "ok")
+		m.nerdFont = nerd
+
+		layout := LayoutFor(m.width, m.height)
+		width := layout.SidebarContentWidth()
+		badge := m.chatListUnreadBadge(m.chats[0], m.tokens().Selected)
+
+		if badge.inner != " 2 " {
+			t.Errorf("nerd_font=%v: the pill says %q, want a space on each side of the number", nerd, badge.inner)
+		}
+		if !nerd {
+			if badge.left != "" || badge.right != "" {
+				t.Errorf("the pill is %q with the setting off", badge.text())
+			}
+
+			continue
+		}
+
+		lines := m.chatListRowLines(m.chatListEntries()[0], true, layout, width)
+		detail := renderedCells(t, m, lines[2])
+		text := cellText(detail)
+		if !strings.Contains(text, termwidth.NerdHalfLeft) ||
+			!strings.Contains(text, termwidth.NerdHalfRight) {
+			t.Fatalf("the pill is not rounded: %q", text)
+		}
+
+		// The halves are the colour of the pill on the background of the
+		// row, which is what makes the pill a pill rather than two
+		// characters of a font.
+		edge := m.styles().blockEdge(m.tokens().Unread, m.tokens().Selected)
+		want := foregroundOf(edge.Render(termwidth.NerdHalfLeft))
+		_, left, _ := bandOf(detail, backgroundParameters(m.tokens().Selected.Print()))
+		_ = left
+		for index, cell := range detail {
+			if cell.text != termwidth.NerdHalfLeft {
+				continue
+			}
+			if cell.foreground != want {
+				t.Errorf(
+					"the left half of the pill is at column %d painted %q, want the colour of the pill %q",
+					index, cell.foreground, want,
 				)
 			}
 		}
@@ -1010,7 +1418,7 @@ func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
 // chat under the cursor.
 //
 // The previews are of the three lengths that matter: none, one word, and
-// one longer than the row. The badge of a row must be in the same column
+// one longer than the row. The count of a row must be in the same column
 // in all of them.
 func chatListWith(t *testing.T, preview string) Model {
 	t.Helper()
@@ -1028,6 +1436,19 @@ func chatListWith(t *testing.T, preview string) Model {
 	m.selectedChat = 0
 
 	return m
+}
+
+// lastWordBefore returns the column the last word of a row before a given
+// column ends in, which is where the preview of a chat stands once the
+// count is not counted as part of it.
+func lastWordBefore(row []renderedCell, before int) int {
+	for column := before - 1; column >= 0; column-- {
+		if strings.TrimSpace(row[column].text) != "" {
+			return column
+		}
+	}
+
+	return -1
 }
 
 // lastWord returns the column the last word of a row ends in, which is

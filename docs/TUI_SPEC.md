@@ -97,6 +97,38 @@
    `TestTheFeedIsInTheOrderOfTime`, и золотые снимки рисуются из
    страницы в том порядке, в каком TDLib её отдаёт.
 
+2. **Текст из Telegram очищается один раз на границе (#53).** Название
+   чата, превью, текст сообщения, подпись, слово медиа и имя автора
+   приходят из TDLib, а терминал исполняет управляющие символы: `\r`
+   возвращает курсор в начало строки, `\v` и `\f` ведут вниз без
+   возврата, escape-последовательность очищает экран или кладёт строку в
+   буфер обмена, а bidi-управляющие переставляют слова. Ни одну из этих
+   вещей интерфейс не просит, и любой собеседник или канал может прислать
+   текст, который их вызовет.
+
+   Поэтому очистка одна и стоит на границе «данные → модель»
+   (`internal/tui/screen_text.go`): уходят C0 (кроме перевода строки),
+   DEL, C1 (включая NEL), escape-последовательности целиком — CSI, OSC,
+   DCS, APC, PM, SOS вместе с их содержимым, в семи- и восьмибитной
+   форме, — и bidi-управляющие U+202A–U+202E и U+2066–U+2069; U+2028 и
+   U+2029 считаются переводом строки, табуляция становится пробелом.
+   Видимые символы, эмодзи с ZWJ-последовательностями, флаги и
+   комбинирующие знаки не трогаются.
+
+   Перевод строки в сообщении — это перенос строки в ленте, а в
+   однострочных местах (строка чата, превью, заголовок разговора, имя
+   автора) — пробел. Проверки —
+   `TestScreenTextRemovesWhatATerminalWouldActOn`,
+   `TestChatListOfUntrustedNamesDrawsTheScreenItWasGiven`,
+   `TestFeedOfUntrustedMessagesDrawsTheScreenItWasGiven` и золотой снимок
+   `TestSnapshotUntrustedNames`.
+
+   Второй половиной той же задачи стало `media_album_id`: TDLib пишет
+   64-битные числа строкой, и страница истории переставала разбираться
+   целиком. Все числа TDLib читает один тип (`internal/telegram/tdint.go`),
+   а одно неразборчивое сообщение теперь пропускается, а не роняет
+   страницу.
+
 ### Вне этой спецификации
 
 §25 п. 1–2 (packaged TDLib, подписанный архив, Homebrew) — отдельная
@@ -1023,6 +1055,8 @@ Queued entries при reconnect остаются queued или retrying, **не*
 - Snapshot-тесты не сохраняют реальный message text в CI artifacts.
 - Crash report не содержит composer buffer.
 - `Ctrl+L` dump не пишет файл.
+- Текст из Telegram очищается от управляющих символов, escape-последовательностей
+  и bidi-управляющих на границе «данные → модель» (#53), а не в каждом виде.
 
 ## 20. Acceptance criteria
 
@@ -1085,6 +1119,8 @@ Queued entries при reconnect остаются queued или retrying, **не*
 - [ ] Snapshot-тесты не сохраняют реальный message text.
 - [ ] Crash report не содержит composer buffer.
 - [ ] `Ctrl+L` dump не пишет файл.
+- [ ] Список чатов и лента не содержат ни одного управляющего символа, escape-последовательности или bidi-управляющего из текста Telegram (#53).
+- [ ] Перевод строки в сообщении — перенос в ленте и пробел в однострочных местах; эмодзи, флаги и нелатинские шрифты проходят без изменений.
 
 ### Lifecycle
 
@@ -1171,6 +1207,18 @@ TestSnapshotThemeTokyoNight
 TestSnapshotNoColor
 TestSnapshotANSI256
 TestSnapshotANSI16
+TestSnapshotUntrustedNames
+```
+
+### Text from Telegram (#53)
+
+```text
+TestScreenTextRemovesWhatATerminalWouldActOn
+TestScreenLineFoldsEveryLineBreakIntoASpace
+TestScreenTextKeepsWhatAPersonWrote
+TestTheCleanerCoversEveryStringOfBothProjections
+TestChatListOfUntrustedNamesDrawsTheScreenItWasGiven
+TestFeedOfUntrustedMessagesDrawsTheScreenItWasGiven
 ```
 
 ## 22. Порядок PR

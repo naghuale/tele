@@ -464,7 +464,12 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.loadErr = nil
-	m.chats = msg.chats
+
+	// The list crosses into the model here, and it is cleaned on the way:
+	// every name and every preview in it is text from Telegram, and a name
+	// the terminal acts on is a row of the list that moves the cursor
+	// instead of being drawn. See screen_text.go.
+	m.chats = safeChats(msg.chats)
 
 	if len(msg.chats) == 0 {
 		m.chatsState = loadStateEmpty
@@ -576,7 +581,13 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.loadErr = nil
-	m.chats[m.selectedChat].Messages = chronological(msg.page.Messages)
+
+	// A page crosses into the model here, and it is cleaned on the way:
+	// the text of a message is the only text anybody else in a chat can
+	// put on the screen. See screen_text.go.
+	m.chats[m.selectedChat].Messages = chronological(
+		safeMessages(msg.page.Messages),
+	)
 
 	// A new first page re-opens the history: nothing is known to be
 	// missing from it yet.
@@ -614,7 +625,10 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.historyMoreErr = nil
 
 	existing := m.chats[m.selectedChat].Messages
-	merged := prependOlderMessages(existing, chronological(msg.page.Messages))
+	merged := prependOlderMessages(
+		existing,
+		chronological(safeMessages(msg.page.Messages)),
+	)
 	m.chats[m.selectedChat].Messages = merged
 
 	// The page went on top, so the message that was on screen is exactly
@@ -792,7 +806,11 @@ func (m Model) updateMessageSent(msg messageSentMsg) (tea.Model, tea.Cmd) {
 
 	m.chats[m.selectedChat].Messages = appendMessageByID(
 		m.chats[m.selectedChat].Messages,
-		msg.message,
+
+		// The answer to a send is TDLib's copy of what was sent, and it
+		// crosses into the model like any other message. See
+		// screen_text.go.
+		safeMessage(msg.message),
 	)
 
 	if atNewest {

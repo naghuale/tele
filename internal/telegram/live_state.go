@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -646,43 +645,32 @@ func isAbsentJSON(raw json.RawMessage) bool {
 }
 
 // parsePositionOrder reads chatPosition.order, which TDLib carries as a
-// JSON string of an int64.
+// JSON string of an int64. The one field that had to be read both ways
+// before tdInt existed; it reads it like every other number now.
 func parsePositionOrder(raw json.RawMessage) (int64, error) {
 	if isAbsentJSON(raw) {
 		return 0, nil
 	}
 
-	var text string
-	if err := json.Unmarshal(raw, &text); err == nil {
-		parsed, err := strconv.ParseInt(text, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("%w: %q: %w", ErrLiveStateOrder, text, err)
-		}
-		return parsed, nil
+	var order tdInt
+	if err := json.Unmarshal(raw, &order); err != nil {
+		return 0, fmt.Errorf("%w: %q: %w", ErrLiveStateOrder, string(raw), err)
 	}
 
-	// Tolerate a numeric order even though TDLib documents a string.
-	var number json.Number
-	if err := json.Unmarshal(raw, &number); err == nil {
-		parsed, err := number.Int64()
-		if err != nil {
-			return 0, fmt.Errorf("%w: %q: %w", ErrLiveStateOrder, number.String(), err)
-		}
-		return parsed, nil
-	}
-
-	return 0, fmt.Errorf("%w: %q is neither a string nor a number",
-		ErrLiveStateOrder, string(raw))
+	return int64(order), nil
 }
 
 // liveMessageRaw mirrors the fields of a TDLib message used for a
 // preview. The preview text is built by parseLastMessage, which the
 // snapshot path already uses, so the two paths cannot drift apart.
+//
+// The numbers are tdInt, like every other number TDLib writes: see
+// tdint.go.
 type liveMessageRaw struct {
-	ID         int64           `json:"id"`
-	ChatID     int64           `json:"chat_id"`
+	ID         tdInt           `json:"id"`
+	ChatID     tdInt           `json:"chat_id"`
 	IsOutgoing bool            `json:"is_outgoing"`
-	Date       int64           `json:"date"`
+	Date       tdInt           `json:"date"`
 	Content    json.RawMessage `json:"content"`
 }
 
@@ -735,7 +723,7 @@ func parseLiveMessage(raw json.RawMessage) (Message, error) {
 		ID:        MessageID(message.ID),
 		ChatID:    ChatID(message.ChatID),
 		Outgoing:  message.IsOutgoing,
-		Timestamp: time.Unix(message.Date, 0).UTC(),
+		Timestamp: time.Unix(int64(message.Date), 0).UTC(),
 		Text:      text,
 	}, nil
 }

@@ -256,6 +256,20 @@
     history page and that page closes the gap
   - a message the store cannot parse is reported as an error and leaves
     the window untouched, as a malformed order does for the chat list
+- TDLib numbers: internal/telegram/tdint.go
+  - TDLib writes a 64-bit integer as a JSON string and a 53-bit one as
+    a JSON number, and which one a field is depends on the field:
+    message.chat_id is int53 and arrives as 42, while
+    message.media_album_id is int64 and arrives as "0" (a real account,
+    #53)
+  - tdInt is the one way telecli reads either shape. Every decoded
+    int64 of the message, chat, user and send paths is a tdInt, and
+    chatPosition.order, the field that had to be read both ways
+    before, is read by it too
+  - a value that is neither a number nor a string of digits is a
+    decode error; a null or absent field is zero
+  - a request of ours is written as a number, so the type is safe in
+    both directions
 - History projection: internal/telegram/history.go
   - GetChatHistory returns newest-first pages
   - chatID == 0 rejected; limit validated in (0, 100]
@@ -263,7 +277,17 @@
   - a non-zero fromMessageID is an inclusive boundary because
     offset is 0; callers must de-duplicate the boundary Message.ID
   - TDLib may return fewer messages than requested; HasMore is a
-    heuristic
+    heuristic, and it is computed over the size of the answer rather
+    than over the messages this build could show of it
+  - the entries of a page are read one at a time, out of their own raw
+    objects: one message that cannot be read is left out of the page
+    and the rest of it is shown, rather than one unreadable field
+    failing the fifty messages around it (#53). An entry that is not
+    a message, and a message of another chat, are still
+    ErrUnexpectedHistoryResponse: they are the answer to a different
+    question
+  - Message.MediaAlbumID is int64 and 0 is not an album; the timeline
+    groups runs of messages that share a non-zero id
 - Send projection: internal/telegram/send.go
   - SendTextMessage sends one plain-text message through sendMessage
   - chatID == 0 rejected; whitespace-only text rejected
@@ -378,6 +402,34 @@
     the names the two rules count differently, drawn in each rule, and
     every line of both is a whole number of columns in the rule that
     screen was drawn in
+- Screen text: internal/tui/screen_text.go (§19, #53)
+  - every string that came from Telegram is cleaned once, on its way
+    into the model, and not in each view: safeChats, safeMessages and
+    safeMessage are asked about every string of tui.Chat and
+    tui.Message, and the model calls them where a projection lands
+    (chatsLoadedMsg, the first history page, an older page, the answer
+    to a send). A view that cleans what it draws is a view that has to
+    remember to, and the field nobody remembered would be the one that
+    moves the cursor
+  - what goes: the C0 controls, DEL, the C1 controls (NEL, U+0085,
+    among them), whole escape sequences with what they carry (CSI,
+    OSC, DCS, APC, PM, SOS, in the seven-bit and the eight-bit form),
+    and the bidi controls U+202A–U+202E and U+2066–U+2069. U+2028 and
+    U+2029 are line breaks, and a tab is a space
+  - what stays: letters, punctuation, emoji with their ZWJ sequences,
+    variation selectors and flags, and the combining marks of every
+    script. Nothing that makes a character a character is removed
+  - screenBody is for the feed, where a line break in a message is a
+    line break on the screen; screenLine is for a chat name, a
+    preview, a conversation title and the name above a message, where
+    a line break is a space
+  - a sequence that is cut short eats what is left of the text rather
+    than putting half of it on the screen, and a text with nothing to
+    clean is returned as it is, without an allocation
+  - a source keeps its own list: the cleaned one is a copy
+  - the draft of the composer and the text of a pending message are
+    not part of this: they are what the user of this machine typed,
+    not what Telegram sent
 - Timeline: internal/tui/timeline.go, internal/tui/view_conversation.go
   (PR-10A.2b, §4.4, §8.3, divergence 1)
   - Chat.Messages is chronological, oldest first. TDLib answers a page
@@ -561,6 +613,11 @@
   - the invariants of §20 are checked over every snapshot in one pass: no
     box drawing glyph and no line made of frame characters, focus bars in
     exactly one column, and no line wider than the screen it is drawn for
+  - one of them is a chat list whose names and previews carry what a
+    terminal acts on (TestSnapshotUntrustedNames, #53). The golden holds
+    four ordinary rows of four ordinary chats, which is the claim: the
+    words are still there and the characters are not. The invariant pass
+    covers it like any other
 - Auth TUI: internal/tui/screen_auth.go
   - ScreenAuth with phone/code/password prompts
   - password masked as •

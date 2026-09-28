@@ -34,8 +34,9 @@ type Message struct {
 	Caption string
 
 	// MediaAlbumID groups the parts of one album. Telegram sends an album
-	// as consecutive messages that share it.
-	MediaAlbumID int
+	// as consecutive messages that share it, and sends the field on every
+	// message: zero is a message that is not part of an album.
+	MediaAlbumID int64
 }
 
 // HistoryPage is one page of a chat's message history.
@@ -86,20 +87,28 @@ type getChatHistoryRequest struct {
 }
 
 type getChatHistoryResponse struct {
-	Type       string              `json:"@type"`
-	TotalCount int                 `json:"total_count"`
-	Messages   []historyMessageRaw `json:"messages"`
+	Type       string `json:"@type"`
+	TotalCount int    `json:"total_count"`
+
+	// Messages are read one at a time, out of their own raw objects.
+	// Decoding the whole vector in one step is what let a single field of
+	// a single message fail the fifty messages around it.
+	Messages []json.RawMessage `json:"messages"`
 }
 
+// historyMessageRaw is one message of a page, as TDLib writes it.
+//
+// Every number is a tdInt, because TDLib writes some of them as strings;
+// see tdint.go.
 type historyMessageRaw struct {
 	Type         string          `json:"@type"`
-	ID           int64           `json:"id"`
-	ChatID       int64           `json:"chat_id"`
+	ID           tdInt           `json:"id"`
+	ChatID       tdInt           `json:"chat_id"`
 	IsOutgoing   bool            `json:"is_outgoing"`
-	Date         int64           `json:"date"`
+	Date         tdInt           `json:"date"`
 	Content      json.RawMessage `json:"content"`
 	SenderID     json.RawMessage `json:"sender_id"`
-	MediaAlbumID int             `json:"media_album_id"`
+	MediaAlbumID tdInt           `json:"media_album_id"`
 }
 
 // GetChatHistory fetches one page of a chat's message history.
@@ -163,42 +172,95 @@ func (s *AuthorizedSession) GetChatHistory(
 	}
 
 	messages := make([]Message, 0, len(response.Messages))
-	for _, m := range response.Messages {
-		if m.Type != "message" {
-			return HistoryPage{}, fmt.Errorf(
-				"%w: history entry @type=%q",
-				ErrUnexpectedHistoryResponse, m.Type,
-			)
+	for _, entry := range response.Messages {
+		message, err := decodeHistoryMessage(entry, chatID)
+		switch {
+		case errors.Is(err, errUnreadableMessage):
+			// One message this build cannot read is one message that is
+			// not shown. TDLib adds kinds of message and sends kinds
+			// this build has no words for, and a page of history that
+			// cannot be opened at all because of one of them is fifty
+			// messages the user came to read.
+			continue
+		case err != nil:
+			return HistoryPage{}, err
 		}
-		if m.ChatID != int64(chatID) {
-			return HistoryPage{}, fmt.Errorf(
-				"%w: getChatHistory requested chat_id=%d, message has chat_id=%d",
-				ErrUnexpectedHistoryResponse, chatID, m.ChatID,
-			)
-		}
-		media, caption := extractMedia(m.Content)
 
-		messages = append(messages, Message{
-			ID:           MessageID(m.ID),
-			ChatID:       ChatID(m.ChatID),
-			Outgoing:     m.IsOutgoing,
-			Timestamp:    time.Unix(m.Date, 0).UTC(),
-			Text:         extractMessageText(m.Content),
-			Sender:       parseMessageSender(m.SenderID),
-			Media:        media,
-			Caption:      caption,
-			MediaAlbumID: m.MediaAlbumID,
-		})
+		messages = append(messages, message)
 	}
 
 	page := HistoryPage{
 		Messages: messages,
-		HasMore:  len(messages) == limit,
+
+		// The size of the answer, and not the size of what this build
+		// could show of it: a page that came back full came back full,
+		// and one message left out of it is not the end of a chat.
+		HasMore: len(response.Messages) == limit,
 	}
 	if len(messages) > 0 {
 		page.NextFrom = messages[len(messages)-1].ID
 	}
 	return page, nil
+}
+
+// errUnreadableMessage says a history entry could not be read into a
+// message. It is not reported to the caller: the entry is left out of the
+// page and the rest of it is shown.
+var errUnreadableMessage = errors.New("telegram history: unreadable message")
+
+// decodeHistoryMessage reads one entry of a history page into a message.
+//
+// There are two kinds of failure and they are not the same to a user. An
+// entry that is not a message, or a message of another chat than the one
+// asked about, is TDLib's way of saying that the answer is the answer to a
+// different question, and the interface has to be able to say so. Anything
+// else is one message this build cannot read, and it is left out of the
+// page rather than taking the page with it.
+func decodeHistoryMessage(
+	raw json.RawMessage,
+	chatID ChatID,
+) (Message, error) {
+	if isAbsentJSON(raw) {
+		return Message{}, fmt.Errorf(
+			"%w: the entry is no object", errUnreadableMessage,
+		)
+	}
+
+	var m historyMessageRaw
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return Message{}, fmt.Errorf("%w: %w", errUnreadableMessage, err)
+	}
+
+	if m.Type != "message" {
+		return Message{}, fmt.Errorf(
+			"%w: history entry @type=%q",
+			ErrUnexpectedHistoryResponse, m.Type,
+		)
+	}
+	if int64(m.ChatID) != int64(chatID) {
+		return Message{}, fmt.Errorf(
+			"%w: getChatHistory requested chat_id=%d, message has chat_id=%d",
+			ErrUnexpectedHistoryResponse, chatID, int64(m.ChatID),
+		)
+	}
+
+	media, caption := extractMedia(m.Content)
+
+	return Message{
+		ID:        MessageID(m.ID),
+		ChatID:    ChatID(m.ChatID),
+		Outgoing:  m.IsOutgoing,
+		Timestamp: time.Unix(int64(m.Date), 0).UTC(),
+		Text:      extractMessageText(m.Content),
+		Sender:    parseMessageSender(m.SenderID),
+		Media:     media,
+		Caption:   caption,
+
+		// A media_album_id of zero is not an album: Telegram sends it on
+		// every message, and the timeline groups runs of messages that
+		// share a non-zero id.
+		MediaAlbumID: int64(m.MediaAlbumID),
+	}, nil
 }
 
 // parseMessageSender reads the sender of a message out of the raw object.
@@ -219,23 +281,23 @@ func parseMessageSender(raw json.RawMessage) MessageSender {
 	switch MessageSenderKind(envelope.Type) {
 	case MessageSenderUser:
 		var user struct {
-			UserID int64 `json:"user_id"`
+			UserID tdInt `json:"user_id"`
 		}
 		if err := json.Unmarshal(raw, &user); err != nil {
 			return MessageSender{Kind: MessageSenderUser}
 		}
 
-		return MessageSender{Kind: MessageSenderUser, ID: user.UserID}
+		return MessageSender{Kind: MessageSenderUser, ID: int64(user.UserID)}
 
 	case MessageSenderChat:
 		var chat struct {
-			ChatID int64 `json:"chat_id"`
+			ChatID tdInt `json:"chat_id"`
 		}
 		if err := json.Unmarshal(raw, &chat); err != nil {
 			return MessageSender{Kind: MessageSenderChat}
 		}
 
-		return MessageSender{Kind: MessageSenderChat, ID: chat.ChatID}
+		return MessageSender{Kind: MessageSenderChat, ID: int64(chat.ChatID)}
 
 	default:
 		return MessageSender{Kind: MessageSenderUnknown}

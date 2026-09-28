@@ -550,6 +550,12 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotShortFeedAboveComposer", func(t *testing.T) Model {
 			return snapshotShortFeed(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotUntrustedNames", func(t *testing.T) Model {
+			f := wide(theme.ProfileTrueColor)
+			f.chats = untrustedChats()
+
+			return snapshotChatList(t, f)
+		}},
 	}
 }
 
@@ -873,6 +879,17 @@ func TestSnapshotChannelAlbum(t *testing.T) {
 // them.
 func TestSnapshotShortFeedAboveComposer(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotShortFeedAboveComposer"))
+}
+
+// A chat list whose names and previews carry what a terminal acts on: a
+// carriage return, a vertical tab, a form feed, NEL, an escape that clears
+// the screen, one that puts a string on the clipboard, a bidi control and
+// a line break. The golden is the screen as it comes out, and it is four
+// ordinary rows of four ordinary chats: that is the whole claim of #53, and
+// a golden of it is the one a reviewer can read to see that the words are
+// still there and the characters are not.
+func TestSnapshotUntrustedNames(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotUntrustedNames"))
 }
 
 // ---- what every snapshot has to satisfy ----

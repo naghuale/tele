@@ -85,7 +85,7 @@ type getUserRequest struct {
 
 type getUserResponse struct {
 	Type      string `json:"@type"`
-	ID        int64  `json:"id"`
+	ID        tdInt  `json:"id"`
 	FirstName string `json:"first_name"`
 	LastName  string `json:"last_name"`
 	Username  string `json:"username"`
@@ -150,7 +150,7 @@ func userDisplayName(user getUserResponse) string {
 		return "@" + user.Username
 	}
 
-	return fmt.Sprintf("user %d", user.ID)
+	return fmt.Sprintf("user %d", int64(user.ID))
 }
 
 // The @type of each messageContent that carries a file of some kind, and

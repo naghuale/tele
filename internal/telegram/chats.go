@@ -82,10 +82,13 @@ type getChatsRequest struct {
 	Limit    int    `json:"limit"`
 }
 
+// The answers below carry their numbers as tdInt, because TDLib writes
+// some of them as JSON strings; see tdint.go.
+
 type getChatsResponse struct {
 	Type       string  `json:"@type"`
 	TotalCount int     `json:"total_count"`
-	ChatIDs    []int64 `json:"chat_ids"`
+	ChatIDs    []tdInt `json:"chat_ids"`
 }
 
 type getChatRequest struct {
@@ -95,7 +98,7 @@ type getChatRequest struct {
 
 type chatResponse struct {
 	Type        string          `json:"@type"`
-	ID          int64           `json:"id"`
+	ID          tdInt           `json:"id"`
 	Title       string          `json:"title"`
 	UnreadCount int             `json:"unread_count"`
 	LastMessage json.RawMessage `json:"last_message"`
@@ -105,7 +108,7 @@ type chatResponse struct {
 
 type chatTypeRaw struct {
 	Type      string `json:"@type"`
-	UserID    int64  `json:"user_id"`
+	UserID    tdInt  `json:"user_id"`
 	IsChannel bool   `json:"is_channel"`
 }
 
@@ -286,10 +289,10 @@ func (s *AuthorizedSession) GetChat(
 			ErrUnexpectedChatResponse, response.Type,
 		)
 	}
-	if response.ID != int64(chatID) {
+	if int64(response.ID) != int64(chatID) {
 		return ChatSummary{}, fmt.Errorf(
 			"%w: getChat requested id=%d, returned id=%d",
-			ErrUnexpectedChatResponse, chatID, response.ID,
+			ErrUnexpectedChatResponse, chatID, int64(response.ID),
 		)
 	}
 
@@ -315,8 +318,8 @@ type messageEnvelope struct {
 
 type messageRaw struct {
 	Type string `json:"@type"`
-	ID   int64  `json:"id"`
-	Date int64  `json:"date"`
+	ID   tdInt  `json:"id"`
+	Date tdInt  `json:"date"`
 	// Content carries the file and its caption, so that a row's preview
 	// can say what the last message of a chat was even when it was a
 	// picture rather than words.
@@ -352,9 +355,9 @@ func parseChatType(raw json.RawMessage) (ChatKind, bool, int64) {
 	case ChatKindGroup, ChatKindSupergroup:
 		return kind, parsed.IsChannel, 0
 	case ChatKindPrivate:
-		return kind, false, parsed.UserID
+		return kind, false, int64(parsed.UserID)
 	default:
-		return ChatKindPrivate, false, parsed.UserID
+		return ChatKindPrivate, false, int64(parsed.UserID)
 	}
 }
 
@@ -379,7 +382,7 @@ func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
 	}
 
 	id := MessageID(msg.ID)
-	sent := time.Unix(msg.Date, 0).UTC()
+	sent := time.Unix(int64(msg.Date), 0).UTC()
 
 	if len(msg.Content) == 0 || string(msg.Content) == "null" {
 		return id, "", sent

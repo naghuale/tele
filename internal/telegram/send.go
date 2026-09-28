@@ -45,10 +45,10 @@ type formattedTextRequest struct {
 
 type sendMessageResponse struct {
 	Type       string          `json:"@type"`
-	ID         int64           `json:"id"`
-	ChatID     int64           `json:"chat_id"`
+	ID         tdInt           `json:"id"`
+	ChatID     tdInt           `json:"chat_id"`
 	IsOutgoing bool            `json:"is_outgoing"`
-	Date       int64           `json:"date"`
+	Date       tdInt           `json:"date"`
 	Content    json.RawMessage `json:"content"`
 }
 
@@ -125,10 +125,10 @@ func (s *AuthorizedSession) SendTextMessage(
 			ErrUnexpectedSendResponse, response.Type,
 		)
 	}
-	if response.ChatID != int64(chatID) {
+	if int64(response.ChatID) != int64(chatID) {
 		return Message{}, fmt.Errorf(
 			"%w: requested chat_id=%d, returned chat_id=%d",
-			ErrUnexpectedSendResponse, chatID, response.ChatID,
+			ErrUnexpectedSendResponse, chatID, int64(response.ChatID),
 		)
 	}
 	if response.ID == 0 {
@@ -144,7 +144,7 @@ func (s *AuthorizedSession) SendTextMessage(
 		ID:        MessageID(response.ID),
 		ChatID:    ChatID(response.ChatID),
 		Outgoing:  response.IsOutgoing,
-		Timestamp: time.Unix(response.Date, 0).UTC(),
+		Timestamp: time.Unix(int64(response.Date), 0).UTC(),
 		Text:      extractMessageText(response.Content),
 		Media:     media,
 		Caption:   caption,

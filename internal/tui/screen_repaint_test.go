@@ -297,7 +297,7 @@ const framePoll = time.Millisecond
 func (h *screenHarness) awaitTheFrame(t *testing.T, label string, after int) string {
 	t.Helper()
 
-	deadline := time.Now().Add(frameDeadline)
+	deadline := wallClock().Add(frameDeadline)
 	for {
 		view, drawn := h.log.drawnFrom(after)
 		switch {
@@ -306,7 +306,7 @@ func (h *screenHarness) awaitTheFrame(t *testing.T, label string, after int) str
 
 			return view
 
-		case time.Now().After(deadline):
+		case wallClock().After(deadline):
 			h.failOnTheRowsThatDisagree(t, label, after)
 		}
 
@@ -329,7 +329,7 @@ func (h *screenHarness) awaitTheWrittenFrame(
 ) string {
 	t.Helper()
 
-	deadline := time.Now().Add(frameDeadline)
+	deadline := wallClock().Add(frameDeadline)
 	for {
 		view, drawn := h.log.drawnFrom(after)
 		switch {
@@ -340,7 +340,7 @@ func (h *screenHarness) awaitTheWrittenFrame(
 
 			return view
 
-		case time.Now().After(deadline):
+		case wallClock().After(deadline):
 			h.failOnTheRowsThatDisagree(t, label, after)
 		}
 
@@ -368,14 +368,14 @@ func (h *screenHarness) awaitAScreenPainted(t *testing.T, label string, from int
 	t.Helper()
 
 	whole := h.wholeScreen()
-	deadline := time.Now().Add(frameDeadline)
+	deadline := wallClock().Add(frameDeadline)
 	for {
 		painted := h.emulator.paintedCells() - from
 		if painted >= whole {
 			return painted
 		}
 
-		if time.Now().After(deadline) {
+		if wallClock().After(deadline) {
 			t.Fatalf(
 				"%s: the terminal was given %d cells in %s, want a whole "+
 					"screen (%d): the rows the program left alone are the "+

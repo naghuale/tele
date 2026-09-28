@@ -695,7 +695,7 @@ func TestRetryingSchedulesNoCountdown(t *testing.T) {
 		ChatID:        7,
 		Text:          "текст",
 		State:         MessageDeliveryRetrying,
-		NextAttemptAt: time.Now().Add(time.Minute),
+		NextAttemptAt: testClock.Add(time.Minute),
 	}}}
 
 	m := conversationWithPending(t, theme.ProfileNoColor, 100, 24, source)

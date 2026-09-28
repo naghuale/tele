@@ -41,7 +41,7 @@ func TestAMeasurementWithoutATerminalFallsBackToTheRule(t *testing.T) {
 		t.Skip("the output of this test is a terminal")
 	}
 
-	started := time.Now()
+	started := wallClock()
 	measured := measureTerminalWidths(termwidth.ModeAuto)
 	elapsed := time.Since(started)
 

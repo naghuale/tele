@@ -909,13 +909,23 @@
     screen and is not a repaint loop
   - times are drawn in the model's own zone, and a test pins both the
     moment and the zone
+  - a test pins the moment in one place, `testClock`, and reads the
+    machine's clock in exactly one other, `wallClock`, and only for a
+    deadline or an elapsed measure. A test that builds what it asserts on
+    out of the machine's clock is a test that fails on the day the data it
+    built runs out, which is what `TestPresencePrintsWithoutTheStatus` did
+    at 2026-09-28 15:00 UTC;
+    `TestNoTestOfThisPackageBuildsItsDataFromTheWallClock` greps the test
+    files of the package and names the file that read the clock for data
   - the presence is the first part of the status line and the last one
     dropped when the line does not fit: the queue can be read again in two
     seconds, and a person cannot
   - a presence prints as a kind and never as a status, in every verb a
     value takes on its way to a log. A presence is a fact about somebody
     who did not ask to be followed, and a log file is read by people who
-    are not in the conversation
+    are not in the conversation. The screen is the other matter: it says
+    when somebody was last there, in the reader's own words and zone, and
+    what it must not print is the store's own year and day
 - The action sheet (internal/tui/action_sheet.go, `action_sheet_view.go`,
   `action_sheet_keys.go`, `clipboard.go`, PR-10A.5, §5, §6.2, §8.3, §8.5,
   §12.3, §13, §14, §24)

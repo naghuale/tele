@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -255,23 +257,145 @@ func TestANarrowScreenKeepsThePresence(t *testing.T) {
 
 // A presence is a fact about a person, and it is the kind of fact §19 keeps
 // out of logs and reports. A value on its way to a log prints what kind of
-// presence it is and nothing about the person.
+// presence it is and nothing else: no moment anybody was there, no day of
+// it, no hour.
+//
+// The screen is a different matter and the difference is the point. It says
+// when somebody was last there — that is what somebody came to find out —
+// and what it must not do is print the store's own words for it: a presence
+// with an hour of online left says Online, and one that ran out says the
+// time it ran out at and no year and no day of it.
+//
+// Every moment here is testClock, which is a fixed moment for the same
+// reason every other presence test fixes it: this one used to read the
+// machine's clock, and on 28 September 2026 at 15:00 UTC the presence it
+// had built ran out, the screen said "last seen at 15:00", and the test
+// read its own fixture as a leak. It was correct about the text and wrong
+// about the moment, and only the moment was the fault.
 func TestPresencePrintsWithoutTheStatus(t *testing.T) {
-	presence := Presence{
+	online := Presence{
 		Kind:       PresenceUser,
-		ExpiresAt:  time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC),
-		LastSeenAt: time.Date(2026, 9, 27, 9, 0, 0, 0, time.UTC),
+		ExpiresAt:  testClock.Add(time.Hour),
+		LastSeenAt: testClock.Add(-24 * time.Hour),
+	}
+	ranOut := Presence{
+		Kind:       PresenceUser,
+		ExpiresAt:  testClock,
+		LastSeenAt: testClock.Add(-24 * time.Hour),
 	}
 
-	for name, printed := range map[string]string{
-		"v":    presence.String(),
-		"s":    presenceText(presence, time.Now(), time.UTC),
-		"plus": presenceText(presence, time.Now(), time.UTC),
+	// The year is the store's and nobody reads it; the hour of it is on the
+	// screen on purpose, and a time of day off a *log* is not.
+	noStoreYear := []string{"2026", "28 Sep", "27 Sep"}
+
+	for name, testCase := range map[string]struct {
+		printed string
+		want    string
+		leaks   []string
+	}{
+		"a user on its way to a log": {
+			printed: online.String(),
+			want:    "presence: user",
+			leaks:   append(noStoreYear, "15:00", "09:00", "16:00"),
+		},
+		"a group on its way to a log": {
+			printed: Presence{Kind: PresenceGroup, OnlineMembers: 3}.String(),
+			want:    "presence: group",
+			leaks:   noStoreYear,
+		},
+		"a presence nobody knows about on its way to a log": {
+			printed: Presence{}.String(),
+			want:    "presence: none",
+			leaks:   noStoreYear,
+		},
+		"an online presence on the screen": {
+			printed: presenceText(online, testClock, time.UTC),
+			want:    "Online",
+			leaks:   noStoreYear,
+		},
+		"a presence that ran out an hour ago on the screen": {
+			printed: presenceText(ranOut, testClock, time.UTC),
+			want:    "last seen at 15:00",
+			leaks:   noStoreYear,
+		},
+		"a presence that ran out last week on the screen": {
+			printed: presenceText(
+				Presence{
+					Kind:       PresenceUser,
+					LastSeenAt: testClock.Add(-8 * 24 * time.Hour),
+				},
+				testClock, time.UTC,
+			),
+			want:  "last seen 20 Sep",
+			leaks: noStoreYear,
+		},
 	} {
-		if strings.Contains(printed, "2026") || strings.Contains(printed, "15:00") {
-			t.Fatalf("%s printed the times: %q", name, printed)
+		if testCase.printed != testCase.want {
+			t.Errorf(
+				"%s printed %q, want %q",
+				name, testCase.printed, testCase.want,
+			)
+		}
+
+		for _, leak := range testCase.leaks {
+			if strings.Contains(testCase.printed, leak) {
+				t.Errorf("%s printed %q out of the store: %q", name, leak, testCase.printed)
+			}
 		}
 	}
+}
+
+// A test that reads the machine's clock to build what it asserts on is a
+// test that passes today and fails on the day the data it built runs out.
+// The one above was one, and it went off at a moment printed in a date
+// literal somebody had written months earlier.
+//
+// So the wall clock is read in one place — wallClock below — and it is read
+// there for the two things that are about time passing rather than about
+// what a test asserts: a deadline to give up waiting by, and a length of
+// time to have spent. Everything else draws at testClock.
+func TestNoTestOfThisPackageBuildsItsDataFromTheWallClock(t *testing.T) {
+	// The needle is put together rather than written out, so that the file
+	// this check lives in does not hold the one thing it is looking for.
+	needle := "time." + "Now("
+
+	files, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatalf("the tests of this package: %v", err)
+	}
+
+	for _, file := range files {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+
+		reads := strings.Count(string(source), needle)
+
+		want := 0
+		if file == "presence_test.go" {
+			want = 1 // wallClock, and nothing else.
+		}
+		if reads != want {
+			t.Errorf(
+				"%s reads the wall clock %d times, want %d: a test that "+
+					"builds what it asserts on out of the machine's clock "+
+					"is a test that fails on the day the data runs out",
+				file, reads, want,
+			)
+		}
+	}
+}
+
+// wallClock is the machine's clock, and it is the only place in a test of
+// this package that reads it.
+//
+// It is for time passing and not for what a test is about: a deadline to
+// stop waiting at, and a length of time to have spent. A test that needs
+// the moment of something builds it out of testClock instead, which is a
+// moment that does not run out while the test is looking at it.
+func wallClock() time.Time {
+	return time.Now()
 }
 
 // testClock is the moment every presence test draws at. A fixed moment and

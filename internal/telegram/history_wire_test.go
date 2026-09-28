@@ -230,9 +230,9 @@ func TestGetChatHistoryLeavesOutAMessageItCannotRead(t *testing.T) {
 	}
 }
 
-// A full page of which one message cannot be read is still a full page:
-// HasMore is about the answer, not about what this build could show of it.
-func TestGetChatHistoryReportsMoreWhenTheAnswerWasFull(t *testing.T) {
+// A page of which one message cannot be read is still a page: HasMore is
+// about the answer, not about what this build could show of it.
+func TestGetChatHistoryReportsMoreWhenTheAnswerWasNotEmpty(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	page, err := historyPage(
@@ -246,7 +246,7 @@ func TestGetChatHistoryReportsMoreWhenTheAnswerWasFull(t *testing.T) {
 		t.Fatalf("GetChatHistory: %v", err)
 	}
 	if !page.HasMore {
-		t.Fatal("HasMore = false, want true for an answer of the full page")
+		t.Fatal("HasMore = false, want true for an answer that was not empty")
 	}
 }
 

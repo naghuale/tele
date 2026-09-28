@@ -14,14 +14,26 @@ import (
 // TDLib page. Code that concatenates multiple pages must de-duplicate
 // messages by ID.
 //
-// HasMore is a len(messages) == limit heuristic, so a short page reports
-// false even when older messages exist. Callers must not treat it as the
-// end of the history; the model detects the end from a page that adds no
-// new message instead.
+// HasMore says the source had more to give: it is false only when a
+// page came back empty, which is the one answer TDLib gives for the end
+// of a history. It was a len(messages) == limit heuristic, and it said
+// false on the first page of a chat whose first answer held one or two
+// messages because that is all TDLib had under its hand — so a chat
+// opened on a real account showed its last two messages and never
+// asked again. The model stops on a page that adds no new message
+// whatever HasMore says, so a source that cannot answer the question
+// is one that never loads anything.
 type HistoryPage struct {
 	Messages []Message
 	NextFrom int64
 	HasMore  bool
+
+	// Unreadable is how many entries of the page the source could not
+	// read and left out. It is a number and never a text: a message of
+	// this user that is missing because the source could not read it is
+	// a message that is not on the screen, and the count is what says
+	// so somewhere the user is not looking over their shoulder.
+	Unreadable int
 }
 
 // ChatSource is the TUI-facing data provider.

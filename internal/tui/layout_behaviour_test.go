@@ -183,6 +183,12 @@ func TestTabCycleKeepsOneAccentAtEveryStop(t *testing.T) {
 
 // Esc is a way out of a place, never a way out of the program. Every step
 // of the hierarchy is walked on both screen shapes and none of them quits.
+//
+// The last step of the walk on a narrow screen leaves the conversation,
+// and leaving it asks for the screen to be drawn again (repaint.go), so
+// what is checked is what the command does rather than whether there is
+// one: a command that repaints the screen is a command, and a command that
+// quits the program is the thing this test is about.
 func TestEscapeNeverQuits(t *testing.T) {
 	for _, width := range []int{120, 60} {
 		m := openedModel(t, width, 30)
@@ -190,20 +196,37 @@ func TestEscapeNeverQuits(t *testing.T) {
 
 		for step := range 4 {
 			updated, cmd := m.Update(press(tea.KeyEsc))
-			if cmd != nil {
-				t.Fatalf(
-					"Esc at width %d, step %d returned %T, want no command",
-					width,
-					step,
-					cmd(),
-				)
-			}
+			assertDoesNotQuit(t, width, step, cmd)
 
 			m = updated.(Model)
 		}
 
 		if got := m.Composer(); got != "черновик" {
 			t.Fatalf("width %d: composer = %q, want the draft", width, got)
+		}
+	}
+}
+
+// assertDoesNotQuit fails when a command the program returned would leave
+// the program, whether it is the command itself or one of the commands it
+// batches.
+func assertDoesNotQuit(t *testing.T, width, step int, cmd tea.Cmd) {
+	t.Helper()
+
+	if cmd == nil {
+		return
+	}
+
+	switch msg := cmd().(type) {
+	case tea.QuitMsg, tea.InterruptMsg:
+		t.Fatalf(
+			"Esc at width %d, step %d returned a %T",
+			width, step, msg,
+		)
+
+	case tea.BatchMsg:
+		for _, batched := range msg {
+			assertDoesNotQuit(t, width, step, batched)
 		}
 	}
 }

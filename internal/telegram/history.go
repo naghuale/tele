@@ -50,14 +50,32 @@ type Message struct {
 // uses offset 0. Callers must de-duplicate messages by Message.ID when
 // concatenating pages.
 //
+// NextFrom is the oldest message of the answer and not the oldest one
+// this build could read out of it: a boundary that skipped an entry
+// would ask for the same page again and get the same entry again.
+//
 // NextFrom is zero for an empty page.
 //
-// HasMore is a heuristic. TDLib may return fewer messages than
-// requested even when older messages exist.
+// HasMore says the answer was not empty, and the history of a chat
+// ends at an empty answer and nowhere else. It was a len(messages) ==
+// limit heuristic, and a real account answered the first request of a
+// chat with one or two messages because that is what TDLib had under
+// its hand: the interface took the first page for the whole history,
+// showed the two messages it had, and never asked again — the
+// conversation of a user who has been writing to somebody for years
+// was the last two messages of it, and their own messages were not
+// even in the two.
 type HistoryPage struct {
 	Messages []Message
 	NextFrom MessageID
 	HasMore  bool
+
+	// Unreadable is how many entries of the page this build could not
+	// read. They are left out of Messages and the count is here so
+	// that a caller can say so: a page of fifty of which forty-nine
+	// were read is a page where a message of this user is missing, and
+	// it is missing silently unless somebody writes the number down.
+	Unreadable int
 }
 
 var (
@@ -117,8 +135,10 @@ type historyMessageRaw struct {
 //
 //   - chatID == 0 is rejected. TDLib treats chat_id as int53 and does
 //     not forbid negative chat IDs.
-//   - limit must be in (0, 100]. TDLib may return fewer messages than
-//     requested.
+//   - limit must be in (0, 100]. TDLib answers with what it has and
+//     not with what was asked for: the first request of a chat on a
+//     fresh database comes back with one or two messages however many
+//     were asked for, and that answer is not the end of the chat.
 //   - fromMessageID == 0 requests the most recent page.
 //   - a non-zero fromMessageID is an inclusive boundary because offset
 //     is 0; callers must de-duplicate the boundary MessageID when
@@ -172,6 +192,10 @@ func (s *AuthorizedSession) GetChatHistory(
 	}
 
 	messages := make([]Message, 0, len(response.Messages))
+	var (
+		nextFrom   MessageID
+		unreadable int
+	)
 	for _, entry := range response.Messages {
 		message, err := decodeHistoryMessage(entry, chatID)
 		switch {
@@ -181,26 +205,54 @@ func (s *AuthorizedSession) GetChatHistory(
 			// this build has no words for, and a page of history that
 			// cannot be opened at all because of one of them is fifty
 			// messages the user came to read.
+			//
+			// The boundary moves past it anyway. An entry left out of
+			// the page that is also left out of the boundary is a page
+			// asked for twice, and the user scrolls up and nothing
+			// happens.
+			unreadable++
+			if id, ok := historyEntryID(entry); ok {
+				nextFrom = id
+			}
+
 			continue
 		case err != nil:
 			return HistoryPage{}, err
 		}
 
 		messages = append(messages, message)
+		nextFrom = message.ID
 	}
 
-	page := HistoryPage{
-		Messages: messages,
+	return HistoryPage{
+		Messages:   messages,
+		NextFrom:   nextFrom,
+		HasMore:    len(response.Messages) > 0,
+		Unreadable: unreadable,
+	}, nil
+}
 
-		// The size of the answer, and not the size of what this build
-		// could show of it: a page that came back full came back full,
-		// and one message left out of it is not the end of a chat.
-		HasMore: len(response.Messages) == limit,
+// historyEntryID reads the identifier out of one entry of a page without
+// reading the rest of it.
+//
+// It is what keeps the boundary moving across an entry the decode could
+// not finish. The identifier is the one field every message of TDLib
+// carries and the one field a page is continued from, so a message this
+// build has no words for the text of is still a message with a place in
+// the order of the conversation.
+func historyEntryID(raw json.RawMessage) (MessageID, bool) {
+	var entry struct {
+		Type string `json:"@type"`
+		ID   tdInt  `json:"id"`
 	}
-	if len(messages) > 0 {
-		page.NextFrom = messages[len(messages)-1].ID
+	if isAbsentJSON(raw) || json.Unmarshal(raw, &entry) != nil {
+		return 0, false
 	}
-	return page, nil
+	if entry.Type != "message" || entry.ID == 0 {
+		return 0, false
+	}
+
+	return MessageID(entry.ID), true
 }
 
 // errUnreadableMessage says a history entry could not be read into a

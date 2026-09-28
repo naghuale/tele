@@ -392,9 +392,11 @@ func TestGetChatHistoryEmptyPage(t *testing.T) {
 	}
 }
 
-// ---- HasMore heuristic ----
+// ---- HasMore ----
 
-func TestGetChatHistoryHasMoreWhenFullPage(t *testing.T) {
+// A page that came back with something in it says there may be more, and a
+// full page is only one way of coming back with something.
+func TestGetChatHistoryHasMoreWhenTheAnswerWasNotEmpty(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	type result struct {
@@ -432,7 +434,7 @@ func TestGetChatHistoryHasMoreWhenFullPage(t *testing.T) {
 			t.Fatalf("GetChatHistory: %v", r.err)
 		}
 		if !r.page.HasMore {
-			t.Fatal("HasMore = false, want true for full page")
+			t.Fatal("HasMore = false, want true for a page with two in it")
 		}
 		if r.page.NextFrom != 1 {
 			t.Fatalf("NextFrom = %d, want 1", r.page.NextFrom)

@@ -250,3 +250,28 @@ func TestTelegramChatServiceSendMessagePreservesWhitespace(t *testing.T) {
 		t.Fatalf("text = %q, want %q", fake.gotSendArgs.text, "  hello  ")
 	}
 }
+
+// The count of the entries the source could not read travels with the
+// page. It is a number and never a text, and it is the only thing that
+// says a message of this user is missing from a conversation that loaded
+// without an error.
+func TestTelegramChatServiceCarriesTheUnreadableCount(t *testing.T) {
+	fake := &fakeTelegramChats{history: telegram.HistoryPage{
+		Messages:   []telegram.Message{{ID: 7, ChatID: 42, Text: "readable"}},
+		NextFrom:   7,
+		HasMore:    true,
+		Unreadable: 4,
+	}}
+	svc := NewTelegramChatService(fake)
+
+	page, err := svc.LoadHistory(context.Background(), 42, 0, 50)
+	if err != nil {
+		t.Fatalf("LoadHistory: %v", err)
+	}
+	if page.Unreadable != 4 {
+		t.Fatalf("Unreadable = %d, want 4", page.Unreadable)
+	}
+	if !page.HasMore {
+		t.Fatal("HasMore = false, want the answer of the page")
+	}
+}

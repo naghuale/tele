@@ -265,9 +265,10 @@ func (s *TelegramChatService) LoadHistory(
 	}
 
 	return tui.HistoryPage{
-		Messages: out,
-		NextFrom: int64(page.NextFrom),
-		HasMore:  page.HasMore,
+		Messages:   out,
+		NextFrom:   int64(page.NextFrom),
+		HasMore:    page.HasMore,
+		Unreadable: page.Unreadable,
 	}, nil
 }
 

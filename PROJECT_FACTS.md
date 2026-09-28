@@ -276,9 +276,15 @@
   - fromMessageID == 0 requests the latest page
   - a non-zero fromMessageID is an inclusive boundary because
     offset is 0; callers must de-duplicate the boundary Message.ID
-  - TDLib may return fewer messages than requested; HasMore is a
-    heuristic, and it is computed over the size of the answer rather
-    than over the messages this build could show of it
+  - a history ends at an empty answer and nowhere else. HasMore is
+    whether the answer was not empty (#57). It used to be
+    len(messages) == limit, and TDLib answers the first request of a
+    chat with what the local database has — one or two messages on a
+    fresh account, however many were asked for — so every chat opened
+    as its last two messages and was never asked again
+  - NextFrom is the oldest message of the answer, including one this
+    build could not read: a boundary that skipped it would ask for the
+    same page again
   - the entries of a page are read one at a time, out of their own raw
     objects: one message that cannot be read is left out of the page
     and the rest of it is shown, rather than one unreadable field
@@ -286,6 +292,10 @@
     a message, and a message of another chat, are still
     ErrUnexpectedHistoryResponse: they are the answer to a different
     question
+  - the number of entries a page could not read travels with it as
+    HistoryPage.Unreadable and reaches the diagnostic stream as a
+    number, never as text: a message of this user that is missing is
+    missing silently otherwise
   - Message.MediaAlbumID is int64 and 0 is not an album; the timeline
     groups runs of messages that share a non-zero id
 - Send projection: internal/telegram/send.go
@@ -460,6 +470,30 @@
     a page that adds nothing exhausts the history, one request at a
     time, an error keeps what is loaded and is retried by the next ↑,
     and a stale response is dropped by historyOperation
+  - a page is asked for until the feed has as many messages in it as it
+    has rows, and that is the whole of the fill (#57). The first page
+    went in the screen as it arrived, which on a fresh account is one or
+    two messages, and it is the number of rows the feed has and not the
+    height of the window, so the fill does not chase a resize
+  - the fill is bounded three ways: at most maxHistoryFillRequests (5)
+    requests, at most maxHistoryFillMessages (100) messages brought in
+    beyond the first page, and it stops at a page that says there is
+    no more, one that adds nothing, or one that errors. A channel with
+    a hundred thousand messages in it is not read into memory to draw
+    one screen of it
+  - ↑ at the top edge runs the same fill afterwards, so scrolling back
+    into a chat that opened on half a screen is the same walk as
+    opening it
+  - a chat re-entered from the chat list is asked about again rather
+    than read from the cache: the cache is the twenty most recent
+    messages and what the user is doing with ↑ is asking for the rest
+  - a change of chat — the selection moving, a chat opening, a
+    conversation closing — asks for a full redraw of the same size
+    (internal/tui/repaint.go, tea.WindowSizeMsg of the size the
+    window already is). Bubbletea's renderer paints the line of every
+    line of every frame, so a line whose bytes change without its
+    width changing is a line the terminal was never told about, and a
+    chat list that scrolls by a pixel is exactly that (#57)
   - the feed is bottom-anchored: fewer messages than the feed has rows
     for means the empty rows are above them, so the newest message sits
     on the row directly above the composer

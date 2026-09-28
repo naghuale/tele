@@ -393,18 +393,45 @@ func TestEmptyPageMarksHistoryExhausted(t *testing.T) {
 	}
 }
 
-func TestFirstPageWithHasMoreFalseStillAllowsLoading(t *testing.T) {
-	// HasMore is a len(messages) == limit heuristic, so TDLib reports false
-	// on a short first page even when older messages exist.
+// The end of a history is an empty page and nothing else.
+//
+// It used to be the other way round: HasMore was a len(messages) ==
+// limit heuristic, so a first page of one or two messages said "there is
+// nothing more" about a chat with years of it in, and the conversation a
+// user opened was the last two messages of the chat. A source that says
+// the history ended is now believed, and that is what stops the ↑ key
+// asking forever.
+func TestPageThatSaysThereIsNoMoreStopsTheLoading(t *testing.T) {
 	short := HistoryPage{
 		Messages: []Message{{ID: 5, Text: "only message"}},
 		NextFrom: 5,
 		HasMore:  false,
 	}
+	source := &recordingChatSource{pages: []HistoryPage{short, {}}}
+	m := openConversationWithHistory(t, source, 7, short)
+	m = selectOldestMessage(t, m)
+
+	_, cmd := updateModel(t, m, press(tea.KeyUp))
+	if cmd != nil {
+		t.Fatal("a page that said the history ended must not be asked again")
+	}
+	if source.callCount() != 1 {
+		t.Fatalf("callCount = %d, want 1: the ↑ asked again", source.callCount())
+	}
+}
+
+// The other end of the same rule: a page that says there is more is
+// believed too, and the messages above it arrive.
+func TestPageThatSaysThereIsMoreKeepsTheLoading(t *testing.T) {
+	short := HistoryPage{
+		Messages: []Message{{ID: 5, Text: "only message"}},
+		NextFrom: 5,
+		HasMore:  true,
+	}
 	older := HistoryPage{
 		Messages: []Message{{ID: 5, Text: "only message"}, {ID: 4, Text: "older"}},
 		NextFrom: 4,
-		HasMore:  false,
+		HasMore:  true,
 	}
 	source := &recordingChatSource{pages: []HistoryPage{short, older}}
 	m := openConversationWithHistory(t, source, 7, short)
@@ -412,7 +439,7 @@ func TestFirstPageWithHasMoreFalseStillAllowsLoading(t *testing.T) {
 
 	_, cmd := updateModel(t, m, press(tea.KeyUp))
 	if cmd == nil {
-		t.Fatal("HasMore == false must not block loading an older page")
+		t.Fatal("a page that said there was more must be asked again")
 	}
 	m, _ = updateModel(t, m, runCmd(t, cmd))
 

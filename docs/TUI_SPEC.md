@@ -785,6 +785,11 @@ Esc             вернуться к списку в single-pane
 
 `g` в conversation не используется.
 
+`k / Up` у самого старого загруженного сообщения запрашивает следующую
+страницу истории и продолжает запрашивать, пока лента не набрала
+столько сообщений, сколько у неё строк, — тем же проходом, что и
+первая страница при открытии чата (§18.1).
+
 ### 8.4 Composer
 
 ```text
@@ -1051,6 +1056,44 @@ Timeout для `Loading chats…`: через N секунд показать `T
 
 Queued entries при reconnect остаются queued или retrying, **не** превращаются в failed.
 
+### 18.1 Дозагрузка истории при открытии чата (#57)
+
+Первая страница истории приходит из локальной базы TDLib, и на только что
+открытом аккаунте это одно-два сообщения независимо от того, сколько
+просили. Экран не показывает пустую ленту с собственными сообщениями
+пользователя где-то за её краем, поэтому страница запрашивается заново от
+самого старого сообщения предыдущей — и ещё раз, пока в ленте не будет
+столько сообщений, сколько у неё строк.
+
+Границы прохода, все три обязательны:
+
+```text
+страница пришла пустой        конец истории, дальше не идём
+страница говорит HasMore=false  источнику верим, дальше не идём
+страница ничего не добавила    граница не двинулась, конец истории
+ошибка                         оставляем что загружено, повторит следующий ↑
+запросов больше 5              стоп
+сообщений больше 100 сверх     стоп
+первой страницы                стоп
+```
+
+Размер считается по числу строк ленты, а не по высоте окна: ресайз не
+гоняет проход. Чат, открытый повторно из списка, спрашивается заново, а не
+берётся из кэша двадцати последних сообщений: `k` вверху ленты — это
+вопрос про остальное.
+
+Сколько записей страницы этот билд прочитать не смог — число, не текст:
+у пользователя в переписке может не хватать сообщения, и молча пропадать
+оно не должно. На экран это число не попадает (Privacy, §19), в
+диагностику попадает.
+
+Смена чата — движение выделения в списке, открытие чата, закрытие
+conversation — запрашивает полную перерисовку окна того же размера
+(`tea.WindowSizeMsg` текущего размера). Рендерер bubbletea пишет построчно
+и пропускает строку, байты которой не изменились, поэтому строка списка,
+у которой изменились байты без изменения ширины, рисуется ровно
+поверх старой — от этого и удвоение (#57).
+
 ## 19. Privacy
 
 - UI не показывает transport error text без sanitization.
@@ -1226,6 +1269,45 @@ TestScreenTextKeepsWhatAPersonWrote
 TestTheCleanerCoversEveryStringOfBothProjections
 TestChatListOfUntrustedNamesDrawsTheScreenItWasGiven
 TestFeedOfUntrustedMessagesDrawsTheScreenItWasGiven
+```
+
+### История и дозагрузка (#57)
+
+```text
+TestGetChatHistoryHasMoreWhenTheAnswerWasNotEmpty
+TestGetChatHistoryReportsMoreWhenTheAnswerWasNotEmpty
+TestTheBoundaryCrossesAnEntryThatCouldNotBeRead
+TestAPageThatCouldNotBeReadWholeStillMovesTheBoundary
+TestThePageCountsTheEntriesItCouldNotRead
+TestTelegramChatServiceCarriesTheUnreadableCount
+TestAChatThatAnswersOneMessageAtATimeStillFillsTheFeed
+TestAPageThatFillsTheFeedStopsTheRepeat
+TestAFeedIsFullOfTheMessagesThatWereThere
+TestAChatWithNoHistoryStopsAtTheFirstEmptyPage
+TestASourceThatNeverSaysNoCostsAFixedNumberOfRequests
+TestTheRepeatIsBoundedByMessagesAsWellAsByRequests
+TestScrollingUpAtTheTopFillsTheFeedTheSameWay
+TestAHistoryPageSaysHowManyEntriesItCouldNotRead
+TestPageThatSaysThereIsNoMoreStopsTheLoading
+TestPageThatSaysThereIsMoreKeepsTheLoading
+```
+
+### Перерисовка экрана (#57)
+
+Тест идёт через настоящий `tea.Program` в альт-экране, вывод которого —
+эмулятор терминала в памяти из этого же пакета: программа пишет escape-
+последовательности в `io.Writer`, а тест читает получившуюся сетку ячеек.
+`github.com/charmbracelet/x/vt` в дереве зависимостей нет, поэтому
+эмулятор — минимальный и в тестовых файлах.
+
+```text
+TestMovingTheSelectionDrawsTheScreenAgain
+TestOpeningAChatDrawsTheScreenAgain
+TestLeavingAChatDrawsTheScreenAgain
+TestAModelWithoutASizeHasNothingToRepaint
+TestTheTerminalIsDrawnOverAgainWhenTheChatChanges
+TestTheProgramDrawsWhatItThinksItDraws
+TestEveryFrameIsTheSizeOfTheWindow
 ```
 
 ## 22. Порядок PR

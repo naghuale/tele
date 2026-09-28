@@ -142,10 +142,21 @@ type Model struct {
 	chatsLoadSlow      bool
 
 	// historyExhausted records that a page added no new message, which is
-	// the only reliable end-of-history signal. HistoryPage.HasMore cannot
-	// be used: it is a len(messages) == limit heuristic that reports
-	// false on a short first page while older messages still exist.
+	// the answer to a request for older messages that no older messages
+	// exist. It is kept beside HistoryPage.HasMore because a source that
+	// always says true is one that scrolls forever.
 	historyExhausted bool
+
+	// historyHasMore is what the last page said about the rest of the
+	// history. It is false only for an empty page, and an empty page is
+	// the one answer that means the beginning of the chat.
+	historyHasMore bool
+
+	// historyFillRequests counts the pages asked for after the first one,
+	// and historyFillMessages how many messages they brought. They bound
+	// the repeat below.
+	historyFillRequests int
+	historyFillMessages int
 
 	// historyMoreLoading reports that an older page request is in flight,
 	// so repeated ↓ presses do not start a second request.
@@ -592,7 +603,11 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	// A new first page re-opens the history: nothing is known to be
 	// missing from it yet.
 	m.historyExhausted = false
+	m.historyHasMore = msg.page.HasMore
 	m.historyMoreErr = nil
+	m.historyFillRequests = 1
+	m.historyFillMessages = len(m.chats[m.selectedChat].Messages)
+	m.reportUnreadableHistory(msg)
 
 	if len(msg.page.Messages) == 0 {
 		m.historyState = loadStateEmpty
@@ -602,7 +617,32 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 
 	// A first page opens the conversation at its end: the newest message is
 	// the one a user came to read (§8.3).
-	return m.scrollToNewest(), nil
+	//
+	// The page that came back is not necessarily the page the chat has: a
+	// conversation opens at its end and the messages above it are what the
+	// screen is for, so the ask repeats until there are enough of them to
+	// fill it.
+	return m.scrollToNewest().fillHistory()
+}
+
+// reportUnreadableHistory writes the count of the entries of a page the
+// source could not read.
+//
+// It is a number and never a text: a message of this user that is missing
+// because the source could not read it is a message that is not on the
+// screen, and the interface has no way of saying so without putting a
+// sentence about somebody's message history in front of them. The chat
+// identifier is safe — it is an integer TDLib assigned, and it is what
+// makes a line in a log useful.
+func (m Model) reportUnreadableHistory(msg historyLoadedMsg) {
+	if msg.err != nil || msg.page.Unreadable == 0 {
+		return
+	}
+
+	m.reportDiagnostic(
+		"history of chat %d: %d entries of the page could not be read\n",
+		msg.chatID, msg.page.Unreadable,
+	)
 }
 
 // appendOlderHistory puts a page of older messages on top of the ones
@@ -623,6 +663,10 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	m.historyMoreErr = nil
+	m.historyHasMore = msg.page.HasMore
+	m.historyFillRequests++
+	m.historyFillMessages += len(msg.page.Messages)
+	m.reportUnreadableHistory(msg)
 
 	existing := m.chats[m.selectedChat].Messages
 	merged := prependOlderMessages(
@@ -643,8 +687,96 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 		m.historyExhausted = true
 	}
 
-	return m.normalizeTimeline(), nil
+	// A page that arrived after the first one is one the user asked for,
+	// and the ask repeats itself while the feed is still short of a
+	// screenful: the whole point of the page is to have messages in the
+	// conversation, and half a screen of them is not a conversation.
+	return m.normalizeTimeline().fillHistory()
 }
+
+// fillHistory asks for the page above the one that arrived, while the
+// conversation has fewer messages in it than the feed has rows for it.
+//
+// It is what makes a chat open with a screen of messages rather than with
+// the one or two TDLib had under its hand: the first page of a real
+// account comes back with whatever the local database holds, however many
+// were asked for, and a conversation that stops there is a user reading
+// the last two messages of a chat they have been writing in for years.
+//
+// The repeat is bounded three ways, and every one of them is a real cost
+// rather than a precaution: a page that is empty is the end of the
+// history, a source that has nothing more to give says so, and a channel
+// with a hundred thousand messages in it must not be read into memory to
+// draw one screen of it.
+func (m Model) fillHistory() (tea.Model, tea.Cmd) {
+	if m.source == nil ||
+		m.historyExhausted ||
+		!m.historyHasMore ||
+		m.historyMoreLoading {
+		return m, nil
+	}
+
+	if m.historyFillRequests >= maxHistoryFillRequests ||
+		m.historyFillMessages >= maxHistoryFillMessages {
+		return m, nil
+	}
+
+	chat := m.selected()
+	boundary := historyBoundary(chat)
+	if chat.ID == 0 || boundary == 0 {
+		return m, nil
+	}
+
+	if len(chat.Messages) >= m.historyFillTarget() {
+		return m, nil
+	}
+
+	m.historyMoreLoading = true
+
+	return m, loadHistoryCmd(
+		m.source,
+		chat.ID,
+		boundary,
+		historyPageSize,
+		m.historyOperation,
+	)
+}
+
+// historyFillTarget is how many messages the conversation needs before the
+// pages above it stop being asked for.
+//
+// It is what the feed can show, and never more than a page: a screen of
+// messages is what a user came for, and the messages above it are what
+// the ↑ key of §8.3 is for.
+func (m Model) historyFillTarget() int {
+	target := m.timelinePageSize()
+	if target > historyPageSize {
+		return historyPageSize
+	}
+
+	return maxInt(target, 1)
+}
+
+const (
+	// maxHistoryFillRequests is how many pages one conversation asks for
+	// above the first before it draws what it has.
+	//
+	// Five is a screenful several times over on a tall terminal and one
+	// screenful on a short one, and it is enough for a TDLib that answers
+	// two messages at a time to fill the feed. The bound is here so that a
+	// source which never says "no" costs a fixed number of round trips
+	// rather than the whole history of a channel.
+	maxHistoryFillRequests = 5
+
+	// maxHistoryFillMessages is how many messages those requests may
+	// bring in, whatever they asked for.
+	//
+	// TDLib caps a page at 100 messages, and five pages of them is five
+	// hundred messages of a chat held in memory to draw thirty rows of it.
+	// The feed is what the screen needs; the rest is what the user asks
+	// for one page at a time.
+	maxHistoryFillMessages = 100
+)
 
 // chronological returns the messages of a page oldest first.
 //
@@ -715,14 +847,18 @@ func historyBoundary(chat Chat) int64 {
 // loadOlderMessages requests the next older page of the open chat's
 // history.
 //
-// It returns no command when the request is not applicable: mock mode,
-// an exhausted history, a request already in flight, a history that has
-// not loaded yet, or no boundary to continue from.
+// It returns no command when the request is not applicable: mock mode, an
+// exhausted history, a source that has said the history ended, a request
+// already in flight, a history that has not loaded yet, or no boundary to
+// continue from.
 func (m Model) loadOlderMessages() (tea.Model, tea.Cmd) {
 	if m.source == nil {
 		return m, nil
 	}
 	if m.historyExhausted || m.historyMoreLoading {
+		return m, nil
+	}
+	if !m.historyHasMore {
 		return m, nil
 	}
 	if m.historyState != loadStateLoaded && m.historyState != loadStateEmpty {
@@ -1044,6 +1180,9 @@ func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
 // where they want the keys to go. A search is the one case where the
 // conversation stays where it is: the list is a filter here, not a
 // selection of what to read.
+//
+// A selection that moved is drawn over the whole screen and not over the
+// rows that changed: see repaint.go.
 func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 	if chatIndex < 0 || chatIndex >= len(m.chats) {
 		return m, nil
@@ -1060,6 +1199,10 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 		m.screen == ScreenConversation &&
 		LayoutFor(m.width, m.height).TwoPane() {
 		return m.openSelectedChat(false)
+	}
+
+	if moved {
+		return m, repaintCmd(m)
 	}
 
 	return m, nil
@@ -1094,10 +1237,19 @@ func (m Model) openSelectedChat(
 	// still in flight for a previous visit is discarded on arrival. The
 	// pagination flags belong to the chat being left; the boundary itself
 	// is derived from the messages, not stored.
+	//
+	// historyHasMore starts true rather than false: a chat whose messages
+	// are already loaded has not been asked what is above them in this
+	// visit, and the only thing that ends a history is a page that comes
+	// back empty. Answering "no more" because nothing was asked is the
+	// mistake this whole change is about.
 	m.historyOperation++
 	m.historyExhausted = false
+	m.historyHasMore = true
 	m.historyMoreLoading = false
 	m.historyMoreErr = nil
+	m.historyFillRequests = 0
+	m.historyFillMessages = 0
 
 	statusCmd := m.setMessageStatusTarget(
 		m.accountKey,
@@ -1120,7 +1272,7 @@ func (m Model) openSelectedChat(
 			// A conversation opens at its end, and the page is on its way:
 			// the cursor waits at the newest message it knows of and the
 			// view fills from there (§8.3).
-			return m.scrollToNewest(), tea.Batch(
+			return m.scrollToNewest(), withRepaint(m, tea.Batch(
 				loadHistoryCmd(
 					m.source,
 					m.chats[m.selectedChat].ID,
@@ -1129,7 +1281,7 @@ func (m Model) openSelectedChat(
 					m.historyOperation,
 				),
 				statusCmd,
-			)
+			))
 		}
 		// The messages are already cached, so this chat is loaded even
 		// though nothing was requested. Without this the previous
@@ -1140,7 +1292,7 @@ func (m Model) openSelectedChat(
 
 	// A conversation opens at its end however it was loaded: the newest
 	// message is the one a user opened the chat to read (§8.3).
-	return m.scrollToNewest(), statusCmd
+	return m.scrollToNewest(), withRepaint(m, statusCmd)
 }
 
 // updateConversationKey handles the conversation pane.
@@ -1221,6 +1373,11 @@ func (m Model) leaveConversationRegion() (Model, tea.Cmd) {
 //
 // The chat is closed on the way out: TDLib counts the members of an open
 // chat, and a user who has left it is not one of them.
+//
+// The screen is drawn over again on the way out as well: a conversation
+// that closes takes a whole pane with it, and the rows the pane leaves
+// behind are the ones most worth drawing rather than leaving. See
+// repaint.go.
 func (m Model) leaveConversation() (Model, tea.Cmd) {
 	// Invalidate any in-flight send: a late result for the same chat must
 	// not be applied to a newer conversation state.
@@ -1234,7 +1391,7 @@ func (m Model) leaveConversation() (Model, tea.Cmd) {
 	m.screen = ScreenChats
 	m.focus = FocusChatList
 
-	return m, m.closeConversationChat()
+	return m, withRepaint(m, m.closeConversationChat())
 }
 
 // cycleFocus moves the focus by delta positions among the visible

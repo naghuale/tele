@@ -31,23 +31,28 @@ func TestScreenTextRemovesWhatATerminalWouldActOn(t *testing.T) {
 		want string
 	}{
 		{
-			name: "a carriage return",
+			name: "a carriage return, which ends a line on an old Mac",
 			in:   "Anna\rExample",
-			want: "AnnaExample",
+			want: "Anna\nExample",
 		},
 		{
-			name: "a vertical tab and a form feed",
+			name: "a vertical tab and a form feed, which end a line on DOS",
 			in:   "Anna\v\fExample",
-			want: "AnnaExample",
-		},
-		{
-			name: "a backspace",
-			in:   "Anna\bExample",
-			want: "AnnaExample",
+			want: "Anna\nExample",
 		},
 		{
 			name: "the next line, which some terminals draw",
 			in:   "Anna\u0085Example",
+			want: "Anna\nExample",
+		},
+		{
+			name: "a line separator and a paragraph separator",
+			in:   "Anna\u2028\u2029Example",
+			want: "Anna\nExample",
+		},
+		{
+			name: "a backspace is not spacing",
+			in:   "Anna\bExample",
 			want: "AnnaExample",
 		},
 		{
@@ -156,16 +161,6 @@ func TestScreenTextRemovesWhatATerminalWouldActOn(t *testing.T) {
 			want: "",
 		},
 		{
-			name: "a line separator is a line break",
-			in:   "one\u2028two",
-			want: "one\ntwo",
-		},
-		{
-			name: "a paragraph separator is a line break",
-			in:   "one\u2029two",
-			want: "one\ntwo",
-		},
-		{
 			name: "a tab is a space",
 			in:   "Anna\tExample",
 			want: "Anna Example",
@@ -181,14 +176,34 @@ func TestScreenTextRemovesWhatATerminalWouldActOn(t *testing.T) {
 			want: "one\ntwo",
 		},
 		{
+			name: "a run of every break is one break",
+			in:   "one\r\n\v\f\u0085\u2028\u2029two",
+			want: "one\ntwo",
+		},
+		{
+			name: "an empty line of the sender is one break",
+			in:   "one\n\ntwo",
+			want: "one\ntwo",
+		},
+		{
 			name: "a clipboard sequence behind an ordinary bracket",
 			in:   "[2 photos]\x1b]52;c;cGF5bG9hAAAA\x07 and more",
 			want: "[2 photos] and more",
 		},
 		{
+			name: "a break after a sequence that was dropped is a break",
+			in:   "one\x1b[2J\rtwo",
+			want: "one\ntwo",
+		},
+		{
+			name: "a run of breaks is only the breaks next to each other",
+			in:   "one\r\x1b[2J\rtwo",
+			want: "one\n\ntwo",
+		},
+		{
 			name: "words around the damage survive",
-			in:   "the build\r\v\x1b[2J is green",
-			want: "the build is green",
+			in:   "the build\r\x1b[2J is green",
+			want: "the build\n is green",
 		},
 	}
 
@@ -213,14 +228,16 @@ func TestScreenLineFoldsEveryLineBreakIntoASpace(t *testing.T) {
 	}{
 		{"one\ntwo", "one two"},
 		{"one\r\ntwo", "one two"},
-		{"one\vtwo", "onetwo"},
-		{"one\u0085two", "onetwo"},
+		{"one\vtwo", "one two"},
+		{"one\u0085two", "one two"},
 		{"one\u2028two", "one two"},
 		{"one\u2029two", "one two"},
+		{"one\r\n\v\f\u0085\u2028\u2029two", "one two"},
+		{"one\n\ntwo", "one two"},
 		{"one\ntwo\nthree", "one two three"},
-		{"a name\rof another", "a nameof another"},
+		{"a name\rof another", "a name of another"},
 		{"a name\x1b[2J of another", "a name of another"},
-		{"the build is\rgreen", "the build isgreen"},
+		{"the build is\rgreen", "the build is green"},
 		{"Anna\tExample", "Anna Example"},
 		{"the build is green", "the build is green"},
 	}
@@ -272,8 +289,10 @@ func TestScreenTextKeepsWhatAPersonWrote(t *testing.T) {
 // field added to either of them is cleaned by the same call and not by a
 // change to a view.
 func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
-	dirtyLine := "a\rb\x1b[2Jc\v"
-	dirtyBody := "a\r\nb\x1b[2Jc\v"
+	// A carriage return is a break, and a break is a space where there is
+	// one row, so the words on either side of it stay apart.
+	dirtyLine := "a\rb\x1b[2Jc\vd"
+	dirtyBody := "a\r\nb\x1b[2Jc\vd"
 
 	chat := safeChat(Chat{
 		Title:   dirtyLine,
@@ -285,25 +304,26 @@ func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
 			Media: dirtyLine, Caption: dirtyBody,
 		}},
 	})
-	if chat.Title != "abc" || chat.Preview != "abc" || chat.Time != "abc" {
+	if chat.Title != "a bc d" || chat.Preview != "a bc d" ||
+		chat.Time != "a bc d" {
 		t.Fatalf(
 			"chat = %q, %q, %q, want one clean line each",
 			chat.Title, chat.Preview, chat.Time,
 		)
 	}
-	if len(chat.Aliases) != 1 || chat.Aliases[0] != "abc" {
+	if len(chat.Aliases) != 1 || chat.Aliases[0] != "a bc d" {
 		t.Fatalf("aliases = %q, want one clean name", chat.Aliases)
 	}
 
 	message := chat.Messages[0]
-	if message.Text != "a\nbc" || message.Caption != "a\nbc" {
+	if message.Text != "a\nbc\nd" || message.Caption != "a\nbc\nd" {
 		t.Fatalf(
-			"text = %q, caption = %q, want the line break kept",
+			"text = %q, caption = %q, want the line breaks kept",
 			message.Text, message.Caption,
 		)
 	}
-	if message.Author != "abc" || message.Media != "abc" ||
-		message.Time != "abc" {
+	if message.Author != "a bc d" || message.Media != "a bc d" ||
+		message.Time != "a bc d" {
 		t.Fatalf("message = %+v, want every other string on one line", message)
 	}
 }
@@ -473,8 +493,8 @@ func TestAMultiLineMessageInTheFeedAndInThePreview(t *testing.T) {
 func TestAChatNameWithALineBreakIsOneRowAndIsSearched(t *testing.T) {
 	m := untrustedChatList(t, termwidth.ModeGrapheme, 120, 24)
 
-	if got := m.chats[0].Title; got != "AnnaExample" {
-		t.Fatalf("title = %q, want one line", got)
+	if got := m.chats[0].Title; got != "Anna Example" {
+		t.Fatalf("title = %q, want one line with the words apart", got)
 	}
 
 	m, _ = updateModel(t, m, pressRunes("/"))

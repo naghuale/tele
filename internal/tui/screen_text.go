@@ -20,10 +20,21 @@ import "strings"
 // remember to, and the field that nobody remembered would be the one that
 // moves the cursor. What goes and what stays is the same everywhere:
 //
-//   - C0 controls, DEL and the C1 controls go, NEL (U+0085) among them. A
-//     newline is the exception in the feed and a tab becomes a space: a tab
-//     is not a column in a cell of a fixed width, and a cell that let one
-//     through would not be the width the program believes it is drawing.
+//   - the line breaks of the text stay line breaks: a line feed, the
+//     carriage return, the vertical tab and the form feed that older
+//     systems ended a line with, NEL, and the Unicode line and paragraph
+//     separators. A run of them is one break, so a Windows line ending is
+//     one line and not two, and a break is a newline in the feed and a
+//     space where there is one row. They are words that a terminal would
+//     have taken for spacing, and dropping them would glue two words into
+//     one: "Anna" + a carriage return + "Example" is a name with a space
+//     in it, not a name with none.
+//   - every other C0 control, DEL and every other C1 control go, and they
+//     go without a replacement: a backspace erased a character on the
+//     terminal, and the character it erased is not the one a reader wants
+//     back. A tab becomes a space, because a tab is not a column in a cell
+//     of a fixed width, and a cell that let one through would not be the
+//     width the program believes it is drawing.
 //   - an escape sequence goes whole, with what it carries: CSI, OSC, DCS,
 //     APC, PM and SOS, in the seven-bit form that starts with ESC and in
 //     the eight-bit form that starts with a C1 control. Dropping the ESC
@@ -31,8 +42,6 @@ import "strings"
 //   - the bidi controls go (U+202A–U+202E and U+2066–U+2069), because
 //     they order the words around them the other way round, which is a way
 //     of putting words on a screen in an order nobody wrote.
-//   - the Unicode line and paragraph separators are a newline in the feed
-//     and a space on one line, exactly as a newline is.
 //
 // What is left is what a person wrote: letters, punctuation, emoji with
 // the ZWJ sequences and the variation selectors that make them one
@@ -78,6 +87,11 @@ const (
 	// escapeStringEnd is a single byte after an ESC inside a string
 	// sequence, which is the ESC of the ESC \ terminator.
 	escapeStringEnd
+
+	// escapeBreak is just after a break of the text, where the rest of the
+	// run of them is dropped: a Windows line ending is one break, and so
+	// is a line that ends with a form feed and a line feed both.
+	escapeBreak
 )
 
 // The control characters, by their bytes and by their code points.
@@ -89,17 +103,24 @@ const (
 	c1First = 0x80 // the C1 controls, NEL (U+0085) among them
 	c1Last  = 0x9F
 
-	// The eight-bit forms of the introducers. Each of them is a C1
-	// control, and a terminal in eight-bit control mode acts on it
-	// exactly as it acts on the seven-bit form, so each one starts a
-	// sequence rather than being dropped on its own.
+	// The C1 controls that are a line break or a sequence end, and the
+	// eight-bit introducers. Each of the introducers is a C1 control, and a
+	// terminal in eight-bit control mode acts on it exactly as it acts on
+	// the seven-bit form, so each one starts a sequence rather than being
+	// dropped on its own.
+	nelByte       = 0x85 // NEL, the next line, which some terminals draw
 	dcs8Bit       = 0x90 // ESC P
 	sos8Bit       = 0x98 // ESC X
 	csi8Bit       = 0x9B // ESC [
+	stringEnd8Bit = 0x9C // ESC \, the terminator in its eight-bit form
 	osc8Bit       = 0x9D // ESC ]
 	pm8Bit        = 0x9E // ESC ^
 	apc8Bit       = 0x9F // ESC _
-	stringEnd8Bit = 0x9C // ESC \, the terminator in its eight-bit form
+
+	// The Unicode separators, which are line breaks written as one
+	// character rather than two.
+	lineSeparator      = 0x2028
+	paragraphSeparator = 0x2029
 
 	// The bytes that end the parts of a sequence, by what they say: an
 	// intermediate byte says that more of the sequence is coming, a
@@ -127,6 +148,17 @@ func screenText(text string, keepNewlines bool) string {
 	state := escapeText
 
 	for _, r := range text {
+		// The rest of a run of breaks is dropped wherever it is, and the
+		// first break of it has already been written. This is before the
+		// switch because a break that ends a run is a normal character
+		// again: the state is only about the breaks themselves.
+		if state == escapeBreak {
+			if isLineBreak(r) {
+				continue
+			}
+			state = escapeText
+		}
+
 		switch state {
 		case escapeText:
 			var keep string
@@ -189,22 +221,16 @@ func screenRune(r rune, keepNewlines bool) (string, escapeState) {
 	case isStringStart(r):
 		return "", escapeString
 
-	case r == '\n':
+	case isLineBreak(r):
+		// A line break of the text is a line break of the screen, and the
+		// rest of a run of them is dropped: one break stands for all of
+		// them, so \r\n is one line and not two.
 		if keepNewlines {
-			return "\n", escapeText
+			return "\n", escapeBreak
 		}
-		return " ", escapeText
+		return " ", escapeBreak
 
 	case r == '\t':
-		return " ", escapeText
-
-	case r == 0x2028 || r == 0x2029:
-		// The Unicode line and paragraph separators are line breaks
-		// that are not typed as one. They read as one here, so that a
-		// sender cannot draw a row the interface did not draw.
-		if keepNewlines {
-			return "\n", escapeText
-		}
 		return " ", escapeText
 
 	case r < 0x20, r == delByte:
@@ -218,6 +244,26 @@ func screenRune(r rune, keepNewlines bool) (string, escapeState) {
 
 	default:
 		return string(r), escapeText
+	}
+}
+
+// isLineBreak reports whether a rune is a line break of the text it comes
+// from: a line feed, and the other three controls that systems have ended
+// a line with — the carriage return of the old Mac, the vertical tab and
+// the form feed of DOS and of Unicode — together with NEL, which a
+// terminal may draw as one, and the Unicode line and paragraph
+// separators.
+//
+// They are all spacing: a terminal gives a line to each of them, and a
+// reader gave a line to them too. Dropping them without a replacement
+// would join the words on either side into one.
+func isLineBreak(r rune) bool {
+	switch r {
+	case '\n', '\r', '\v', '\f', nelByte,
+		lineSeparator, paragraphSeparator:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -300,14 +346,16 @@ func textNeedsCleaning(text string) bool {
 }
 
 // plainRune reports whether a rune is a character a terminal draws where
-// it stands: not a control, not a separator and not a bidi control.
+// it stands: not a control, not a separator and not a bidi control. Every
+// line break of the text is a control or a separator, so a text with a
+// break in it is always cleaned and a text without one is not.
 func plainRune(r rune) bool {
 	switch {
 	case r < 0x20, r == delByte:
 		return false
 	case r >= c1First && r <= c1Last:
 		return false
-	case r == 0x2028, r == 0x2029:
+	case r == lineSeparator, r == paragraphSeparator:
 		return false
 	case isBidiControl(r):
 		return false

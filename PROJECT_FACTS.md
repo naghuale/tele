@@ -411,11 +411,21 @@
     to a send). A view that cleans what it draws is a view that has to
     remember to, and the field nobody remembered would be the one that
     moves the cursor
-  - what goes: the C0 controls, DEL, the C1 controls (NEL, U+0085,
-    among them), whole escape sequences with what they carry (CSI,
+  - what goes: every C0 control that is not spacing, DEL, every C1 control
+    that is not NEL, whole escape sequences with what they carry (CSI,
     OSC, DCS, APC, PM, SOS, in the seven-bit and the eight-bit form),
-    and the bidi controls U+202A–U+202E and U+2066–U+2069. U+2028 and
-    U+2029 are line breaks, and a tab is a space
+    and the bidi controls U+202A–U+202E and U+2066–U+2069. They go
+    without a replacement: a backspace erased a character on the
+    terminal, and the character it erased is not the one a reader wants
+    back
+  - what stays as spacing: a line feed, a carriage return, a vertical
+    tab, a form feed, NEL (U+0085) and U+2028/U+2029 are line breaks of
+    the text a sender wrote, and dropping them would glue two words
+    into one. A run of them that stands next to each other is one
+    break, so a Windows line ending is one line and not two, and so is
+    an empty line a sender wrote
+  - a tab is a space, because a tab is not a column in a cell of a
+    fixed width
   - what stays: letters, punctuation, emoji with their ZWJ sequences,
     variation selectors and flags, and the combining marks of every
     script. Nothing that makes a character a character is removed
@@ -615,9 +625,10 @@
     exactly one column, and no line wider than the screen it is drawn for
   - one of them is a chat list whose names and previews carry what a
     terminal acts on (TestSnapshotUntrustedNames, #53). The golden holds
-    four ordinary rows of four ordinary chats, which is the claim: the
-    words are still there and the characters are not. The invariant pass
-    covers it like any other
+    four ordinary rows of four ordinary chats — "Anna Example" out of a
+    carriage return — which is the claim: the words are still there,
+    apart from each other, and the characters are not. The invariant
+    pass covers it like any other
 - Auth TUI: internal/tui/screen_auth.go
   - ScreenAuth with phone/code/password prompts
   - password masked as •

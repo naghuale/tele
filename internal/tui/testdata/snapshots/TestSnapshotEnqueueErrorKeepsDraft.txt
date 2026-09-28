@@ -1,0 +1,58 @@
+# golden screen snapshot
+#
+# test:    TestSnapshotEnqueueErrorKeepsDraft
+# size:    100x24
+# theme:   catppuccin-mocha
+# profile: true-color
+#
+# Plain text: the screen as a user reads it, without escape sequences.
+  Chats                    Anna Example                                                             
+  / Search · 3 unread        Peer                                                              12:07
+  ›Anna Example              Спасибо, посмотрю после обеда                                          
+   ● 2  the build is gr…       You                                                             12:05
+   Release Room                Shipped the release notes                                            
+     the tag is pushed     › Peer                                                              12:02
+   Notes                     The build is green again                                               
+   ● 1  milk, bread, co…                                                                            
+   Команда Разработки                                                                               
+     созвон в 15:00                                                                                 
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                         ▌  The changelog is in the release notes▏                                  
+                         ▌ Message was not queued                                                   
+                         ▌ Your text is still in the composer                                       
+                           Enter send · Alt+Enter newline · Tab focus · Esc timeline                
+#
+# Escaped: the same screen with its escape sequences, one line at a time.
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[38;2;205;214;243mChats\x1b[0m                 \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243mAnna Example                                                             \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;108;112;134m/ Search · 3 unread   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;166;173;200m \x1b[0m \x1b[38;2;166;173;200mPeer\x1b[0m                                                              \x1b[2;38;2;108;112;134m12:07\x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[1;7m\x1b[1;7;2;38;2;166;173;200m›\x1b[0m\x1b[38;2;147;153;178mAnna Example         \x1b[0m\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243m  Спасибо, посмотрю после обеда\x1b[0m                                          \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m ● 2  the build is gr…\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;166;173;200m \x1b[0m   \x1b[38;2;203;166;247mYou\x1b[0m                                                             \x1b[2;38;2;108;112;134m12:05\x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mRelease Room         \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;203;166;247m    Shipped the release notes\x1b[0m                                            \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m   the tag is pushed  \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[1;7m\x1b[1;7;2;38;2;166;173;200m›\x1b[0m \x1b[38;2;147;153;178mPeer\x1b[0m                                                              \x1b[2;38;2;108;112;134m12:02\x1b[0m\x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mNotes                \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243m  The build is green again\x1b[0m                                               \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m ● 1  milk, bread, co…\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mКоманда Разработки   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m   созвон в 15:00     \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[38;2;203;166;247m▌\x1b[0m\x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m \x1b[38;2;205;214;243mThe changelog is in the release notes\x1b[0m\x1b[7;38;2;203;166;247m▏\x1b[0m                                  \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[38;2;203;166;247m▌\x1b[0m\x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;243;139;168;48;2;69;71;89mMessage was not queued\x1b[0m                                                   \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[38;2;203;166;247m▌\x1b[0m\x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;243;139;168;48;2;69;71;89mYour text is still in the composer\x1b[0m                                       \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;166;173;200mEnter send · Alt+Enter newline · Tab focus · Esc timeline                \x1b[0m\x1b[0m"

@@ -1,0 +1,70 @@
+# golden screen snapshot
+#
+# test:    TestSnapshotActionSheetUncertain
+# size:    120x30
+# theme:   catppuccin-mocha
+# profile: true-color
+#
+# Plain text: the screen as a user reads it, without escape sequences.
+  Chats                    Anna Example                                                                                 
+  / Search · 3 unread          You                                                                                 12:07
+  ›Anna Example                Postponing the release to Friday                                                         
+   ● 2  the build is gr…       ? Delivery uncertain                                                                     
+   Release Room                Message may already have been sent                                                       
+     the tag is pushed                                                                                                  
+   Notes                                                                                                                
+   ● 1  milk, bread, co…                                                                                                
+   Команда Разработки                                                                                                   
+     созвон в 15:00                                                                                                     
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                            ▌ Create a new message                                                        
+                            ▌ Copy text                                                                   
+                            ▌ Keep as uncertain                                                           
+                            ▌ Cancel record                                                               
+                            ▌ Close                                                                       
+                                                                                                                        
+                            ▏Write a message…                                                                           
+                           j/k select · Enter run · Esc close                                                           
+#
+# Escaped: the same screen with its escape sequences, one line at a time.
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[38;2;205;214;243mChats\x1b[0m                 \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243mAnna Example                                                                                 \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;108;112;134m/ Search · 3 unread   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243m    \x1b[38;2;203;166;247mYou\x1b[0m                                                                                 \x1b[2;38;2;108;112;134m12:07\x1b[0m\x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[1;7m\x1b[1;7;2;38;2;166;173;200m›\x1b[0m\x1b[38;2;147;153;178mAnna Example         \x1b[0m\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;203;166;247m    Postponing the release to Friday\x1b[0m                                                         \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m ● 2  the build is gr…\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;137;179;250m    ? Delivery uncertain                                                                     \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mRelease Room         \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;137;179;250m    Message may already have been sent                                                       \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m   the tag is pushed  \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mNotes                \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m ● 1  milk, bread, co…\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;205;214;243mКоманда Разработки   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;166;173;200m   созвон в 15:00     \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m   \x1b[2;38;2;203;166;247m▌\x1b[0m\x1b[1;38;2;203;166;247;48;2;69;71;89m Create a new message \x1b[0m\x1b[48;2;108;112;134m  \x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m                                                     \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m   \x1b[2;38;2;203;166;247m▌\x1b[0m\x1b[38;2;205;214;243;48;2;69;71;89m Copy text \x1b[0m           \x1b[48;2;108;112;134m  \x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m                                                     \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m   \x1b[2;38;2;203;166;247m▌\x1b[0m\x1b[38;2;205;214;243;48;2;69;71;89m Keep as uncertain \x1b[0m   \x1b[48;2;108;112;134m  \x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m                                                     \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m   \x1b[2;38;2;203;166;247m▌\x1b[0m\x1b[38;2;205;214;243;48;2;69;71;89m Cancel record \x1b[0m       \x1b[48;2;108;112;134m  \x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m                                                     \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m \x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m   \x1b[2;38;2;203;166;247m▌\x1b[0m\x1b[38;2;205;214;243;48;2;69;71;89m Close \x1b[0m               \x1b[48;2;108;112;134m  \x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;24;24;36m\x1b[0m\x1b[48;2;17;17;27m\x1b[0m\x1b[48;2;17;17;27m                                                     \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;108;112;134m ▏Write a message…\x1b[0m                                                                           \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;166;173;200mj/k select · Enter run · Esc close                                                           \x1b[0m\x1b[0m"

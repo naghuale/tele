@@ -1,0 +1,70 @@
+# golden screen snapshot
+#
+# test:    TestSnapshotANSI256
+# size:    120x30
+# theme:   catppuccin-mocha
+# profile: ansi-256
+#
+# Plain text: the screen as a user reads it, without escape sequences.
+▌ Chats                    Anna Example                                                                                 
+▌ / Search · 3 unread        Peer                                                                                  12:07
+▌ ›Anna Example              Спасибо, посмотрю после обеда                                                              
+▌  ● 2  the build is gr…       You                                                                                 12:05
+▌  Release Room                Shipped the release notes                                                                
+▌    the tag is pushed     › Peer                                                                                  12:02
+▌  Notes                     The build is green again                                                                   
+▌  ● 1  milk, bread, co…                                                                                                
+▌  Команда Разработки                                                                                                   
+▌    созвон в 15:00                                                                                                     
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                           ▏Write a message…                                                                           
+▌                          Enter open · / search · q quit                                                               
+#
+# Escaped: the same screen with its escape sequences, one line at a time.
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189mChats\x1b[0m                 \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189mAnna Example                                                                                 \x1b[0m\x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;60m/ Search · 3 unread   \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m \x1b[38;5;146mPeer\x1b[0m                                                                                  \x1b[2;38;5;60m12:07\x1b[0m\x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;7m\x1b[1;7;38;5;183m›\x1b[0m\x1b[38;5;103mAnna Example         \x1b[0m\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189m  Спасибо, посмотрю после обеда\x1b[0m                                                              \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m ● 2  the build is gr…\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m   \x1b[38;5;183mYou\x1b[0m                                                                                 \x1b[2;38;5;60m12:05\x1b[0m\x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[38;5;189mRelease Room         \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;183m    Shipped the release notes\x1b[0m                                                                \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m   the tag is pushed  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;7m\x1b[1;7;2;38;5;146m›\x1b[0m \x1b[38;5;103mPeer\x1b[0m                                                                                  \x1b[2;38;5;60m12:02\x1b[0m\x1b[0m\x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[38;5;189mNotes                \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189m  The build is green again\x1b[0m                                                                   \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m ● 1  milk, bread, co…\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[38;5;189mКоманда Разработки   \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m   созвон в 15:00     \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[2;38;5;60m ▏Write a message…\x1b[0m                                                                           \x1b[0m"
+"\x1b[38;5;183m▌\x1b[0m\x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[2;38;5;146mEnter open · / search · q quit                                                               \x1b[0m\x1b[0m"

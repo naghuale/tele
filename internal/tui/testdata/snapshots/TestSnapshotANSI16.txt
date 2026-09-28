@@ -1,0 +1,70 @@
+# golden screen snapshot
+#
+# test:    TestSnapshotANSI16
+# size:    120x30
+# theme:   catppuccin-mocha
+# profile: ansi-16
+#
+# Plain text: the screen as a user reads it, without escape sequences.
+▌ Chats                    Anna Example                                                                                 
+▌ / Search · 3 unread        Peer                                                                                  12:07
+▌ ›Anna Example              Спасибо, посмотрю после обеда                                                              
+▌  ● 2  the build is gr…       You                                                                                 12:05
+▌  Release Room                Shipped the release notes                                                                
+▌    the tag is pushed     › Peer                                                                                  12:02
+▌  Notes                     The build is green again                                                                   
+▌  ● 1  milk, bread, co…                                                                                                
+▌  Команда Разработки                                                                                                   
+▌    созвон в 15:00                                                                                                     
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                                                                                                                       
+▌                           ▏Write a message…                                                                           
+▌                          Enter open · / search · q quit                                                               
+#
+# Escaped: the same screen with its escape sequences, one line at a time.
+"▌ Chats                    Anna Example                                                                                 "
+"▌ / Search · 3 unread        Peer                                                                                  12:07"
+"▌ \x1b[1;7m\x1b[1;7m›\x1b[0mAnna Example         \x1b[0m     Спасибо, посмотрю после обеда                                                              "
+"▌  ● 2  the build is gr…       You                                                                                 12:05"
+"▌  Release Room                Shipped the release notes                                                                "
+"▌    the tag is pushed     \x1b[1;7m\x1b[1;7m›\x1b[0m Peer                                                                                  12:02\x1b[0m"
+"▌  Notes                     The build is green again                                                                   "
+"▌  ● 1  milk, bread, co…                                                                                                "
+"▌  Команда Разработки                                                                                                   "
+"▌    созвон в 15:00                                                                                                     "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                                                                                                                       "
+"▌                           ▏Write a message…                                                                           "
+"▌                          Enter open · / search · q quit                                                               "

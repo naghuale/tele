@@ -459,6 +459,33 @@
   - a resize that hides the chat list (wide to narrow with a conversation
     open) closes the search: a field that is not on the screen is not one
     anybody can type into
+- Screen snapshots: internal/tui/snapshot_test.go and
+  internal/tui/testdata/snapshots/ (PR-10A.7, docs/TUI_SPEC.md §20, §21)
+  - one golden file per screen, named after the test that owns it, and one
+    test per screen. §21 reserves the names of the eighteen it lists, and
+    the search, the status line with the presence and the paused composer
+    have theirs beside them. A file no test claims, or a screen no file
+    holds, fails: a golden nobody checks drifts and is then believed
+  - every file holds the screen twice: the text without escape sequences,
+    which is what a reviewer reads, and the same screen as one %q per
+    line, so a change of a colour is a diff like any other. With only the
+    first half a theme could be replaced and no test would notice
+  - a difference fails the test and prints both sides of every line that
+    differs. Only `go test ./internal/tui -run Snapshot -update` rewrites
+    a file, and it rewrites the ones whose test ran
+  - everything on a snapshot is synthetic: the chats, the messages, the
+    times, the entry ids and the account key are written in the test file
+    and nowhere else (§19). A golden is committed, travels to CI and
+    outlives the machine it was made on, so nothing of a real account may
+    reach one
+  - determinism: a fixed moment, a fixed zone (time.FixedZone), one of the
+    three layouts of §10.1, and a theme and a profile the test names. The
+    renderer is built for a profile and never probes the terminal, and a
+    test sets TERM, COLORTERM, NO_COLOR, CLICOLOR and CLICOLOR_FORCE to
+    values that disagree and compares the bytes with the golden
+  - the invariants of §20 are checked over every snapshot in one pass: no
+    box drawing glyph and no line made of frame characters, focus bars in
+    exactly one column, and no line wider than the screen it is drawn for
 - Auth TUI: internal/tui/screen_auth.go
   - ScreenAuth with phone/code/password prompts
   - password masked as •
@@ -841,7 +868,7 @@
   - `sendMessage` response object: verified against TDLib 1.8.67
   - final delivery to recipient: not verified
   - delivery-state update tracking: deferred
-- PR-10A: interface rewrite per docs/TUI_SPEC.md
+- PR-10A: interface rewrite per docs/TUI_SPEC.md, accepted
   - PR-10A.1 semantic theme engine with three dark presets: accepted
   - PR-10A.2 layout and focus: accepted (borderless two-pane layout,
     one focus, Esc hierarchy, focus-aware hint bar, drawn with the
@@ -853,12 +880,21 @@
     state: accepted
   - PR-10A.4b status line, connection state, empty states §17, loading
     §18, enqueue error §12.1: accepted
-  - PR-10A.4c peer presence in the conversation header, open/close of the
-    open chat: accepted
+  - PR-10A.4c peer presence in the conversation header (#41),
+    open/close of the open chat: accepted
   - PR-10A.5 action sheet and the uncertain decision, cancel of a queued
     message, copy through OSC 52: accepted
   - PR-10A.6 chat search over the loaded chat list: accepted
-  - 10A.7 snapshots: pending
+  - PR-10A.7 golden screen snapshots of every screen, text and ANSI, with
+    the §20 invariants over all of them: accepted
+  - left out of PR-10A, found by the snapshots and not fixed there: with
+    the cursor on an outgoing message that is not in the history yet,
+    timelineLines draws the history from an index that is past the end of
+    it (internal/tui/view_conversation.go), so the conversation above the
+    message disappears; and the popup overlay keeps the head of the row it
+    covers instead of its tail (overlayRow, TruncateLeft takes the
+    number of columns to remove), so a menu is drawn twice as far to the
+    right as it is wide. Both need a fix of their own
 - First usable TUI checkpoint: PR-02
 - First TDLib lifecycle checkpoint: PR-05
   - initialization before user authorization: verified on macOS

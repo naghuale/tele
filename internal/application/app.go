@@ -858,7 +858,7 @@ func runTUI(args []string, env Environment) int {
 		runAuth,
 		env.RunTUI,
 		env.RunTUIWithSubmitter,
-).WithInterface(interfaceTheme, colorProfile).
+	).WithInterface(interfaceTheme, colorProfile).
 		WithWidthMode(widthMode).
 		WithNerdFont(cfg.TUI.NerdFont).
 		WithLog(uiLog.Logger, uiLog.Writer, uiLog.Close)

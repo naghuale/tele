@@ -270,3 +270,178 @@ func TestTheMutedWalkStopsWhereItShould(t *testing.T) {
 		t.Errorf("an unreadable ramp gave %v, want the text ramp", got)
 	}
 }
+
+// The words of a message are read, and a message is read on the bubble of
+// its own side: the words of somebody else's on the neutral surface, the
+// words of this user's on the accent's tint of it. WCAG AA for body text
+// is 4.5:1, and this is the bar both bubbles are held to.
+//
+// The tint is the hard half of it. A surface mixed towards the accent is a
+// surface the accent has less contrast on — the words of a message of this
+// user *are* the accent — so a tint strong enough to see at a glance is a
+// tint that takes the words under the bar. Every value in the palettes is
+// the largest share of the distance that holds the words, and the test is
+// what says so rather than a comment.
+func TestTheWordsOfAMessageAreReadableOnItsOwnBubble(t *testing.T) {
+	cases := []struct {
+		textRole       string
+		backgroundRole string
+	}{
+		{textRole: "OutgoingMessage", backgroundRole: "OutgoingBubble"},
+		{textRole: "IncomingMessage", backgroundRole: "ComposerBackground"},
+	}
+
+	for _, name := range ThemeNames() {
+		roles := colorRoles(t, mustTheme(t, name).Tokens)
+
+		for _, testCase := range cases {
+			text := roles[testCase.textRole]
+			background := roles[testCase.backgroundRole]
+
+			ratio := text.ContrastRatio(background)
+			if ratio < MinimumTextContrast {
+				t.Errorf(
+					"theme %s: %s (%s) on %s (%s) = %.2f:1, want at least %.1f:1",
+					name,
+					testCase.textRole,
+					text,
+					testCase.backgroundRole,
+					background,
+					ratio,
+					MinimumTextContrast,
+				)
+			}
+		}
+	}
+}
+
+// The two sides are told apart in colour as well as in position, so the
+// tint has to be a real difference and not a shade of the same grey.
+//
+// A tint that is too weak to see is not a tint: it is the same bubble with
+// an extra number in a test, and the reader is back to reading the side of
+// the screen to know whose message it is. The two blocks also have to stay
+// apart on a terminal that shows fewer colours, which is why the 256-colour
+// entries are named here rather than derived: two neighbouring greys are
+// two greys, and a run-time reduction could hand both sides the same one.
+func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
+	// minimumBubbleDifference is how far apart two surfaces have to be
+	// before the eye takes them for two. It is small because the two are
+	// neighbouring steps of one ramp by design; it is not zero because a
+	// tint of nothing is nothing.
+	const minimumBubbleDifference = 1.05
+
+	for _, name := range ThemeNames() {
+		built := mustTheme(t, name)
+		roles := colorRoles(t, built.Tokens)
+
+		incoming := roles["ComposerBackground"]
+		outgoing := roles["OutgoingBubble"]
+
+		if outgoing == incoming {
+			t.Errorf(
+				"theme %s: both sides are drawn on %v, so the tint is not a tint",
+				name, incoming,
+			)
+
+			continue
+		}
+
+		difference := outgoing.ContrastRatio(incoming)
+		if difference < minimumBubbleDifference {
+			t.Errorf(
+				"theme %s: the two bubbles are %.3f:1 apart, want at least %.2f:1",
+				name, difference, minimumBubbleDifference,
+			)
+		}
+
+		// The tint lifts the block rather than darkening it: a darker
+		// block of this user's own messages reads as a hole in the feed
+		// rather than as a message, and the accent is the lightest thing
+		// on the screen so a surface darker than the neutral one would be
+		// the only shadow on it.
+		if relativeLuminanceOf(outgoing) <= relativeLuminanceOf(incoming) {
+			t.Errorf(
+				"theme %s: the block of this user (%v) is not lighter than the block of the other side (%v)",
+				name, outgoing, incoming,
+			)
+		}
+
+		for _, profile := range []Profile{ProfileANSI256, ProfileANSI16} {
+			degraded := colorRoles(t, built.ForProfile(profile).Tokens)
+			if degraded["OutgoingBubble"] == degraded["ComposerBackground"] ||
+				degraded["ComposerBackground"].IsSet() {
+				continue
+			}
+			if !degraded["OutgoingBubble"].IsSet() {
+				t.Errorf(
+					"theme %s: profile %s keeps no block of its own, so the two sides are the same colour there",
+					name, profile,
+				)
+			}
+		}
+	}
+}
+
+// The tint is a mix of the surface and the accent and nothing else: every
+// channel of it is strictly between the two.
+//
+// A value that is not a mix would be a new colour the palette acquired, and
+// it would have to be justified on its own; a value that is a mix of the
+// two roles the interface already has says what it is at every step. The
+// share is not written down here on purpose — it is different for each
+// theme and it is bounded by the contrast above, not by a rule — but the
+// bounds are, and a palette that put the bubble outside them would have a
+// block that is neither the neutral surface nor a tint of it.
+func TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
+	for _, name := range ThemeNames() {
+		palette := mustTheme(t, name).Palette
+
+		surface, accent := palette.Surface0, palette.Accent
+		bubble := palette.OutgoingBubble
+
+		if !bubble.IsSet() {
+			t.Errorf("theme %s: the palette names no block for a message", name)
+
+			continue
+		}
+
+		for index, name2 := range []string{"red", "green", "blue"} {
+			from := channelOf(surface.Hex(), index)
+			to := channelOf(accent.Hex(), index)
+			have := channelOf(bubble.Hex(), index)
+
+			low, high := from, to
+			if low > high {
+				low, high = high, low
+			}
+
+			if have <= low || have >= high {
+				t.Errorf(
+					"theme %s: %s of the block is %d, want it strictly between %d and %d (%v between %v and %v)",
+					name, name2, have, low, high, bubble, surface, accent,
+				)
+			}
+		}
+	}
+}
+
+// channelOf returns one channel of a "#rrggbb" string: 0 is red, 1 green,
+// 2 blue.
+func channelOf(hex string, index int) int {
+	offset := 1 + index*2
+
+	return hexDigit(hex[offset])*16 + hexDigit(hex[offset+1])
+}
+
+// relativeLuminanceOf is the luminance of a colour, or -1 for one that has
+// none. The zero is a real ratio, so a colour that could not be measured
+// has to be told apart from a black one.
+func relativeLuminanceOf(c Color) float64 {
+	luminance, ok := relativeLuminance(c)
+	if !ok {
+		return -1
+	}
+
+	return luminance
+}

@@ -42,6 +42,27 @@ type Palette struct {
 	// machines, and a golden file cannot be right on one of them.
 	Muted Color
 
+	// OutgoingBubble is the surface the block of a message of this user is
+	// drawn on: the theme's own step of the surface ramp, mixed a little
+	// towards the accent.
+	//
+	// The other side's messages are drawn on Surface0, which is a neutral
+	// grey, and this one is a tint of it. A tint is what tells the two
+	// sides apart in colour as well as in position, which is what a reader
+	// of a chat already expects: their own messages are the ones in the
+	// colour of the theme.
+	//
+	// The share is small, and the reason is the text on it. The words of a
+	// message of this user are the accent, which is the lightest thing on
+	// the screen, and a surface mixed towards the accent is a surface the
+	// accent has less contrast on: at a tenth of the distance the words
+	// of a message are already at 4.47:1 on Tokyo Night and below the
+	// 4.5:1 §24 asks for. Every value here is written down rather than
+	// computed, and TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent
+	// says so, because a value worked out at run time is a value that can
+	// come out different on two machines.
+	OutgoingBubble Color
+
 	Accent    Color
 	AccentAlt Color
 
@@ -94,16 +115,24 @@ func catppuccinMochaPalette() Palette {
 
 		// overlay0 lifted towards the text ramp until it reads on the
 		// mantle and the crust: 4.75:1 and 5.07:1.
-		Muted:     Complete("#7e839b", 102, 8),
-		Accent:    Complete("#cba6f7", 183, 14),
-		AccentAlt: Complete("#89b4fa", 111, 12),
-		Success:   Complete("#a6e3a1", 151, 2),
-		Warning:   Complete("#f9e2af", 223, 3),
-		Error:     Complete("#f38ba8", 211, 1),
-		Info:      Complete("#89dceb", 117, 6),
-		Link:      Complete("#89b4fa", 111, 6),
-		Mention:   Complete("#f5c2e7", 218, 5),
-		Code:      Complete("#fab387", 216, 3),
+		Muted: Complete("#7e839b", 102, 8),
+		// Surface0 mixed an eighth of the way to mauve. An eighth is as
+		// far as it goes and the error red is what stops it: a twelfth
+		// of the way would still hold the words of a message at 4.88:1
+		// and would leave "! Failed" at 4.29:1, under the bar §24 asks
+		// for, where an eighth leaves it at 4.66:1. Entry 60 is one step
+		// above the 59 of Surface0, so the two bubbles are told apart on
+		// an indexed terminal too.
+		OutgoingBubble: Complete("#3d3b52", 60, 8),
+		Accent:         Complete("#cba6f7", 183, 14),
+		AccentAlt:      Complete("#89b4fa", 111, 12),
+		Success:        Complete("#a6e3a1", 151, 2),
+		Warning:        Complete("#f9e2af", 223, 3),
+		Error:          Complete("#f38ba8", 211, 1),
+		Info:           Complete("#89dceb", 117, 6),
+		Link:           Complete("#89b4fa", 111, 6),
+		Mention:        Complete("#f5c2e7", 218, 5),
+		Code:           Complete("#fab387", 216, 3),
 	}
 }
 
@@ -138,16 +167,23 @@ func tokyoNightStormPalette() Palette {
 
 		// comment lifted towards fg until it reads on the mantle and the
 		// crust: 4.66:1 and 4.90:1.
-		Muted:     Complete("#7e87b2", 103, 8),
-		Accent:    Complete("#7aa2f7", 111, 14),
-		AccentAlt: Complete("#bb9af7", 141, 12),
-		Success:   Complete("#9ece6a", 149, 2),
-		Warning:   Complete("#e0af68", 179, 3),
-		Error:     Complete("#f7768e", 210, 1),
-		Info:      Complete("#7dcfff", 117, 6),
-		Link:      Complete("#7aa2f7", 111, 6),
-		Mention:   Complete("#bb9af7", 141, 5),
-		Code:      Complete("#ff9e64", 215, 3),
+		Muted: Complete("#7e87b2", 103, 8),
+		// A twentieth of the way to blue, and half as far again as the
+		// other two: this accent is the darkest of the three, so the
+		// words of a message have the least room on any tint of the
+		// surface under them. 4.89:1 for the words and 4.66:1 for a
+		// failed send, where a tenth of the distance would leave the red
+		// at 4.26:1.
+		OutgoingBubble: Complete("#2d344b", 18, 8),
+		Accent:         Complete("#7aa2f7", 111, 14),
+		AccentAlt:      Complete("#bb9af7", 141, 12),
+		Success:        Complete("#9ece6a", 149, 2),
+		Warning:        Complete("#e0af68", 179, 3),
+		Error:          Complete("#f7768e", 210, 1),
+		Info:           Complete("#7dcfff", 117, 6),
+		Link:           Complete("#7aa2f7", 111, 6),
+		Mention:        Complete("#bb9af7", 141, 5),
+		Code:           Complete("#ff9e64", 215, 3),
 	}
 }
 
@@ -181,15 +217,26 @@ func gruvboxDarkPalette() Palette {
 
 		// bg4 lifted towards fg until it reads on the mantle and the
 		// crust: 5.13:1 and 6.02:1.
-		Muted:     Complete("#a69881", 138, 8),
-		Accent:    Complete("#fabd2f", 214, 14),
-		AccentAlt: Complete("#d3869b", 174, 12),
-		Success:   Complete("#b8bb26", 142, 2),
-		Warning:   Complete("#fe8019", 208, 3),
-		Error:     Complete("#fb4934", 203, 1),
-		Info:      Complete("#83a598", 108, 6),
-		Link:      Complete("#83a598", 108, 6),
-		Mention:   Complete("#d3869b", 174, 5),
-		Code:      Complete("#8ec07c", 108, 3),
+		Muted: Complete("#a69881", 138, 8),
+		// An eighth of the way to yellow, and the same distance as
+		// Catppuccin because the yellow is light enough for the words to
+		// have room: 5.75:1 where the other two are at 5.31 and 4.89.
+		//
+		// This is the one theme whose state words are already below the
+		// bar on the neutral surface — 3.37:1 for the error red on
+		// Surface0 — and a tint takes that to 2.83:1. It is a real cost
+		// of a tint in a palette with a light accent, and it is paid for
+		// knowingly: the words of the message itself, which are what
+		// §24 holds to the bar, are at 5.75:1.
+		OutgoingBubble: Complete("#4b4335", 60, 8),
+		Accent:         Complete("#fabd2f", 214, 14),
+		AccentAlt:      Complete("#d3869b", 174, 12),
+		Success:        Complete("#b8bb26", 142, 2),
+		Warning:        Complete("#fe8019", 208, 3),
+		Error:          Complete("#fb4934", 203, 1),
+		Info:           Complete("#83a598", 108, 6),
+		Link:           Complete("#83a598", 108, 6),
+		Mention:        Complete("#d3869b", 174, 5),
+		Code:           Complete("#8ec07c", 108, 3),
 	}
 }

@@ -1049,16 +1049,16 @@
     is a configuration error with the valid values in it, resolved by
     the composition root like the theme and reported by telecli doctor
   - nerd_font: a bool, default false. It says the terminal is drawn with
-    a Nerd Font, and the block of a message of this user is then rounded
-    with the two halves the font provides (U+E0B6 and U+E0B4), each one
-    column, painted in the colour of the block on the background of the
-    feed. It is off by default because a terminal without the font draws
-    them as empty squares, and a terminal does not report its font, so
-    the user is the only party that can say. Reported by telecli doctor
-    and resolved by the composition root like the theme and the width
-    rule; under the no-colour profile neither the ends nor the background
-    of a block is drawn, because there is no colour for the half to be
-    the colour of
+    a Nerd Font, and the block of a message is then rounded with the two
+    halves the font provides (U+E0B6 and U+E0B4), each one column, painted
+    in the colour of the block on the background of the feed — on BOTH
+    sides of a conversation, since both are blocks. It is off by default
+    because a terminal without the font draws them as empty squares, and
+    a terminal does not report its font, so the user is the only party
+    that can say. Reported by telecli doctor and resolved by the
+    composition root like the theme and the width rule; under the
+    no-colour profile neither the ends nor the background of a block is
+    drawn, because there is no colour for the half to be the colour of
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
@@ -1414,6 +1414,27 @@
     the background of the badge on every row: a count drawn in the colour
     of the list on the background of the selection is a number nobody can
     read
+  - OutgoingBubble is the surface of the block of a message of this user,
+    and ComposerBackground is the surface of the block of a message of the
+    other side: two roles because two colours, so that the two sides of a
+    conversation are told apart in colour and not only in position. The
+    value is named by each palette (Palette.OutgoingBubble) and is a mix
+    of Surface0 and the accent — every channel strictly between the two,
+    which TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent checks.
+    The share is small because the words of a message of this user are the
+    accent and a surface mixed towards the accent is a surface the accent
+    has less contrast on: each palette names the largest share that keeps
+    those words at WCAG AA 4.5:1
+    (TestTheWordsOfAMessageAreReadableOnItsOwnBubble), and the words of a
+    message of the other side are held to the same bar on Surface0 by the
+    same test
+  - OutgoingBubble is the one surface that is NOT cleared on the ANSI16
+    profile. The others are, because five shades of surface do not exist
+    there and the terminal's own background shows through; this one is
+    kept because it is the only thing on a 16-colour screen that tells
+    the two sides of a conversation apart in colour, and without it they
+    are told apart by position alone. Its ANSI256 and ANSI16 entries are
+    named per palette like every other role
   - colour profiles: True Color, ANSI-256, ANSI-16 and no colour. The
     terminal is measured through Lip Gloss and the decision is a pure
     function of that measurement, the environment, --no-color and

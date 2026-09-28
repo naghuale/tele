@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -588,14 +589,45 @@ func (m Model) entryLines(
 	return append([]string{""}, block...)
 }
 
-// incomingMessageLines renders a message from the other side: the name of
-// whoever sent it and the time on one line, the text under it.
+// ---- the blocks of the two sides ----
+
+// messageSide is which side of the feed a message is drawn on.
 //
-// It has no background at all. The other side's messages are on the
-// background of the feed and identified by the side they are on, and a
-// band behind each of them is what made the feed look like a table rather
-// than a conversation: the same raised surface on every row is a
-// spreadsheet, and a spreadsheet is not what anybody is reading.
+// It is a side and not a boolean because the three things that differ
+// between the two are three different questions: which edge of the feed the
+// block is against, which surface it is drawn on, and who sent it. A
+// boolean would have all three answering the same question.
+type messageSide uint8
+
+const (
+	// sideIncoming is the left: a message from the other side, on the
+	// neutral surface of the theme.
+	sideIncoming messageSide = iota
+
+	// sideOutgoing is the right: a message of this user, on the accent's
+	// tint of that same surface.
+	sideOutgoing
+)
+
+// String names the side for a failure message.
+func (s messageSide) String() string {
+	if s == sideOutgoing {
+		return "outgoing"
+	}
+
+	return "incoming"
+}
+
+// incomingMessageLines renders a message from the other side: a block on
+// the left with the name of whoever sent it and the time on its first row
+// and the text under them.
+//
+// The author line is inside the block rather than above it. A name on the
+// background of the feed with a text in a block below it is two things to
+// read as one message, and a reader has to learn from the shape that they
+// belong together; inside one block there is nothing to learn. The
+// separator between the name and the time is the one the status line uses,
+// so one screen has one way of saying "and also".
 func (m Model) incomingMessageLines(
 	entry timelineEntry,
 	layout Layout,
@@ -603,34 +635,58 @@ func (m Model) incomingMessageLines(
 	styles viewStyles,
 ) []string {
 	selected := m.entrySelected(entry)
-	surface := m.feedRow(selected)
-	// The feed keeps a margin on each side, and the marker of the message
-	// under the cursor stands in the last column of the left one: the
-	// message itself starts at the margin, where a message of this user
-	// ends on the other side, so the two are told apart by where they
-	// begin and end rather than by a colour.
-	indent := spaces(layout.FeedMargin())
-	head := m.painter(surface).
-		pad(layout.FeedMargin()-selectionMarkerWidth).
-		add(m.selectionMarkStyle(selected), m.selectionMark(selected)).
-		add(
-			styles.authorColor(entry.message.AuthorID),
-			messageAuthor(entry.message),
-		)
-	if entry.message.Time != "" {
-		head = head.
-			add(styles.unstyled(), authorTimeSeparator).
-			add(styles.text(m.tokens().MutedText), entry.message.Time)
+	head := m.authorLine(entry, styles)
+	block := m.messageBlockFor(
+		sideIncoming, layout, width, entryText(entry), blockRunText(head),
+	)
+
+	rows := make([]string, 0, 4)
+	rows = append(rows, m.blockRow(
+		selected, styles, m.selectionMarkStyle(selected),
+		m.selectionMark(selected), block, head, false,
+	))
+
+	mark := m.selectionMark(selected)
+	for index, line := range m.widths.Wrap(entryText(entry), block.text, ellipsis) {
+		// The marker stands on the first row of the block and on no
+		// other: a mark down the side of a block is a mark on the block,
+		// and one on the state under the text would say that the state
+		// is the message the keys act on.
+		if index > 0 {
+			mark = spaces(selectionMarkerWidth)
+		}
+
+		rows = append(rows, m.blockRow(
+			selected, styles, m.selectionMarkStyle(selected), mark,
+			block, []blockRun{{style: styles.body(false), text: line}}, false,
+		))
 	}
 
-	// The text of the message is measured against the width the row has
-	// once the marker and the margins are out of it, so a long name and a
-	// long text are cut by the same edge.
-	textWidth := maxInt(width-layout.FeedMargin(), 1)
+	return rows
+}
 
-	return append(
-		[]string{head.pad(width - head.width()).String()},
-		m.messageBodyLines(entry, indent, textWidth, surface, styles)...,
+// authorLine returns the runs of the first row of the block of a message
+// from the other side: the name of whoever sent it, the separator, and the
+// time.
+//
+// It is a list of runs and not a string because it is three colours on one
+// row, and a colour of its own inside a block has to be written with the
+// background of the block or the row loses it.
+func (m Model) authorLine(entry timelineEntry, styles viewStyles) []blockRun {
+	runs := []blockRun{{
+		style: styles.authorColor(entry.message.AuthorID),
+		text:  messageAuthor(entry.message),
+	}}
+	if entry.message.Time == "" {
+		return runs
+	}
+
+	return append(runs,
+		blockRun{style: styles.unstyled(), text: authorTimeSeparator},
+		blockRun{
+			style: styles.text(m.tokens().MutedText),
+			text:  entry.message.Time,
+		},
 	)
 }
 
@@ -639,7 +695,9 @@ func (m Model) incomingMessageLines(
 //
 // The sender and the time go: what is left is the message itself, which is
 // what a user came to read. The text still wraps, because a screen that is
-// short is not a screen where a message may be cut in half.
+// short is not a screen where a message may be cut in half, and the block
+// around it is the one every other message is in, because a message that
+// loses its block as well as its name is a row of text.
 func (m Model) shortMessageLines(
 	entry timelineEntry,
 	layout Layout,
@@ -647,41 +705,38 @@ func (m Model) shortMessageLines(
 	styles viewStyles,
 ) []string {
 	selected := m.entrySelected(entry)
-	surface := m.feedRow(selected)
-	textWidth := maxInt(
-		width-selectionMarkerWidth-2*layout.FeedMargin(),
-		1,
-	)
-
-	wrapped := m.widths.Wrap(entryText(entry), textWidth, ellipsis)
-	if len(wrapped) == 0 {
-		wrapped = []string{""}
+	side, colour := sideIncoming, m.tokens().IncomingMessage
+	if entry.message.Outgoing {
+		side, colour = sideOutgoing, m.tokens().OutgoingMessage
 	}
 
-	body := make([]string, 0, len(wrapped))
-	for index, line := range wrapped {
-		row := m.painter(surface).
-			pad(layout.FeedMargin()-selectionMarkerWidth).
-			add(styles.body(false), line)
+	block := m.messageBlockFor(side, layout, width, entryText(entry))
+
+	rows := make([]string, 0, 3)
+	mark := m.selectionMark(selected)
+	for index, line := range m.widths.Wrap(entryText(entry), block.text, ellipsis) {
+		head := spaces(selectionMarkerWidth)
 		if index == 0 {
-			row = m.painter(surface).
-				add(m.selectionMarkStyle(selected), m.selectionMark(selected)).
-				add(styles.body(false), line)
+			head = mark
 		}
 
-		body = append(body, row.pad(width-row.width()).String())
+		rows = append(rows, m.blockRow(
+			selected, styles, m.selectionMarkStyle(selected), head,
+			block, []blockRun{{style: styles.text(colour), text: line}}, false,
+		))
 	}
 
-	return body
+	return rows
 }
 
 // outgoingMessageLines renders a message of this user: a block on the
 // right, as wide as the text in it and no wider than the feed allows, with
 // the time and the state of the send under the text at its right edge.
 //
-// There is no author line: the block is on the right, which is what says
-// it is from this user, and "You" above a message the reader is looking at
-// is a word they have to read once per message to learn nothing.
+// There is no author line: the block is on the right and in the colour of
+// this user's messages, which is what says it is from this user, and "You"
+// above a message the reader is looking at is a word they have to read once
+// per message to learn nothing.
 func (m Model) outgoingMessageLines(
 	entry timelineEntry,
 	layout Layout,
@@ -691,47 +746,102 @@ func (m Model) outgoingMessageLines(
 	selected := m.entrySelected(entry)
 	text := entryText(entry)
 	label, labelColour := m.historyStateLabel(entry.message)
-	block := m.outgoingBlockFor(layout, width, text, label)
+	block := m.messageBlockFor(sideOutgoing, layout, width, text, label)
 
 	rows := make([]string, 0, 4)
+	mark := spaces(selectionMarkerWidth)
 	for index, line := range m.widths.Wrap(text, block.text, ellipsis) {
-		// The marker of the message under the cursor goes on the first row
-		// of its block and on no other: a mark down the side of a block is
-		// a mark on the block, and one on the state under the text would
-		// say that the state is the message the keys act on.
-		mark := spaces(selectionMarkerWidth)
 		if index == 0 {
 			mark = m.selectionMark(selected)
 		}
 
-		rows = append(rows, m.outgoingRow(
-			styles, selected, m.selectionMarkStyle(selected), mark,
-			block, line, m.tokens().OutgoingMessage, false,
+		rows = append(rows, m.blockRow(
+			selected, styles, m.selectionMarkStyle(selected), mark,
+			block, []blockRun{{
+				style: styles.text(m.tokens().OutgoingMessage),
+				text:  line,
+			}}, false,
 		))
 	}
 
-	rows = append(rows, m.outgoingRow(
-		styles, selected, m.selectionMarkStyle(selected),
-		spaces(selectionMarkerWidth), block, label, labelColour, true,
+	// The state is a line of the block like any other, at its right edge:
+	// it belongs to the message and it is read where the block ends.
+	rows = append(rows, m.blockRow(
+		selected, styles, m.selectionMarkStyle(selected),
+		spaces(selectionMarkerWidth), block,
+		[]blockRun{{style: styles.text(labelColour), text: label}}, true,
 	))
 
 	return rows
 }
 
-// outgoingBlock is where the block of a message of this user sits on its
-// row and how wide it is.
+// blockRun is one piece of a row of a block, in a colour of its own.
 //
-// The four numbers are the whole of the drawing: the first column of the
-// block, its width, the width its text may take inside it, and the space
-// each end of it leaves around that text. A row is written from them and
-// nothing else measures the block, so a block cannot be drawn at one
-// width and padded to another.
-type outgoingBlock struct {
-	// offset is the first column of the block on the row. The right edge
-	// of the block is the right margin of the feed whichever width the
-	// block turned out to be, because a message of this user is on the
-	// right and a row of the feed that ends in a different place on
-	// either side of a screen is a column of blocks to line up by eye.
+// A row of a block is written one run at a time rather than one string at a
+// time, because a run inside a run ends with a reset and a reset in the
+// middle of a block takes the background of the block with it: the words
+// after the first would be on the feed rather than on the block, and a
+// block with a stripe across it is a block nobody can read.
+type blockRun struct {
+	style lipgloss.Style
+	text  string
+}
+
+// blockRunText returns what a row of runs says, as one string, which is
+// how the width of the row is asked about.
+func blockRunText(runs []blockRun) string {
+	var out strings.Builder
+	for _, run := range runs {
+		out.WriteString(run.text)
+	}
+
+	return out.String()
+}
+
+// fitRuns cuts a row of runs to the width its block has, so a name longer
+// than the block cannot make the row wider than the block.
+//
+// The cut is in the last run that has anything in it and the rest of the
+// row keeps its own colours: the name of whoever sent a message and the
+// time of it are both things a reader is looking for, and a row that
+// overflows its block is a row that pushes the composer off the screen.
+func (m Model) fitRuns(runs []blockRun, width int) []blockRun {
+	fitted := make([]blockRun, 0, len(runs))
+	used := 0
+
+	for _, run := range runs {
+		room := width - used
+		text := m.widths.TruncateMarked(run.text, maxInt(room, 0), ellipsis)
+		if text == "" {
+			break
+		}
+
+		used += m.widths.StringWidth(text)
+		fitted = append(fitted, blockRun{style: run.style, text: text})
+	}
+
+	if len(fitted) == 0 {
+		return []blockRun{{text: ""}}
+	}
+
+	return fitted
+}
+
+// messageBlock is the block a message is drawn in: where it starts on its
+// row, how wide it is, and the width and the air its text gets inside it.
+//
+// The numbers are the whole of the drawing, and a row is written from them
+// and from nothing else: a block cannot be drawn at one width and padded to
+// another, and the padding is what a reader sees as a band.
+type messageBlock struct {
+	// side is which edge of the feed the block is against.
+	side messageSide
+
+	// offset is the first column of the block on the row: the left margin
+	// of the feed for a message from the other side, and the width less
+	// the right margin less the block for one of this user. Two messages
+	// of the same conversation line up on that edge whichever way round
+	// the text goes, and the eye can read down them.
 	offset int
 
 	// width is how many columns the block takes, its two insets and its
@@ -748,37 +858,39 @@ type outgoingBlock struct {
 	// together, which is two with a Nerd Font and none without one.
 	ends int
 
-	// right is how many columns of the feed are behind the block, which is
-	// the right margin. It is a number of the block rather than of the
-	// layout because a row is written a run at a time and only the
-	// painter knows how far along it has got.
+	// right is how many columns of the feed are behind the block. It is a
+	// number of the block rather than of the layout because a row is
+	// written a run at a time and only the painter knows how far along it
+	// has got.
 	right int
 }
 
-// outgoingBlockFor returns the block a message of this user takes on a row
-// of the given width, for a text and the lines under it.
+// messageBlockFor returns the block a message takes on a row of the given
+// width, for a text and the lines under it.
 //
 // It is the width of the text, capped: the block is as wide as the widest
 // line of the text and as wide as the widest of the lines under it, and
 // never wider than the share of the feed a message may take. A block the
 // width of the feed under a two-word message is a band rather than a
-// message, and a band is what this change is about; a block wider than the
-// text it holds is the same band with words in the middle of it.
+// message, and a band is what the block is not; a block wider than the text
+// it holds is the same band with words in the middle of it.
 //
 // The lines under the text count towards the width for the same reason the
 // text does: they are lines of the block, and a block that had to cut the
 // words off its own state is a block that is too narrow for its own
 // message — which is the one thing a message that failed to be sent has to
 // be able to say in full.
-func (m Model) outgoingBlockFor(
+func (m Model) messageBlockFor(
+	side messageSide,
 	layout Layout,
 	width int,
 	text string,
 	under ...string,
-) outgoingBlock {
+) messageBlock {
 	inset := layout.BubbleInset()
-	ends := m.roundedEndColumns()
-	most := m.outgoingBlockCap(layout, width) - 2*inset - ends
+	ends := m.roundedEndColumns(side)
+	lane := maxInt(width-2*layout.FeedMargin(), 1)
+	most := m.messageBlockCap(layout, width) - 2*inset - ends
 	if most < 1 {
 		most = 1
 	}
@@ -795,36 +907,45 @@ func (m Model) outgoingBlockFor(
 		natural = maxInt(natural, m.widths.StringWidth(line))
 	}
 
-	block := outgoingBlock{
+	block := messageBlock{
+		side:  side,
 		inset: inset,
 		ends:  ends,
 		text:  minInt(natural, most),
 	}
-	block.width = minInt(block.text+2*inset+ends, width-layout.FeedMargin())
+	block.width = minInt(block.text+2*inset+ends, lane)
 	block.width = maxInt(block.width, 1)
 	block.text = maxInt(block.width-2*inset-ends, 1)
-	block.offset = maxInt(width-layout.FeedMargin()-block.width, 0)
+
+	if side == sideIncoming {
+		block.offset = layout.FeedMargin()
+	} else {
+		block.offset = maxInt(width-layout.FeedMargin()-block.width, 0)
+	}
 	block.right = maxInt(width-block.offset-block.width, 0)
 
 	return block
 }
 
-// outgoingBlockCap returns how many columns the block of a message of this
-// user may take on a row of the given width.
+// messageBlockCap returns how many columns the block of a message may take
+// on a row of the given width.
 //
 // The share is of the whole row, and the margin comes off it: a block that
-// is seventy per cent of the row and stops at the right margin of the feed
-// is narrower than the share the number says, which is the right way
-// round — the number is a ceiling, not a target.
-func (m Model) outgoingBlockCap(layout Layout, width int) int {
+// is seventy per cent of the row and stops at the margin of the feed is
+// narrower than the share the number says, which is the right way round —
+// the number is a ceiling, not a target.
+//
+// A single-pane screen is the one place the block may fill the feed: there
+// is no conversation beside it to keep a seam with, and a block of seventy
+// per cent of forty columns is a message a user has to read three words at
+// a time.
+func (m Model) messageBlockCap(layout Layout, width int) int {
 	lane := maxInt(width-2*layout.FeedMargin(), 1)
 	if layout.Kind == LayoutNarrow {
 		return lane
 	}
 
-	share := width * outgoingBubbleSharePercent / 100
-
-	return minInt(share, lane)
+	return minInt(width*outgoingBubbleSharePercent/100, lane)
 }
 
 // roundedEndColumns returns how many columns the two rounded ends of a
@@ -832,127 +953,142 @@ func (m Model) outgoingBlockCap(layout Layout, width int) int {
 //
 // They are drawn when the setting says the terminal has the font and the
 // block has a colour to be the colour of. A terminal with neither draws
-// them as empty squares, and two empty squares at the ends of every
-// message of this user are worse than the square corners they replace.
-func (m Model) roundedEndColumns() int {
+// them as empty squares, and two empty squares at the ends of every message
+// are worse than the square corners they replace.
+func (m Model) roundedEndColumns(side messageSide) int {
 	if !m.nerdFont {
 		return 0
 	}
-	if !m.blockSurface(false).IsSet() {
+	if !m.blockSurface(side, false).IsSet() {
 		return 0
 	}
 
 	return 2 * m.widths.StringWidth(termwidth.NerdHalfLeft)
 }
 
-// blockSurface returns the background the block of a message of this user
-// is drawn on: the Selected token while the cursor is on the message, and
-// the composer's own surface otherwise.
+// blockSurface returns the surface the block of a message is drawn on: the
+// Selected token while the cursor is on the message, and otherwise the
+// theme's own surface for that side of the feed.
 //
-// It is the selected surface and not the composer's one, because a
-// selection that cannot be seen on the one kind of message that has a
-// background is a selection a user can only find on the other kind — and
-// the block is the only background on the screen a selection could hide
-// in.
-func (m Model) blockSurface(selected bool) theme.Color {
+// It is the selected surface and not the side's own, because a selection
+// that cannot be seen on a block is a selection a user can only find by
+// moving the cursor — and the block is the only background on the screen a
+// selection could hide in.
+func (m Model) blockSurface(side messageSide, selected bool) theme.Color {
 	if selected {
 		return m.tokens().Selected
+	}
+
+	if side == sideOutgoing {
+		return m.tokens().OutgoingBubble
 	}
 
 	return m.tokens().ComposerBackground
 }
 
-// feedRow returns the background the rows of a message of the other side
-// are drawn on: the Selected token for the message under the cursor, and
-// the background of the feed for every other message.
-//
-// Every row of the feed says its background rather than leaving it to the
-// region behind it. Lip Gloss ends a run with a reset, and a reset in the
-// middle of a row takes the region's own background with it, so the columns
-// of a row after its last word are the terminal's default and not the
-// feed's: a pale stripe down the right of every message of the other side,
-// which is the same defect as the band it replaced, only quieter.
-func (m Model) feedRow(selected bool) theme.Color {
-	if selected {
-		return m.tokens().Selected
-	}
-
-	return m.tokens().ChatBackground
-}
-
-// outgoingRow draws one row of an outgoing block: the marker column in
-// front of it, the columns between the marker and the block, the block, and
-// the right margin of the feed behind it.
+// blockRow draws one row of a block: the marker in front of it, the
+// columns between the marker and the block, the block, and the rest of the
+// feed behind it.
 //
 // The block is exactly as wide as it was measured to be whichever way
-// round the text goes, so two messages of the same conversation line up on
-// their right edge and the eye can read down them.
+// round the text goes. Its surface is on its own cells and on no others:
+// the columns in front of it and the feed behind it are the background of
+// the feed, because a surface that ran the width of the feed under a
+// message is a band, and a band under every message is the table the feed
+// used to look like. The selection of the message under the cursor is on
+// the block and on nothing else, for the same reason.
 //
-// The row is painted with no surface of its own and the block is painted
-// with one, which is the whole difference between a message and a band: a
-// surface that ran the width of the feed under a message is a band, and a
-// band under every message is the table the feed used to look like. The
-// selection of the message under the cursor is on the block and on nothing
-// else, for the same reason — the only background on the screen a
-// selection could disappear into is the block.
-func (m Model) outgoingRow(
-	styles viewStyles,
+// Every cell of the row is written with a background, including the feed
+// around the block. Lip Gloss ends a run with a reset, and a reset after
+// the last word of a row takes the background of the region behind it with
+// it, so the columns of the row outside the block would be the terminal's
+// own default rather than the feed's — a stripe of whatever the terminal
+// thought its background was, on every row of the feed.
+func (m Model) blockRow(
 	selected bool,
+	styles viewStyles,
 	markStyle lipgloss.Style,
 	mark string,
-	block outgoingBlock,
-	content string,
-	colour theme.Color,
+	block messageBlock,
+	runs []blockRun,
 	flushRight bool,
 ) string {
-	fitted := m.widths.Fit(content, block.text, ellipsis)
-	if flushRight {
-		// The state under a message is read at the right edge of the
-		// block, where the block is, rather than at its left edge where
-		// the text of the message above it starts.
-		fitted = spaces(block.text-m.widths.StringWidth(fitted)) + fitted
-	}
+	runs = m.fitRuns(runs, block.text)
+	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
+	raised := styles.on(m.blockSurface(block.side, selected), styles.unstyled())
 
+	// The columns in front of the block, the marker in the last of them
+	// and the rest of the feed behind it are all written with the
+	// background of the feed, and so is the marker: a cell of a row with
+	// no background at all is a cell the terminal paints with whatever it
+	// thinks its own background is.
 	row := m.painter(theme.Color{}).
-		pad(block.offset-selectionMarkerWidth).
-		add(markStyle, mark)
+		own(feed, spaces(block.offset-selectionMarkerWidth)).
+		own(styles.on(m.tokens().ChatBackground, markStyle), mark)
 
 	if block.ends > 0 {
+		row = row.own(m.roundedEndStyle(styles, block.side, selected), termwidth.NerdHalfLeft)
+	}
+
+	// The air in front of the words, and the air behind them, add up to
+	// the width of the text inside the block on every row of it. A row
+	// whose words are shorter than the block has to carry the block to
+	// the edge the next row carries it to, or two rows of one message are
+	// two blocks; and a row read at the right edge has the whole of the
+	// air in front of the words instead of behind them.
+	air := m.flushColumns(block, runs)
+	if flushRight {
+		row = row.own(raised, spaces(air))
+	}
+	row = row.own(raised, spaces(block.inset))
+
+	for _, run := range runs {
 		row = row.own(
-			styles.roundedEnd(
-				m.blockSurface(selected), m.tokens().ChatBackground,
-			),
-			termwidth.NerdHalfLeft,
+			styles.on(m.blockSurface(block.side, selected), run.style),
+			run.text,
 		)
 	}
 
-	// The text of the block is painted with the colour it was given on the
-	// background of the block, and the whole run at once: a run inside a
-	// run ends with a reset of its own, and a reset in the middle of a
-	// block takes the background with it, so the two columns of air after
-	// the last word of a message would be the feed showing through the
-	// block, and a block with a hole in it is a block nobody can read the
-	// end of.
-	raised := styles.bubble()
-	if colour.IsSet() {
-		raised = raised.Foreground(lipgloss.Color(colour.Print()))
+	if !flushRight {
+		row = row.own(raised, spaces(air))
+	}
+	row = row.own(raised, spaces(block.inset))
+
+	if block.ends > 0 {
+		row = row.own(m.roundedEndStyle(styles, block.side, selected), termwidth.NerdHalfRight)
 	}
 
-	row = row.add(
-		styles.on(m.blockSurface(selected), raised),
-		spaces(block.inset)+fitted+spaces(block.inset),
+	return row.own(feed, spaces(block.right)).String()
+}
+
+// roundedEndStyle is the style of one half of a rounded end: the colour of
+// the block, on the background of the feed.
+func (m Model) roundedEndStyle(
+	styles viewStyles,
+	side messageSide,
+	selected bool,
+) lipgloss.Style {
+	return styles.roundedEnd(
+		m.blockSurface(side, selected), m.tokens().ChatBackground,
 	)
+}
 
-	if block.ends > 0 {
-		row = row.own(
-			styles.roundedEnd(
-				m.blockSurface(selected), m.tokens().ChatBackground,
-			),
-			termwidth.NerdHalfRight,
-		)
+// flushColumns returns how many columns of a block are not covered by the
+// words of a row of it.
+//
+// The state under a message of this user is read at the edge the block is
+// against rather than at the edge the text above it starts at: it is a fact
+// about the message rather than a continuation of its text, and a
+// continuation would start where the last line of the text starts. The same
+// number behind the words keeps the block the same width on every row of
+// it, which is what makes two rows of one message one block.
+func (m Model) flushColumns(block messageBlock, runs []blockRun) int {
+	used := 0
+	for _, run := range runs {
+		used += m.widths.StringWidth(run.text)
 	}
 
-	return row.pad(block.right).String()
+	return maxInt(block.text-used, 0)
 }
 
 // historyStateLabel returns the words under a message of this user and the
@@ -1000,35 +1136,6 @@ func deliveryOfHistory(message Message) MessageDeliveryState {
 	}
 
 	return MessageDeliveryState("")
-}
-
-// messageBodyLines returns the rows of the text of a message, wrapped to
-// the width the message has.
-//
-// The text starts in the column the author's name starts in (§4.4), so the
-// margin the feed keeps is spent on the text rows as well: a message whose
-// name is one column to the left of its own text reads as two messages.
-func (m Model) messageBodyLines(
-	entry timelineEntry,
-	indent string,
-	textWidth int,
-	surface theme.Color,
-	styles viewStyles,
-) []string {
-	if textWidth < 1 {
-		return nil
-	}
-
-	rowWidth := m.widths.StringWidth(indent) + textWidth
-	wrapped := m.widths.Wrap(entryText(entry), textWidth, ellipsis)
-	lines := make([]string, 0, len(wrapped))
-
-	for _, line := range wrapped {
-		row := m.painter(surface).add(styles.body(false), indent+line)
-		lines = append(lines, row.pad(rowWidth-row.width()).String())
-	}
-
-	return lines
 }
 
 // selectionMark returns the column in front of the message under the

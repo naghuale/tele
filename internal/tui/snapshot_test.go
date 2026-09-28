@@ -550,6 +550,9 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotShortFeedAboveComposer", func(t *testing.T) Model {
 			return snapshotShortFeed(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotFullFeedFromTheNewest", func(t *testing.T) Model {
+			return snapshotFullFeed(t)
+		}},
 		{"TestSnapshotUntrustedNames", func(t *testing.T) Model {
 			f := wide(theme.ProfileTrueColor)
 			f.chats = untrustedChats()
@@ -868,6 +871,74 @@ func TestSnapshotGroupWithAuthors(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotGroupWithAuthors"))
 }
 
+// snapshotFullFeed is the feed of #57: forty messages of every kind, drawn
+// on a screen with rows to spare, opened at the newest message.
+//
+// It is the only screen here that is about where the window is rather than
+// about what a message looks like. The messages of a real account are of
+// three rows and four, and a window placed by a guess of two rows a message
+// starts a third of a screen too late: the feed shows the last few messages
+// at the bottom and empty rows above them, and a user who scrolls up to see
+// what is there is looking at rows that hold nothing. The screen below is
+// full from its first row to the newest message, and the entry at its top is
+// the one whose author line the arithmetic cut.
+func snapshotFullFeed(t *testing.T) Model {
+	t.Helper()
+
+	f := snapshotFixture{
+		width:   120,
+		height:  40,
+		profile: theme.ProfileTrueColor,
+	}
+
+	page := HistoryPage{Messages: snapshotLongConversation()}
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      page,
+	})
+
+	return m.scrollToNewest()
+}
+
+// snapshotLongConversation is forty messages newest first, as TDLib answers
+// them, of every kind the feed draws: a message from the other side, one of
+// this user, a text of two lines, a run of three photographs drawn as one
+// entry, and a file.
+func snapshotLongConversation() []Message {
+	messages := make([]Message, 0, 40)
+
+	for index := 40; index >= 1; index-- {
+		message := Message{
+			ID:     int64(index),
+			Time:   fmt.Sprintf("12:%02d", index%60),
+			Text:   fmt.Sprintf("сообщение %d", index),
+			Author: "Anna Example", AuthorID: 5,
+		}
+
+		switch index % 7 {
+		case 0:
+			message.Outgoing = true
+			message.Author, message.AuthorID = "", 0
+		case 1:
+			message.Text = "строка первая\nи строка вторая под ней"
+		case 2, 3, 4:
+			message.Text = ""
+			message.Media = "photo"
+			message.AlbumID = 100
+		case 5:
+			message.Text = ""
+			message.Media = "photo"
+		}
+
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
 // A channel, with an album of two photographs drawn as one entry and its
 // unread badge in the muted step rather than the accent.
 func TestSnapshotChannelAlbum(t *testing.T) {
@@ -879,6 +950,13 @@ func TestSnapshotChannelAlbum(t *testing.T) {
 // them.
 func TestSnapshotShortFeedAboveComposer(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotShortFeedAboveComposer"))
+}
+
+// A conversation with more messages than the feed has rows for, opened at
+// the newest one (#57): the feed is full from its first row to the bottom
+// of it.
+func TestSnapshotFullFeedFromTheNewest(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotFullFeedFromTheNewest"))
 }
 
 // A chat list whose names and previews carry what a terminal acts on: a

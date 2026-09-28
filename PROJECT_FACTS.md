@@ -458,10 +458,31 @@
     messages is prepended with dedup by Message.ID, and a sent message
     is appended
   - the cursor (selectedMsg) and the scroll anchor (timelineTop) are
-    separate: the anchor is the message on the first row and survives a
-    page arriving above it and a resize (§10.5). A page that adds N
-    messages moves both by N, so the message that was on screen stays
-    on screen
+    separate: the anchor is the entry the window starts at and survives
+    a page arriving above it and a resize (§10.5)
+  - the window is placed by measurement, not by a guess (#57). It used
+    to start a page of keys above the newest, which divided the rows of
+    the feed by two rows a message; since #50 an incoming message is
+    three rows and an outgoing one three as well, an album is one entry
+    and there is a blank row between two messages, so the window started
+    about a third of a screen too late and the feed had empty rows in
+    it. anchoredAt walks back from the newest entry adding
+    `len(entryLines(...))` — the function the view draws with — until the
+    rows of the feed are full, and timelineCut holds how much of the top
+    of the first entry is left off so the last row is used
+  - the row budget is historyFeedRows: the region's height less the
+    heading, the status block, the line an older page takes and the rows
+    the pending messages below take. The view draws the feed into it and
+    the window is placed against it, so the two cannot disagree
+  - the window is placed again when the conversation is being followed —
+    a chat opened, a message sent, a page of older messages arriving at
+    a user at the end, a resize — and left exactly where it is when a
+    reader has walked away from the end, where a page that adds N
+    messages moves the cursor and the anchor by N so the message on
+    screen stays on screen
+  - timelinePageSize is the one estimate left, and it is only how far
+    PgUp and PgDn move the cursor. The cursor going off the bottom of
+    the window places the window by the heights of the entries
   - keys (§8.3): j/k walk, PgUp/PgDn move a screenful, G and End go to
     the newest message, Enter and i hand the keys to the composer, and
     g does nothing: it is the chat list's key
@@ -470,11 +491,11 @@
     a page that adds nothing exhausts the history, one request at a
     time, an error keeps what is loaded and is retried by the next ↑,
     and a stale response is dropped by historyOperation
-  - a page is asked for until the feed has as many messages in it as it
-    has rows, and that is the whole of the fill (#57). The first page
-    went in the screen as it arrived, which on a fresh account is one or
-    two messages, and it is the number of rows the feed has and not the
-    height of the window, so the fill does not chase a resize
+  - a page is asked for until the feed is full, and "full" is the
+    window's own answer: an anchor that is not the oldest loaded message
+    means there are messages above the first row of the feed (#57). The
+    first page went in the screen as it arrived, which on a fresh
+    account is one or two messages
   - the fill is bounded three ways: at most maxHistoryFillRequests (5)
     requests, at most maxHistoryFillMessages (100) messages brought in
     beyond the first page, and it stops at a page that says there is

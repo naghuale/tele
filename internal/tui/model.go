@@ -194,6 +194,17 @@ type Model struct {
 	// are in different places.
 	timelineTop int
 
+	// timelineCut is how many rows the view leaves off the top of the entry
+	// timelineTop names.
+	//
+	// The rows of the feed are not a whole number of messages, and a window
+	// that is filled to the last row of it has to draw the entry at its top
+	// from the middle: what is left off is the blank row above the message
+	// and, at worst, its author line. It is part of the anchor rather than
+	// a scroll position of its own, and it is zero whenever the window was
+	// not placed by anchoredAt — a message the cursor is on is never cut.
+	timelineCut int
+
 	// historyOperation identifies the current history load. It is bumped
 	// on every entry into a conversation so that a page still in flight
 	// for a previous entry is discarded instead of appended.
@@ -441,6 +452,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	// Whether the window is following the conversation is asked before the
+	// size changes: it is a question about where the user is, and the rows
+	// of the feed are what the answer is measured against.
+	following := m.timelineFollowsNewest()
+
 	m.width = msg.Width
 	m.height = msg.Height
 
@@ -449,6 +465,18 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	// longer drawn, and a narrower screen shows the same message at the
 	// top of the window (§10.5).
 	m = m.normalizeTimeline().normalizeFocus()
+
+	// A window that was following is filled from the bottom again, because
+	// the rows of the feed are not the rows it was placed against: a taller
+	// screen would leave empty rows under the newest message and a shorter
+	// one would cut it off. A window a reader has scrolled away from keeps
+	// its message at the top (§10.5), and the cut that belonged to the rows
+	// it was placed against is nothing to do with the new ones.
+	if following {
+		m = m.anchorAtNewest()
+	} else {
+		m.timelineCut = 0
+	}
 
 	// The search is a region of the chat list, and a narrow screen has no
 	// chat list beside the conversation. A search that is not on the
@@ -669,6 +697,11 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.reportUnreadableHistory(msg)
 
 	existing := m.chats[m.selectedChat].Messages
+	// Whether the window is following the conversation is asked before the
+	// page goes on top: it is a question about where the user is, and the
+	// page moves every index below.
+	following := m.timelineFollowsNewest()
+
 	merged := prependOlderMessages(
 		existing,
 		chronological(safeMessages(msg.page.Messages)),
@@ -676,12 +709,27 @@ func (m Model) appendOlderHistory(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	m.chats[m.selectedChat].Messages = merged
 
 	// The page went on top, so the message that was on screen is exactly
-	// what was added lower down. Moving the cursor and the scroll anchor by
-	// that much is what keeps a reader in place: this is the one place
-	// where reading upwards could punish a user for asking for more.
+	// what was added lower down. Moving the cursor by that much is what
+	// keeps a reader in place: this is the one place where reading upwards
+	// could punish a user for asking for more.
 	added := len(merged) - len(existing)
 	m.selectedMsg += added
-	m.timelineTop += added
+
+	// The window is placed one way or the other, and which way is the
+	// difference between a conversation that fills the screen and one that
+	// does not. A user at the end of the conversation gets the window
+	// filled again from the bottom, so the newest message is on the last
+	// row and the rows above it are messages: a window moved down by the
+	// length of the page would show a screenful of older messages and cut
+	// the newest off the bottom, which is a conversation that opens with a
+	// few messages in the corner of an empty feed. A user reading upwards
+	// gets the window moved by what the page added, which is what keeps the
+	// message they are reading on the same row.
+	if following {
+		m = m.anchorAtNewest()
+	} else {
+		m.timelineTop, m.timelineCut = m.timelineTop+added, 0
+	}
 
 	if len(merged) == len(existing) {
 		m.historyExhausted = true
@@ -727,7 +775,7 @@ func (m Model) fillHistory() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if len(chat.Messages) >= m.historyFillTarget() {
+	if m.feedIsFull() {
 		return m, nil
 	}
 
@@ -742,19 +790,27 @@ func (m Model) fillHistory() (tea.Model, tea.Cmd) {
 	)
 }
 
-// historyFillTarget is how many messages the conversation needs before the
-// pages above it stop being asked for.
+// feedIsFull reports whether the window is drawn over the whole of the
+// messages that are loaded, which is the same question the placement of the
+// window answers and the same answer: an anchor that is not the oldest
+// loaded message means there are messages above the first row of the feed.
 //
-// It is what the feed can show, and never more than a page: a screen of
-// messages is what a user came for, and the messages above it are what
-// the ↑ key of §8.3 is for.
-func (m Model) historyFillTarget() int {
-	target := m.timelinePageSize()
-	if target > historyPageSize {
-		return historyPageSize
+// It is asked in messages and answered by the window on purpose. The window
+// knows how tall the messages are and this does not, and the version of
+// this that counted messages against a guess at how many of them fit is
+// what opened a chat with a screenful that was a third of a screen short
+// (#57).
+//
+// A model nobody has drawn yet is a model with no rows at all, and rows it
+// does not have are not rows it can ask for a page to fill: the size
+// arrives before anything else in a program, and the window is placed again
+// by the first one that does.
+func (m Model) feedIsFull() bool {
+	if m.width < 1 || m.height < 1 {
+		return true
 	}
 
-	return maxInt(target, 1)
+	return m.timelineTop > 0
 }
 
 const (

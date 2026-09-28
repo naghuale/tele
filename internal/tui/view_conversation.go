@@ -142,7 +142,7 @@ func anchorTimelineToBottom(body []string, rows int) []string {
 // conversation.
 func (m Model) timelineBody(layout Layout, width, rows int) []string {
 	lines := make([]string, 0, rows)
-	if history := m.historyRows(layout, width); history > 0 {
+	if history := m.historyFeedRows(layout, width); history > 0 {
 		lines = append(lines, m.timelineLines(layout, width, history)...)
 	}
 
@@ -294,10 +294,13 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 	entries := timelineEntries(messages)
 	top := entryIndexOfMessage(entries, clampIndex(m.timelineTop, len(messages)-1))
 
-	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles)
+	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles, m.timelineCut)
 
 	selected := entryIndexOfMessage(entries, clampIndex(m.selectedMsg, len(messages)-1))
 	if selected < top || selected >= top+drawn {
+		// The cursor is not in the window the model placed, and the message
+		// it is on is drawn whole: the cut belongs to a window that is not
+		// this one.
 		lines, _ = m.entryRowsFrom(
 			entries,
 			selected,
@@ -305,6 +308,7 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 			width,
 			rows,
 			styles,
+			0,
 		)
 	}
 
@@ -313,6 +317,14 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 
 // entryRowsFrom draws the entries from first onwards until the rows run
 // out, and returns how many entries it drew.
+//
+// cutRows are the rows left off the top of the first entry, and they are
+// the window the model placed: the rows of a feed are not a whole number of
+// messages, and a window that ends at the newest message is full when the
+// entry at its top is drawn from the middle. What is left off there is the
+// blank row that separates the message from the one above it, and at worst
+// its author line; the newest message is never the one cut, because the
+// walk that placed the window started from it.
 func (m Model) entryRowsFrom(
 	entries []timelineEntry,
 	first int,
@@ -320,6 +332,7 @@ func (m Model) entryRowsFrom(
 	width int,
 	rows int,
 	styles viewStyles,
+	cutRows int,
 ) ([]string, int) {
 	var (
 		lines []string
@@ -329,11 +342,16 @@ func (m Model) entryRowsFrom(
 	for index := first; index < len(entries); index++ {
 		entry := entries[index]
 		block := m.entryLines(entry, layout, width, styles)
+		if index == first && cutRows > 0 {
+			block = block[minInt(cutRows, maxInt(len(block)-1, 0)):]
+		}
 
-		// A message taller than the rows that are left is cut at them. The
-		// first one is cut rather than skipped, or a long message would
-		// leave the timeline empty, and letting it grow past its rows would
-		// push the composer off the screen, which §3.4 does not allow.
+		// An entry taller than the rows that are left is cut at them, and
+		// it is the first one that is cut rather than skipped: a long
+		// message would otherwise leave the timeline empty, and letting it
+		// grow past its rows would push the composer off the screen, which
+		// §3.4 does not allow. The head of the message is what is kept —
+		// a message whose text is missing is a message nobody can read.
 		if len(block) > rows-len(lines) {
 			if len(lines) > 0 {
 				break

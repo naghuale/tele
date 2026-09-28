@@ -39,6 +39,17 @@ type TUIConfig struct {
 	// and a family. Left empty it is "auto", which measures the terminal
 	// before the first frame.
 	Width string `toml:"width"`
+
+	// NerdFont says whether the terminal is drawn with a Nerd Font, and
+	// so whether the block of a message of this user may be rounded.
+	//
+	// It is a flag and not a word because there is nothing to choose
+	// between: the glyphs are either there or they are not, and a
+	// terminal does not report which font it has been given. It is off
+	// by default because a terminal without one draws them as empty
+	// squares, and a message with empty squares at both ends is worse
+	// than a message with square ones.
+	NerdFont bool `toml:"nerd_font"`
 }
 
 // The interface defaults, spelled out here so that Default is a complete
@@ -66,6 +77,15 @@ const (
 	// TestInterfaceDefaultsMatchTheWidthPackage in
 	// internal/application fails if the two ever disagree.
 	DefaultTUIWidthMode = "auto"
+
+	// DefaultTUINerdFont draws the block of a message of this user with
+	// square ends.
+	//
+	// It is the zero value, so it is named for the same reason the other
+	// three are: a configuration written by `telecli configure` says
+	// what it decided, and what it decides about a font it cannot see is
+	// that it does not assume one.
+	DefaultTUINerdFont = false
 )
 
 // MessageDeliveryConfig holds the durable outbox settings.
@@ -136,9 +156,10 @@ func Default() Config {
 			Mode: DefaultMessageSendMode,
 		},
 		TUI: TUIConfig{
-			Theme: DefaultTUITheme,
-			Color: string(DefaultTUIColorMode),
-			Width: DefaultTUIWidthMode,
+			Theme:    DefaultTUITheme,
+			Color:    string(DefaultTUIColorMode),
+			Width:    DefaultTUIWidthMode,
+			NerdFont: DefaultTUINerdFont,
 		},
 	}
 }

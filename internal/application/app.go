@@ -171,6 +171,12 @@ type App struct {
 	// widthMode is the rule the interface counts the width of text in.
 	// The zero value measures the terminal before the first frame.
 	widthMode termwidth.Mode
+
+	// nerdFont says the terminal is drawn with a Nerd Font, and that the
+	// block of a message of this user may be rounded with it. The zero
+	// value draws square corners, which is what a terminal without the
+	// font needs.
+	nerdFont bool
 }
 
 // WithInterface returns a copy of the app that draws with the given theme
@@ -210,6 +216,25 @@ func (a *App) WithWidthMode(mode termwidth.Mode) *App {
 
 	copied := *a
 	copied.widthMode = mode
+
+	return &copied
+}
+
+// WithNerdFont returns a copy of the app that rounds the block of a
+// message of this user when the terminal is drawn with a Nerd Font.
+//
+// It is resolved by the composition root for the same reason the theme
+// and the width rule are: a terminal does not report the font it has been
+// given, so the only party that can say is the configuration, and
+// telecli doctor reports what it said. An app built without it draws
+// square corners, which is what a terminal without the font needs.
+func (a *App) WithNerdFont(enabled bool) *App {
+	if a == nil {
+		return nil
+	}
+
+	copied := *a
+	copied.nerdFont = enabled
 
 	return &copied
 }
@@ -368,6 +393,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						Theme:        a.interfaceTheme(),
 						ColorProfile: a.colorProfile,
 						WidthMode:    a.widthMode,
+						NerdFont:     a.nerdFont,
 					},
 				)
 			}
@@ -561,6 +587,7 @@ func runDoctor(args []string, env Environment) int {
 	writeConfigWarnings(env.Stdout, cfg.Warnings)
 	writeInterfaceStatus(env.Stdout, interfaceTheme, profile)
 	writeWidthStatus(env.Stdout, widthMode)
+	writeFontStatus(env.Stdout, cfg.TUI.NerdFont)
 	reportOutboxStatus(
 		env.Stdout,
 		context.Background(),
@@ -759,7 +786,9 @@ func runTUI(args []string, env Environment) int {
 		runAuth,
 		env.RunTUI,
 		env.RunTUIWithSubmitter,
-	).WithInterface(interfaceTheme, colorProfile).WithWidthMode(widthMode)
+	).WithInterface(interfaceTheme, colorProfile).
+		WithWidthMode(widthMode).
+		WithNerdFont(cfg.TUI.NerdFont)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)
 

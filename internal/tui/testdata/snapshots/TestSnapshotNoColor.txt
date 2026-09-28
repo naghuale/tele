@@ -11,13 +11,13 @@
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
   / Search · 3 unread                                                                                                   
   › Anna Example            12:07                                                                                       
-  ›  the build is green again 2                                                                                         
+  ›  the build is green again  2                                                                                        
                                                                                                                         
     Release Room            12:05                                                                                       
      the tag is pushed                                                                                                  
                                                                                                                         
     Notes                   11:58                                                                                       
-     milk, bread, coffee 1                                                                                              
+     milk, bread, coffee       1                                                                                        
                                                                                                                         
     Команда Разработки      11:40                                                                                       
      созвон в 15:00                                                                                                     
@@ -26,14 +26,14 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                     Anna Example · 12:02                                                               
-                                      The build is green again                                                          
+                                       Anna Example · 12:02                                                             
+                                       The build is green again                                                         
                                                                                                                         
-                                                               Shipped the release notes                                
-                                                               ✓ Sent 12:05                                             
+                                                                                          Shipped the release notes     
+                                                                                          ✓ Sent 12:05                  
                                                                                                                         
-                                    ›Anna Example · 12:07                                                               
-                                      Спасибо, посмотрю после обеда                                                     
+                                      ›Anna Example · 12:07                                                             
+                                       Спасибо, посмотрю после обеда                                                    
                                                                                                                         
                                     › Write a message…                                                                  
                                     Enter open · / search · q quit                                                      
@@ -43,13 +43,13 @@
 "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       "
 "  / Search · 3 unread                                                                                                   "
 "  › Anna Example            12:07                                                                                       "
-"  ›  the build is green again 2                                                                                         "
+"  ›  the build is green again  2                                                                                        "
 "                                                                                                                        "
 "    Release Room            12:05                                                                                       "
 "     the tag is pushed                                                                                                  "
 "                                                                                                                        "
 "    Notes                   11:58                                                                                       "
-"     milk, bread, coffee 1                                                                                              "
+"     milk, bread, coffee       1                                                                                        "
 "                                                                                                                        "
 "    Команда Разработки      11:40                                                                                       "
 "     созвон в 15:00                                                                                                     "
@@ -58,14 +58,14 @@
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "
-"                                     Anna Example · 12:02                                                               "
-"                                      The build is green again                                                          "
+"                                       Anna Example · 12:02                                                             "
+"                                       The build is green again                                                         "
 "                                                                                                                        "
-"                                                               Shipped the release notes                                "
-"                                                               ✓ Sent 12:05                                             "
+"                                                                                          Shipped the release notes     "
+"                                                                                          ✓ Sent 12:05                  "
 "                                                                                                                        "
-"                                    ›Anna Example · 12:07                                                               "
-"                                      Спасибо, посмотрю после обеда                                                     "
+"                                      ›Anna Example · 12:07                                                             "
+"                                       Спасибо, посмотрю после обеда                                                    "
 "                                                                                                                        "
 "                                    › Write a message…                                                                  "
 "                                    Enter open · / search · q quit                                                      "

@@ -134,6 +134,18 @@ type Dependencies struct {
 	// of owning one — draw with a width model that says where it came
 	// from.
 	WidthMeasured *termwidth.Measurement
+
+	// NerdFont says that the terminal is drawn with a Nerd Font, and so
+	// that the block of a message of this user may be rounded with the
+	// two halves the font provides.
+	//
+	// The composition root resolves it from the configuration, for the
+	// same reason it resolves the theme and the width rule: a terminal
+	// does not report the font it has been given, so the only party that
+	// can say is the user, and every command has to hear it the same way.
+	// It is false unless it was asked for, because a terminal without the
+	// font draws the halves as empty squares.
+	NerdFont bool
 }
 
 type composerSubmissionMsg struct {
@@ -180,6 +192,7 @@ func NewModelWithDependencies(
 	model.widths, _ = termwidth.Select(
 		deps.WidthMode, measurementOf(deps.WidthMeasured),
 	)
+	model.nerdFont = deps.NerdFont
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now
 		// means the user is not invited to press Enter to find out, and

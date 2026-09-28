@@ -44,3 +44,32 @@ func writeWidthStatus(out io.Writer, configured termwidth.Mode) {
 		)
 	}
 }
+
+// writeFontStatus reports the Nerd Font setting in telecli doctor.
+//
+// It is a report of state, and the state it reports is a decision rather
+// than a fact: a terminal does not say what font it has been given, so the
+// configuration is the only place the answer can come from and the doctor
+// is the only place a user can check that their answer is the one the TUI
+// will use. The note under it says what a terminal without the font draws,
+// because "the setting is on" and "the setting is on and the font is there"
+// are two different screens.
+func writeFontStatus(out io.Writer, configured bool) {
+	if configured {
+		fmt.Fprint(out, "Interface font: Nerd Font\n")
+		fmt.Fprint(
+			out,
+			"  the ends of a message of this user are rounded; a "+
+				"terminal without the font draws them as empty squares\n",
+		)
+
+		return
+	}
+
+	fmt.Fprint(out, "Interface font: plain\n")
+	fmt.Fprint(
+		out,
+		"  set tui.nerd_font = true to round the ends of a message of "+
+			"this user\n",
+	)
+}

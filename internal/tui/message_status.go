@@ -45,10 +45,22 @@ const (
 // It intentionally excludes message text, encrypted payload, provider error
 // messages, cipher metadata, and transport-specific details.
 type MessageStatus struct {
-	EntryID       string
-	AccountKey    string
-	ChatID        int64
-	State         MessageDeliveryState
+	EntryID    string
+	AccountKey string
+	ChatID     int64
+	State      MessageDeliveryState
+
+	// MessageID is the identifier Telegram knows the message by, and it
+	// is set only once Telegram has confirmed the send. Before that the
+	// queue holds a temporary identifier that no history page will ever
+	// contain, and a message placed under it could not be recognised as
+	// the same message when the history arrives.
+	//
+	// It is a number TDLib assigned, like the chat id beside it, and it
+	// is what lets a confirmed message move out of the pending list and
+	// into the conversation under the identifier it will keep.
+	MessageID int64
+
 	Attempt       int
 	NextAttemptAt time.Time
 	UpdatedAt     time.Time

@@ -703,9 +703,7 @@ func TestRetryingSchedulesNoCountdown(t *testing.T) {
 
 	// The poll is the only thing the tick schedules, and the tick is the
 	// same one every delivery read uses.
-	_, cmd := m.handleMessageStatusPollTick(messageStatusPollTickMsg{
-		generation: m.messageStatusGeneration,
-	})
+	_, cmd := m.handleMessageStatusPollTick(messageStatusPollTickMsg{})
 	if cmd == nil {
 		t.Fatal("the delivery poll stopped")
 	}

@@ -228,27 +228,44 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 			}
 			return claimed
 		}
+		// accept drives an entry as far as TDLib's own answer, which is
+		// as far as a send without a Telegram confirmation gets.
+		accept := func(id ID, temporaryID int64, at time.Time) {
+			t.Helper()
+			c := claim(id, at)
+			if _, err := store.MarkAccepted(ctx, c.ID, c.Version, temporaryID, at); err != nil {
+				t.Fatal(err)
+			}
+		}
+		confirm := func(id ID, temporaryID, messageID int64, at time.Time) {
+			t.Helper()
+			entry, err := store.Get(ctx, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.MarkSent(ctx, entry.ID, entry.Version, messageID, at); err != nil {
+				t.Fatal(err)
+			}
+		}
 
 		// Each entry lives in its own chat so ordering never blocks a
 		// claim.
 		enqueue("old-accepted", 1)
-		enqueue("new-accepted", 2)
-		enqueue("old-canceled", 3)
-		enqueue("old-uncertain", 4)
-		enqueue("old-permanent", 5)
-		enqueue("old-queued", 6)
+		enqueue("old-sent", 2)
+		enqueue("new-sent", 3)
+		enqueue("old-canceled", 4)
+		enqueue("old-uncertain", 5)
+		enqueue("old-permanent", 6)
+		enqueue("old-queued", 7)
 
 		old := t0.Add(time.Minute)
 		recent := t0.Add(48 * time.Hour)
 
-		c := claim("old-accepted", old)
-		if _, err := store.MarkAccepted(ctx, c.ID, c.Version, 1, old); err != nil {
-			t.Fatal(err)
-		}
-		c = claim("new-accepted", old)
-		if _, err := store.MarkAccepted(ctx, c.ID, c.Version, 2, recent); err != nil {
-			t.Fatal(err)
-		}
+		accept("old-accepted", 1, old)
+		accept("old-sent", 2, old)
+		confirm("old-sent", 2, 1002, old)
+		accept("new-sent", 3, old)
+		confirm("new-sent", 3, 1003, recent)
 		queued, err := store.Get(ctx, "old-canceled")
 		if err != nil {
 			t.Fatal(err)
@@ -256,7 +273,7 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 		if _, err := store.Cancel(ctx, queued.ID, queued.Version, old); err != nil {
 			t.Fatal(err)
 		}
-		c = claim("old-uncertain", old)
+		c := claim("old-uncertain", old)
 		if _, err := store.MarkUncertain(ctx, c.ID, c.Version, "lost", old); err != nil {
 			t.Fatal(err)
 		}
@@ -273,14 +290,19 @@ func runStoreContract(t *testing.T, factory storeFactory) {
 			t.Fatalf("purged = %d, want 2", purged)
 		}
 
-		for _, id := range []ID{"old-accepted", "old-canceled"} {
+		for _, id := range []ID{"old-sent", "old-canceled"} {
 			if _, err := store.Get(ctx, id); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("Get(%s) err = %v, want ErrNotFound", id, err)
 			}
 		}
-		// Recent deliveries, and entries that still need the user's
-		// attention or a send, are kept.
-		for _, id := range []ID{"new-accepted", "old-uncertain", "old-permanent", "old-queued"} {
+		// A message Telegram has not answered about is still being sent,
+		// and it is not the queue's to forget. Recent deliveries, and
+		// entries that still need the user's attention or a send, are
+		// kept.
+		for _, id := range []ID{
+			"old-accepted", "new-sent", "old-uncertain",
+			"old-permanent", "old-queued",
+		} {
 			if _, err := store.Get(ctx, id); err != nil {
 				t.Fatalf("Get(%s) err = %v, want kept", id, err)
 			}

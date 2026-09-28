@@ -10,6 +10,12 @@ import (
 // TestDispatcherRunPurgesOldDeliveredEntries pins that Run removes
 // delivered entries past the retention period, so encrypted message text
 // does not accumulate forever.
+//
+// "Delivered" is StateSent, not StateAccepted: TDLib accepting a message
+// only means it is still on its way, and a record whose outcome nobody
+// knows is a record the user may still come back to. The entry left in
+// accepted here is the same fact seen from the other side, and it is
+// never purged.
 func TestDispatcherRunPurgesOldDeliveredEntries(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
@@ -22,7 +28,28 @@ func TestDispatcherRunPurgesOldDeliveredEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MarkAccepted(ctx, claimed.ID, claimed.Version, 1, t0); err != nil {
+	accepted, err := store.MarkAccepted(ctx, claimed.ID, claimed.Version, 1, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkSent(ctx, accepted.ID, accepted.Version, 1001, t0); err != nil {
+		t.Fatal(err)
+	}
+
+	// A second entry Telegram never answered about, in its own chat so
+	// ordering cannot hold it back.
+	if err := store.Enqueue(ctx, queuedEntryAt("op-unanswered", 43, "y", t0)); err != nil {
+		t.Fatal(err)
+	}
+	unanswered, err := store.Claim(
+		ctx, "op-unanswered", 0, "d1", t0.Add(time.Hour), t0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MarkAccepted(
+		ctx, unanswered.ID, unanswered.Version, 2, t0,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,5 +79,9 @@ func TestDispatcherRunPurgesOldDeliveredEntries(t *testing.T) {
 	cancel()
 	if err := <-runErr; err != nil {
 		t.Fatalf("Run error = %v", err)
+	}
+
+	if _, err := store.Get(ctx, "op-unanswered"); err != nil {
+		t.Fatalf("an entry Telegram never answered about was purged: %v", err)
 	}
 }

@@ -14,10 +14,17 @@ const (
 )
 
 type EntryStatus struct {
-	ID            string
-	AccountKey    string
-	ChatID        int64
-	State         State
+	ID         string
+	AccountKey string
+	ChatID     int64
+	State      State
+
+	// TelegramMessageID is the identifier Telegram knows the message by.
+	// In StateAccepted it is the temporary one sendMessage returned, and
+	// in StateSent it is the final one. It is a number TDLib assigned, in
+	// the same class as the chat id beside it, and never the text.
+	TelegramMessageID int64
+
 	Attempt       int
 	NextAttemptAt time.Time
 	UpdatedAt     time.Time
@@ -83,6 +90,22 @@ func validateEntryStatus(status EntryStatus) error {
 	}
 	if status.UpdatedAt.IsZero() {
 		return fmt.Errorf("%w: zero updated time", ErrInvalidEntry)
+	}
+	// A queue that holds a message and a message with no identifier in
+	// Telegram are the same contradiction the entry model rejects.
+	switch status.State {
+	case StateAccepted, StateSent:
+		if status.TelegramMessageID == 0 {
+			return fmt.Errorf(
+				"%w: %s status without message id", ErrInvalidEntry, status.ID,
+			)
+		}
+	default:
+		if status.TelegramMessageID != 0 {
+			return fmt.Errorf(
+				"%w: message id in %s status", ErrInvalidEntry, status.State,
+			)
+		}
 	}
 	if status.State == StateFailedRetryable {
 		if status.NextAttemptAt.IsZero() {

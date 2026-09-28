@@ -155,6 +155,7 @@ func productionOutboxID() (outbox.ID, error) {
 
 func productionDurableRuntimeDeps(
 	session TelegramSender,
+	live *telegram.LiveState,
 	cfg config.Config,
 ) DurableOutboxRuntimeDeps {
 	return DurableOutboxRuntimeDeps{
@@ -162,6 +163,11 @@ func productionDurableRuntimeDeps(
 		Session:     session,
 		IDGenerator: productionOutboxID,
 		AccountKey:  deliveryAccountKey(cfg),
+		// The live store is where TDLib's send results land. Without it
+		// the queue would know a message was accepted and never learn
+		// that Telegram sent it, which is the whole chain this runtime
+		// exists to carry out.
+		MessageEvents: live,
 	}
 }
 
@@ -192,7 +198,9 @@ func prepareDeliveryAuthResult(
 	// constructed on a production path.
 	deps := MessageDeliveryRuntimeDeps{}
 	if cfg.MessageDelivery.Mode == config.MessageSendModeDurable {
-		deps.Durable = productionDurableRuntimeDeps(session, cfg)
+		deps.Durable = productionDurableRuntimeDeps(
+			session, session.LiveState(), cfg,
+		)
 	}
 
 	delivery, err := openDelivery(

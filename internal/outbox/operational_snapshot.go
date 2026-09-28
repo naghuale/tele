@@ -19,6 +19,7 @@ type OperationalSnapshot struct {
 	Queued          int64
 	Dispatching     int64
 	Accepted        int64
+	Sent            int64
 	FailedRetryable int64
 	FailedPermanent int64
 	Uncertain       int64
@@ -64,6 +65,8 @@ func addOperationalCount(
 		snapshot.Dispatching += count
 	case StateAccepted:
 		snapshot.Accepted += count
+	case StateSent:
+		snapshot.Sent += count
 	case StateFailedRetryable:
 		snapshot.FailedRetryable += count
 	case StateFailedPermanent:

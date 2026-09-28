@@ -89,6 +89,7 @@ type MessageDeliveryHealth struct {
 	Queued          int64
 	Dispatching     int64
 	Accepted        int64
+	Sent            int64
 	FailedRetryable int64
 	FailedPermanent int64
 	Uncertain       int64
@@ -122,6 +123,7 @@ func projectOperationalSnapshot(
 		Queued:          snapshot.Queued,
 		Dispatching:     snapshot.Dispatching,
 		Accepted:        snapshot.Accepted,
+		Sent:            snapshot.Sent,
 		FailedRetryable: snapshot.FailedRetryable,
 		FailedPermanent: snapshot.FailedPermanent,
 		Uncertain:       snapshot.Uncertain,

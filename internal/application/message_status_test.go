@@ -28,8 +28,16 @@ func TestProjectMessageState(t *testing.T) {
 			want:  MessageDeliverySending,
 		},
 		{
+			// TDLib took the message; Telegram has not confirmed it. The
+			// identifier the entry holds is temporary and is in no
+			// history page, so the message is still on its way.
 			name:  "accepted",
 			state: outbox.StateAccepted,
+			want:  MessageDeliverySending,
+		},
+		{
+			name:  "sent",
+			state: outbox.StateSent,
 			want:  MessageDeliverySent,
 		},
 		{
@@ -86,18 +94,20 @@ func TestProjectMessageStatus(t *testing.T) {
 	t.Parallel()
 
 	now := time.Unix(1700000000, 123).UTC()
-	next := now.Add(time.Minute)
 	entry := outbox.Entry{
-		ID:                outbox.ID("entry-1"),
-		AccountKey:        "account-1",
-		ChatID:            42,
-		Text:              "secret message payload",
-		State:             outbox.StateDispatching,
-		AttemptCount:      2,
-		NextAttempt:       next,
-		UpdatedAt:         now,
-		LastErrorMessage:  "provider failure secret message payload",
-		LastErrorCode:     500,
+		ID:               outbox.ID("entry-1"),
+		AccountKey:       "account-1",
+		ChatID:           42,
+		Text:             "secret message payload",
+		State:            outbox.StateAccepted,
+		AttemptCount:     2,
+		UpdatedAt:        now,
+		AcceptedAt:       now,
+		LastErrorMessage: "provider failure secret message payload",
+		LastErrorCode:    500,
+		// A number TDLib assigned, in the same class as the chat id: it
+		// crosses, because the interface cannot place a confirmed message
+		// in the conversation without it.
 		TelegramMessageID: 99,
 		Version:           3,
 	}
@@ -108,13 +118,13 @@ func TestProjectMessageStatus(t *testing.T) {
 	}
 
 	want := MessageStatus{
-		EntryID:       "entry-1",
-		AccountKey:    "account-1",
-		ChatID:        42,
-		State:         MessageDeliverySending,
-		Attempt:       2,
-		NextAttemptAt: next,
-		UpdatedAt:     now,
+		EntryID:    "entry-1",
+		AccountKey: "account-1",
+		ChatID:     42,
+		State:      MessageDeliverySending,
+		MessageID:  99,
+		Attempt:    2,
+		UpdatedAt:  now,
 	}
 	if got != want {
 		t.Fatalf("projectMessageStatus() = %#v, want %#v", got, want)

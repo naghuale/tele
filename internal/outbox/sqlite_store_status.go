@@ -23,8 +23,8 @@ func (s *sqliteStore) ListEntryStatuses(
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, account_key, chat_id, state, attempt_count,
-       next_attempt_ns, updated_at_ns, version
+SELECT id, account_key, chat_id, state, telegram_message_id,
+       attempt_count, next_attempt_ns, updated_at_ns, version
 FROM outbox_entries
 WHERE account_key = ?
   AND chat_id = ?
@@ -62,6 +62,7 @@ func scanEntryStatus(row rowScanner) (EntryStatus, error) {
 		accountKey  string
 		chatID      int64
 		state       string
+		messageID   sql.NullInt64
 		attempt     int64
 		nextAttempt sql.NullInt64
 		updatedNS   int64
@@ -72,6 +73,7 @@ func scanEntryStatus(row rowScanner) (EntryStatus, error) {
 		&accountKey,
 		&chatID,
 		&state,
+		&messageID,
 		&attempt,
 		&nextAttempt,
 		&updatedNS,
@@ -98,14 +100,15 @@ func scanEntryStatus(row rowScanner) (EntryStatus, error) {
 		updatedAt = time.Unix(0, updatedNS).UTC()
 	}
 	return EntryStatus{
-		ID:            id,
-		AccountKey:    accountKey,
-		ChatID:        chatID,
-		State:         State(state),
-		Attempt:       int(attempt),
-		NextAttemptAt: timeFromNull(nextAttempt),
-		UpdatedAt:     updatedAt,
-		Version:       uint64(version),
+		ID:                id,
+		AccountKey:        accountKey,
+		ChatID:            chatID,
+		State:             State(state),
+		TelegramMessageID: messageID.Int64,
+		Attempt:           int(attempt),
+		NextAttemptAt:     timeFromNull(nextAttempt),
+		UpdatedAt:         updatedAt,
+		Version:           uint64(version),
 	}, nil
 }
 

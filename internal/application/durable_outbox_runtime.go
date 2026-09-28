@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,19 @@ type DurableOutboxRuntimeDeps struct {
 	IDGenerator OutboxIDGenerator
 	Notifier    DispatchNotifier
 	AccountKey  string
+
+	// MessageEvents is the live store the send-result reconciler reads.
+	//
+	// It is optional: a runtime opened without one still sends, and its
+	// entries stay accepted until the next run resolves them. That is a
+	// smaller program than a client with Telegram attached, and it is
+	// the shape a test drives the durable runtime in.
+	MessageEvents telegramMessageEvents
+
+	// Logger receives the reconciler's diagnostics. Message text is
+	// never logged; error strings go through outbox.SafeReason. A nil
+	// value uses slog.Default().
+	Logger *slog.Logger
 }
 
 type DurableOutboxRuntime struct {
@@ -35,10 +49,18 @@ type DurableOutboxRuntime struct {
 	dispatcherCancel context.CancelFunc
 	dispatcherDone   chan struct{}
 
+	// reconcilerCancel and reconcilerDone own the send-result
+	// reconciler, which is stopped and awaited before the store is
+	// closed for the same reason the dispatcher is: the store must never
+	// be read after shutdown.
+	reconcilerCancel context.CancelFunc
+	reconcilerDone   chan struct{}
+
 	available atomic.Bool
 
 	mu            sync.Mutex
 	dispatcherErr error
+	reconcilerErr error
 	closeErr      error
 	healthState   MessageDeliveryHealthState
 
@@ -236,7 +258,65 @@ func openDurableOutboxRuntime(
 		opened.Dispatcher,
 	)
 
+	// The reconciler runs beside the dispatcher, not inside it: the
+	// dispatcher's job ends when TDLib takes the message, and everything
+	// after that arrives as an update with no request behind it.
+	//
+	// It is started only when the store can correlate a send result and
+	// the caller brought a live store to read. A store without the
+	// capability would leave entries accepted forever, which is the bug
+	// this exists to fix, so it is reported rather than started quietly.
+	resultStore, supportsResults := opened.Store.(outbox.SendResultStore)
+	switch {
+	case deps.MessageEvents == nil:
+		// No live store: nothing to reconcile from.
+	case !supportsResults:
+		return cleanup(errors.New(
+			"durable outbox runtime: opened store cannot apply send results",
+		))
+	default:
+		reconciler := &sendResultReconciler{
+			store:      resultStore,
+			events:     deps.MessageEvents,
+			accountKey: accountKey,
+			clock:      deps.Clock,
+			logger:     deps.Logger,
+		}
+
+		reconcilerCtx, cancelReconciler :=
+			context.WithCancel(ctx)
+		runtime.reconcilerCancel = cancelReconciler
+		runtime.reconcilerDone = make(chan struct{})
+		go runtime.runReconciler(
+			reconcilerCtx, runtime.reconcilerDone, reconciler,
+		)
+	}
+
 	return runtime, nil
+}
+
+// runReconciler runs the reconciler and records that it has stopped.
+//
+// A reconciler that returns while the runtime is still running is a
+// defect rather than an exit condition: it means the store went away
+// under a program that is still sending, and the only honest response is
+// to fail the runtime rather than to keep a queue nothing resolves.
+func (r *DurableOutboxRuntime) runReconciler(
+	ctx context.Context,
+	done chan struct{},
+	reconciler *sendResultReconciler,
+) {
+	defer close(done)
+
+	if err := reconciler.Run(ctx); err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		r.mu.Lock()
+		r.reconcilerErr = err
+		r.mu.Unlock()
+		r.transitionMessageDeliveryHealth(MessageDeliveryHealthFailed)
+	}
 }
 
 func durableOutboxAccountKey(
@@ -391,6 +471,16 @@ func (r *DurableOutboxRuntime) Close() error {
 		if r.dispatcherDone != nil {
 			<-r.dispatcherDone
 		}
+		// The reconciler is stopped and awaited before the store is
+		// closed, for the same reason: it reads and writes the store, and
+		// a store read after shutdown is a use-after-close that SQLite
+		// may answer with anything.
+		if r.reconcilerCancel != nil {
+			r.reconcilerCancel()
+		}
+		if r.reconcilerDone != nil {
+			<-r.reconcilerDone
+		}
 
 		var openedCloseErr error
 		if r.opened != nil && r.closeOutbox != nil {
@@ -400,6 +490,9 @@ func (r *DurableOutboxRuntime) Close() error {
 		r.mu.Lock()
 		r.closeErr = errors.Join(
 			wrapRuntimeError("dispatcher stopped", r.dispatcherErr),
+			wrapRuntimeError(
+				"send result reconciler stopped", r.reconcilerErr,
+			),
 			wrapRuntimeError("close durable outbox", openedCloseErr),
 		)
 		r.mu.Unlock()

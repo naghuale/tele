@@ -118,8 +118,6 @@
     updateChatReadInbox)
   - message history pagination beyond the first page
   - final delivery to recipient confirmation
-  - delivery-state tracking through updateMessageSendSucceeded and
-    updateMessageSendFailed
   - logout flow beyond close
   - Linux runtime close verification
 
@@ -344,10 +342,38 @@
     are serialized as explicit null; entities is an empty array
   - clear_draft is true
   - response must be a message with matching chat_id and non-zero id
-  - delivery-state tracking (message.sending_state,
-    updateMessageSendSucceeded/Failed) is deferred
+  - the answer carries a TEMPORARY identifier and sending_state
+    messageSendingStatePending: it confirms that TDLib took the request,
+    not that Telegram sent anything. The real result arrives later as
+    updateMessageSendSucceeded, which replaces the temporary identifier
+    with the final one (ADR-0003 §6)
+  - delivery-state tracking through updateMessageSendSucceeded and
+    updateMessageSendFailed: implemented, see "Send-result reconciler"
 
 ## Application and TUI
+- Send-result reconciler: internal/application/send_result_reconciler.go
+  - the consumer ADR-0003 §6 called for and that nothing implemented:
+    the live store decoded `updateMessageSendSucceeded` and
+    `updateMessageSendFailed` into the same window as everything else
+    and no production code read it
+  - it matches on `old_message_id` alone, which is the only link between
+    the temporary identifier the queue holds and the final one TDLib
+    assigns. TDLib allocates temporary identifiers far above anything a
+    history page contains, so no other message of the chat can be
+    confused for it
+  - reads the window from 0 rather than from a cursor, because the
+    confirmation can land before the queue has finished recording the
+    acceptance it belongs to; a consumer starting at "now" would miss
+    exactly that message
+  - correlation is scoped to the account key the runtime was opened
+    for, so a result about another account's message is not applied
+  - a result for a message this queue never sent is not an error: the
+    window carries every message of every client
+  - runs beside the dispatcher in DurableOutboxRuntime and is stopped
+    and awaited before the store is closed, for the same reason the
+    dispatcher is
+  - logs entry id, chat id, temporary id, final id and state, and never
+    message text: the identifiers are numbers TDLib assigned
 - Application lifecycle: internal/application/app.go
   - New: mock-only path
   - NewWithTelegram: runtime + TUI
@@ -744,11 +770,37 @@
 - Embedded database: SQLite via modernc.org/sqlite (durable outbox,
   ADR-0002)
 - Payload encryption: XChaCha20-Poly1305 per outbox message text
-- Schema migration: TBD
-- Outbox retention: accepted and canceled entries are purged 7 days
+- Schema version 3, applied in place by numbered migrations
+  (internal/outbox/sqlite_schema.go); a database from a newer build is
+  refused rather than downgraded, and a database already at the current
+  version is not migrated again. Version 3 added `sent_at_ns` and the
+  index `outbox_send_result_idx` (state, account_key,
+  telegram_message_id) that the send-result lookup uses. The upgrade is
+  proved in internal/outbox/sqlite_migration_test.go, which builds a
+  database with the schema of main, fills it with a record in every
+  state, migrates it and reads every record back.
+- Outbox entry states: queued, dispatching, accepted, sent,
+  failed_retryable, failed_permanent, uncertain, canceled
+  - `accepted` is NOT terminal. It is what TDLib's answer to
+    `sendMessage` produces, and that answer carries a TEMPORARY
+    identifier: TDLib replaces it with the final one only in
+    `updateMessageSendSucceeded`, which is what moves the entry to
+    `sent`. `updateMessageSendFailed` moves it to `failed_permanent`,
+    because Telegram is the one that gave up and a second `sendMessage`
+    would be a second message rather than a retry
+  - `sent` holds the FINAL message identifier, the one a history page
+    comes back with; `accepted` holds the temporary one, which is in no
+    history page
+  - the dispatcher never touches `accepted`: it is terminal FOR THE
+    DISPATCHER, and only a send result moves it on
+  - a confirmed message is not purged while the outcome is unknown:
+    `PurgeFinished` deletes `sent` and `canceled` past retention and
+    keeps `accepted`, `failed_permanent` and `uncertain`, the last two
+    because they need a decision from the user
+- Outbox retention: sent and canceled entries are purged 7 days
   after their last update (DispatcherConfig.Retention; negative
-  disables); uncertain and permanently failed entries are kept for the
-  user; SQLite runs with secure_delete so purged rows are overwritten
+  disables); uncertain, permanently failed and accepted entries are
+  kept; SQLite runs with secure_delete so purged rows are overwritten
 - Data directory: ~/.local/share/telecli by default; `telecli configure`
   moves it to os.UserConfigDir()/telecli. Every stored directory must
   be absolute; without an absolute home directory there is no default
@@ -914,6 +966,22 @@
     scheduling one too would make the cadence depend on which read
     answered, and a read that delivered nothing could never hand the loop
     back
+  - a tick belongs to the generation it was armed for and does not read
+    the target that generation pointed at, but it DOES hand the loop back
+    for the generation that is current now. Dropping it ended the poll
+    for the rest of the session: opening a chat starts a generation, the
+    only tick on its way belonged to the old one, and from then on nothing
+    was read again — which is why a message could sit on `Queued` for as
+    long as the program ran (internal/tui/sent_message_test.go)
+  - a message the queue reports as sent, with the FINAL message
+    identifier, moves out of the pending list into the conversation of
+    the open chat under that identifier. It stays in the feed when the
+    user looks at another chat and comes back, and a history page that
+    later brings the same message replaces the row that is already there
+    instead of adding a second one
+  - `Queued`, `Sending`, `Retrying`, `Sent`, `Failed` and
+    `Delivery uncertain` are explained for the user in
+    docs/help/sending.md, listed from docs/help/README.md
   - each read is numbered, so a read slower than the interval is discarded
     when it answers after a newer one instead of putting an old snapshot
     back on the screen
@@ -1190,6 +1258,8 @@
   - history pagination UI: accepted
   - live chat-list updates: accepted (ADR-0003 step 1)
   - live message events: accepted (ADR-0003 step 2)
+  - send-result reconciler draining those events into the durable queue:
+    accepted (this change)
   - lossless update/resync policy: pending
 - PR-07: text message sending
   - Telegram `sendMessage` wire layer: accepted
@@ -1198,7 +1268,7 @@
   - manual real-account send integration: passed on macOS arm64
   - `sendMessage` response object: verified against TDLib 1.8.67
   - final delivery to recipient: not verified
-  - delivery-state update tracking: deferred
+  - delivery-state update tracking: implemented (send-result reconciler)
 - PR-10A: interface rewrite per docs/TUI_SPEC.md, accepted
   - PR-10A.1 semantic theme engine with three dark presets: accepted
   - PR-10A.2 layout and focus: accepted (borderless two-pane layout,
@@ -1236,7 +1306,7 @@
   - `sendMessage` accepted by TDLib and returned a message object:
     verified on macOS arm64
   - final delivery to recipient: not verified
-  - delivery-state update tracking: deferred
+  - delivery-state update tracking: implemented (send-result reconciler)
 
 ## Integration gates
 - Automated graceful close:

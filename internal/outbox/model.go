@@ -31,8 +31,13 @@ const (
 	StateDispatching State = "dispatching"
 
 	// StateAccepted: TDLib returned a message object with a non-zero
-	// ID. Terminal.
+	// ID. The message is still being sent: the ID is the temporary
+	// one sendMessage returns, and Telegram has not confirmed it yet.
 	StateAccepted State = "accepted"
+
+	// StateSent: Telegram confirmed the send. The entry now holds the
+	// final message ID. Terminal.
+	StateSent State = "sent"
 
 	// StateFailedRetryable: the send did not reach TDLib, or TDLib
 	// reported a transient error. May be retried after NextAttempt.
@@ -57,6 +62,7 @@ func (s State) Valid() bool {
 	case StateQueued,
 		StateDispatching,
 		StateAccepted,
+		StateSent,
 		StateFailedRetryable,
 		StateFailedPermanent,
 		StateUncertain,
@@ -70,13 +76,17 @@ func (s State) Valid() bool {
 func (s State) String() string { return string(s) }
 
 // Terminal reports whether the state is terminal for automatic
-// processing.
+// processing by the dispatcher.
 //
-// An uncertain entry requires an explicit user decision and must never
-// be selected automatically by the dispatcher.
+// The question is the dispatcher's, not the message's: an uncertain
+// entry requires an explicit user decision and must never be selected
+// automatically, and an accepted entry is already in Telegram's hands —
+// only a send result moves it on from there, and that is the
+// reconciler's work, never a redispatch.
 func (s State) Terminal() bool {
 	switch s {
 	case StateAccepted,
+		StateSent,
 		StateFailedPermanent,
 		StateUncertain,
 		StateCanceled:
@@ -108,8 +118,13 @@ type Entry struct {
 	// claim of a retryable entry.
 	NextAttempt time.Time
 
-	// TelegramMessageID is populated only in StateAccepted.
+	// TelegramMessageID is populated in StateAccepted, where it is the
+	// temporary identifier sendMessage returned, and in StateSent, where
+	// it is the final one Telegram assigned. AcceptedAt is the moment
+	// TDLib took the message; SentAt is the moment Telegram confirmed it.
 	TelegramMessageID int64
+	AcceptedAt        time.Time
+	SentAt            time.Time
 
 	// LastErrorCode and LastErrorMessage capture the most recent
 	// failure. They are retained across states as history and do not
@@ -118,9 +133,8 @@ type Entry struct {
 	LastErrorCode    int
 	LastErrorMessage string
 
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	AcceptedAt time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 
 	// LeaseOwner and LeaseUntil are set while StateDispatching.
 	// Recovery converts an expired lease to StateUncertain.
@@ -139,10 +153,12 @@ type Entry struct {
 //
 //   - dispatching without a lease owner or deadline;
 //   - accepted without a message ID or accepted time;
+//   - sent without a sent time;
 //   - failed_retryable without NextAttempt;
 //   - NextAttempt outside failed_retryable;
 //   - lease fields outside dispatching;
-//   - message id or accepted time outside accepted.
+//   - message id or accepted time outside accepted and sent;
+//   - sent time outside sent.
 func (e Entry) Validate() error {
 	if e.ID == "" {
 		return fmt.Errorf("%w: empty id", ErrInvalidEntry)
@@ -199,24 +215,42 @@ func (e Entry) Validate() error {
 		}
 	}
 
-	if e.State == StateAccepted {
+	// accepted and sent are the two states in which Telegram holds the
+	// message. accepted carries the temporary identifier sendMessage
+	// returned and sent the final one, so a record in either state has a
+	// message id and the moment TDLib took it; only sent says when
+	// Telegram confirmed it.
+	switch e.State {
+	case StateAccepted, StateSent:
 		if e.TelegramMessageID == 0 {
-			return fmt.Errorf("%w: accepted without message id",
-				ErrInvalidEntry)
+			return fmt.Errorf("%w: %s without message id",
+				ErrInvalidEntry, e.State)
 		}
 		if e.AcceptedAt.IsZero() {
-			return fmt.Errorf("%w: accepted without accepted time",
-				ErrInvalidEntry)
+			return fmt.Errorf("%w: %s without accepted time",
+				ErrInvalidEntry, e.State)
 		}
-	} else {
+	default:
 		if e.TelegramMessageID != 0 {
-			return fmt.Errorf("%w: message id outside accepted state",
-				ErrInvalidEntry)
+			return fmt.Errorf(
+				"%w: message id outside accepted and sent states",
+				ErrInvalidEntry,
+			)
 		}
 		if !e.AcceptedAt.IsZero() {
-			return fmt.Errorf("%w: accepted time outside accepted state",
-				ErrInvalidEntry)
+			return fmt.Errorf(
+				"%w: accepted time outside accepted and sent states",
+				ErrInvalidEntry,
+			)
 		}
+	}
+
+	if e.State == StateSent {
+		if e.SentAt.IsZero() {
+			return fmt.Errorf("%w: sent without sent time", ErrInvalidEntry)
+		}
+	} else if !e.SentAt.IsZero() {
+		return fmt.Errorf("%w: sent time outside sent state", ErrInvalidEntry)
 	}
 
 	return nil
@@ -230,15 +264,22 @@ func (e Entry) Validate() error {
 //	queued           -> dispatching, canceled
 //	dispatching      -> accepted, failed_retryable,
 //	                    failed_permanent, uncertain
+//	accepted         -> sent, failed_permanent
 //	failed_retryable -> dispatching, queued, canceled
 //	uncertain        -> canceled
 //
-// accepted, failed_permanent, canceled are terminal.
+// sent, failed_permanent, canceled are terminal.
 //
 // failed_retryable may transition directly to dispatching so the
 // dispatcher can claim a retry without an intermediate queued step.
 // The two-step path failed_retryable -> queued -> dispatching would
 // introduce an extra concurrency window without adding safety.
+//
+// The two transitions out of accepted are the only ones a send result
+// makes. TDLib has already taken the message, so the entry is never
+// sent again: updateMessageSendSucceeded replaces the temporary
+// identifier with the final one, and updateMessageSendFailed ends the
+// attempt without a retry, because Telegram itself will not try again.
 func (e Entry) CanTransition(next State) bool {
 	if !next.Valid() {
 		return false
@@ -251,13 +292,15 @@ func (e Entry) CanTransition(next State) bool {
 			next == StateFailedRetryable ||
 			next == StateFailedPermanent ||
 			next == StateUncertain
+	case StateAccepted:
+		return next == StateSent || next == StateFailedPermanent
 	case StateFailedRetryable:
 		return next == StateDispatching ||
 			next == StateQueued ||
 			next == StateCanceled
 	case StateUncertain:
 		return next == StateCanceled
-	case StateAccepted, StateFailedPermanent, StateCanceled:
+	case StateSent, StateFailedPermanent, StateCanceled:
 		return false
 	}
 	return false
@@ -345,8 +388,9 @@ func (e Entry) Claim(
 
 // Accept transitions a dispatching entry into accepted.
 //
-// messageID must be non-zero. AcceptedAt and UpdatedAt are both set
-// to now.
+// messageID is the identifier sendMessage returned, which is temporary:
+// TDLib replaces it with the final one when Telegram confirms the send.
+// AcceptedAt and UpdatedAt are both set to now.
 func (e Entry) Accept(
 	messageID int64,
 	now time.Time,
@@ -368,6 +412,82 @@ func (e Entry) Accept(
 	out.TelegramMessageID = messageID
 	out.AcceptedAt = now
 	out.UpdatedAt = now
+	out.NextAttempt = time.Time{}
+	out.LeaseOwner = ""
+	out.LeaseUntil = time.Time{}
+	out.Version++
+
+	if err := out.Validate(); err != nil {
+		return Entry{}, err
+	}
+	return out, nil
+}
+
+// Sent transitions an accepted entry into sent.
+//
+// It is what updateMessageSendSucceeded makes, and it replaces the
+// temporary identifier with the final one Telegram assigned. AcceptedAt
+// is kept: it is when TDLib took the message, which is a different
+// moment from the confirmation. SentAt and UpdatedAt are set to now.
+func (e Entry) Sent(
+	messageID int64,
+	now time.Time,
+) (Entry, error) {
+	if !e.CanTransition(StateSent) {
+		return Entry{}, fmt.Errorf(
+			"%w: %s -> %s",
+			ErrInvalidTransition, e.State, StateSent,
+		)
+	}
+	if messageID == 0 {
+		return Entry{}, fmt.Errorf(
+			"%w: zero Telegram message id", ErrInvalidEntry,
+		)
+	}
+
+	out := e
+	out.State = StateSent
+	out.TelegramMessageID = messageID
+	out.SentAt = now
+	out.UpdatedAt = now
+	out.Version++
+
+	if err := out.Validate(); err != nil {
+		return Entry{}, err
+	}
+	return out, nil
+}
+
+// MarkSendFailed transitions an accepted entry into failed_permanent.
+//
+// It is what updateMessageSendFailed makes, and it is permanent because
+// Telegram is the one that gave up: the message is not going out, and a
+// second sendMessage would be a second message rather than a retry. code
+// is Telegram's own error code, and message must be free of message
+// text.
+func (e Entry) MarkSendFailed(
+	code int,
+	message string,
+	now time.Time,
+) (Entry, error) {
+	if !e.CanTransition(StateFailedPermanent) {
+		return Entry{}, fmt.Errorf(
+			"%w: %s -> %s",
+			ErrInvalidTransition, e.State, StateFailedPermanent,
+		)
+	}
+
+	out := e
+	out.State = StateFailedPermanent
+	out.LastErrorCode = code
+	out.LastErrorMessage = message
+	out.UpdatedAt = now
+	// The message is not in Telegram, so it is not in Telegram's message
+	// list either, and the identifier of a message that was never sent
+	// must not be left behind as if it were.
+	out.TelegramMessageID = 0
+	out.AcceptedAt = time.Time{}
+	out.SentAt = time.Time{}
 	out.NextAttempt = time.Time{}
 	out.LeaseOwner = ""
 	out.LeaseUntil = time.Time{}
@@ -489,10 +609,10 @@ func (e Entry) MarkUncertain(
 // Canceling an uncertain entry is an explicit user resolution. It
 // does not prove that Telegram did not accept the original send.
 //
-// Cancel is rejected for dispatching, accepted, failed_permanent, and
-// already canceled entries.
+// Cancel is rejected for dispatching, accepted, sent,
+// failed_permanent, and already canceled entries.
 func (e Entry) Cancel(now time.Time) (Entry, error) {
-	if e.State == StateAccepted {
+	if e.State == StateAccepted || e.State == StateSent {
 		return Entry{}, ErrCancelAfterAccepted
 	}
 	out, err := e.transition(StateCanceled)

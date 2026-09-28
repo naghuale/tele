@@ -332,8 +332,8 @@ INSERT INTO outbox_entries (
     id, account_key, chat_id, encrypted_text, state, attempt_count,
     next_attempt_ns, telegram_message_id, last_error_code,
     last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-    lease_owner, lease_until_ns, version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    sent_at_ns, lease_owner, lease_until_ns, version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `,
 		string(entry.ID),
 		entry.AccountKey,
@@ -348,6 +348,7 @@ INSERT INTO outbox_entries (
 		entry.CreatedAt.UnixNano(),
 		entry.UpdatedAt.UnixNano(),
 		nullableTime(entry.AcceptedAt),
+		nullableTime(entry.SentAt),
 		entry.LeaseOwner,
 		nullableTime(entry.LeaseUntil),
 		int64(entry.Version),
@@ -378,7 +379,7 @@ func (s *sqliteStore) Get(
 SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-       lease_owner, lease_until_ns, version
+       sent_at_ns, lease_owner, lease_until_ns, version
 FROM outbox_entries
 WHERE id = ?
 `, string(id))
@@ -402,7 +403,7 @@ func (s *sqliteStore) ListAll(ctx context.Context) ([]Entry, error) {
 SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-       lease_owner, lease_until_ns, version
+       sent_at_ns, lease_owner, lease_until_ns, version
 FROM outbox_entries
 ORDER BY created_at_ns ASC, id ASC
 `)
@@ -442,7 +443,7 @@ func (s *sqliteStore) ListReady(
 SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-       lease_owner, lease_until_ns, version
+       sent_at_ns, lease_owner, lease_until_ns, version
 FROM outbox_entries AS e
 WHERE (e.state = 'queued'
        OR (e.state = 'failed_retryable'
@@ -543,6 +544,39 @@ func (s *sqliteStore) MarkAccepted(
 	})
 }
 
+// MarkSent implements Store.
+func (s *sqliteStore) MarkSent(
+	ctx context.Context,
+	id ID,
+	expectedVersion uint64,
+	messageID int64,
+	now time.Time,
+) (Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return Entry{}, err
+	}
+	return s.mutate(ctx, id, expectedVersion, func(entry Entry) (Entry, error) {
+		return entry.Sent(messageID, now)
+	})
+}
+
+// MarkSendFailed implements Store.
+func (s *sqliteStore) MarkSendFailed(
+	ctx context.Context,
+	id ID,
+	expectedVersion uint64,
+	code int,
+	message string,
+	now time.Time,
+) (Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return Entry{}, err
+	}
+	return s.mutate(ctx, id, expectedVersion, func(entry Entry) (Entry, error) {
+		return entry.MarkSendFailed(code, message, now)
+	})
+}
+
 // MarkRetryable implements Store.
 func (s *sqliteStore) MarkRetryable(
 	ctx context.Context,
@@ -598,6 +632,12 @@ func (s *sqliteStore) Cancel(
 }
 
 // PurgeFinished implements Store.
+//
+// Accepted is not purged: TDLib took the message and Telegram has not
+// answered yet, and a record whose outcome is unknown is still a record
+// somebody may come back to. It is left to Sent or to a send failure,
+// and an accepted entry older than the retention window is a defect
+// worth seeing rather than a thing to tidy away.
 func (s *sqliteStore) PurgeFinished(
 	ctx context.Context,
 	cutoff time.Time,
@@ -608,7 +648,7 @@ func (s *sqliteStore) PurgeFinished(
 
 	result, err := s.db.ExecContext(ctx, `
 DELETE FROM outbox_entries
-WHERE state IN ('accepted', 'canceled')
+WHERE state IN ('sent', 'canceled')
   AND updated_at_ns < ?
 `, cutoff.UnixNano())
 	if err != nil {
@@ -640,7 +680,7 @@ func (s *sqliteStore) RecoverInterrupted(
 SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-       lease_owner, lease_until_ns, version
+       sent_at_ns, lease_owner, lease_until_ns, version
 FROM outbox_entries
 WHERE state = 'dispatching'
   AND lease_until_ns IS NOT NULL
@@ -708,7 +748,7 @@ func (s *sqliteStore) mutate(
 SELECT id, account_key, chat_id, encrypted_text, state, attempt_count,
        next_attempt_ns, telegram_message_id, last_error_code,
        last_error_message, created_at_ns, updated_at_ns, accepted_at_ns,
-       lease_owner, lease_until_ns, version
+       sent_at_ns, lease_owner, lease_until_ns, version
 FROM outbox_entries
 WHERE id = ?
 `, string(id))
@@ -771,6 +811,7 @@ SET account_key = ?,
     last_error_message = ?,
     updated_at_ns = ?,
     accepted_at_ns = ?,
+    sent_at_ns = ?,
     lease_owner = ?,
     lease_until_ns = ?,
     version = ?
@@ -787,6 +828,7 @@ WHERE id = ? AND version = ?
 		out.LastErrorMessage,
 		out.UpdatedAt.UnixNano(),
 		nullableTime(out.AcceptedAt),
+		nullableTime(out.SentAt),
 		out.LeaseOwner,
 		nullableTime(out.LeaseUntil),
 		int64(out.Version),
@@ -835,6 +877,7 @@ func (s *sqliteStore) scanEntry(
 		createdAtNS       int64
 		updatedAtNS       int64
 		acceptedAtNS      sql.NullInt64
+		sentAtNS          sql.NullInt64
 		leaseOwner        string
 		leaseUntilNS      sql.NullInt64
 		version           int64
@@ -854,6 +897,7 @@ func (s *sqliteStore) scanEntry(
 		&createdAtNS,
 		&updatedAtNS,
 		&acceptedAtNS,
+		&sentAtNS,
 		&leaseOwner,
 		&leaseUntilNS,
 		&version,
@@ -901,6 +945,7 @@ func (s *sqliteStore) scanEntry(
 		CreatedAt:         time.Unix(0, createdAtNS).UTC(),
 		UpdatedAt:         time.Unix(0, updatedAtNS).UTC(),
 		AcceptedAt:        timeFromNull(acceptedAtNS),
+		SentAt:            timeFromNull(sentAtNS),
 		LeaseOwner:        leaseOwner,
 		LeaseUntil:        timeFromNull(leaseUntilNS),
 		Version:           uint64(version),

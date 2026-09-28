@@ -36,10 +36,18 @@ type MessageSubmission struct {
 }
 
 type MessageStatus struct {
-	EntryID       string
-	AccountKey    string
-	ChatID        int64
-	State         MessageDeliveryState
+	EntryID    string
+	AccountKey string
+	ChatID     int64
+	State      MessageDeliveryState
+
+	// MessageID is the identifier Telegram knows the message by, and it
+	// is set only once Telegram has confirmed the send. It is a number
+	// TDLib assigned, in the same class as the chat id beside it, and it
+	// is what lets the interface put a confirmed message into the chat
+	// history under the identifier it will keep.
+	MessageID int64
+
 	Attempt       int
 	NextAttemptAt time.Time
 	UpdatedAt     time.Time

@@ -674,7 +674,7 @@ func TestTheTickIsTheOnlyThingThatSchedulesTheNextPoll(t *testing.T) {
 	}
 
 	updated, cmd := model.handleMessageStatusPollTick(
-		messageStatusPollTickMsg{generation: 7},
+		messageStatusPollTickMsg{},
 	)
 	if cmd == nil {
 		t.Fatal("the tick did not start the next read")
@@ -708,31 +708,48 @@ func TestMessageStatusPollingDoesNotScheduleAfterQuit(t *testing.T) {
 	}
 }
 
-func TestMessageStatusPollingOldTickDoesNotStartNewRequest(t *testing.T) {
+// A tick belongs to the generation it was armed for. It must not read the
+// target that generation pointed at — the model has left it — but it must
+// still hand the loop back, because dropping it is what ended the delivery
+// poll for the rest of the session: the chat the user opened started a new
+// generation, the only tick on its way belonged to the old one, and from
+// then on nothing was ever read again, so a message stayed on Queued for
+// as long as the program ran.
+func TestMessageStatusPollingOldTickKeepsTheLoopAliveForTheCurrentTarget(t *testing.T) {
 	t.Parallel()
 
+	var reads atomic.Int32
 	source := &h6c2bStatusSource{
 		listMessageStatuses: func(
 			context.Context,
 			string,
 			int64,
 		) ([]MessageStatus, error) {
-			return nil, errors.New("unexpected read")
+			reads.Add(1)
+			return nil, nil
 		},
 	}
 	model := newPollingTestModel(source)
 	model.messageStatusAccountKey = "account-1"
 	model.messageStatusChatID = 42
 	model.messageStatusGeneration = 9
+	// A read of the generation the model has left is in flight. The
+	// response is discarded by its generation, so its loading flag has to
+	// be cleared or the loop would wait for a read that ends in nothing.
+	model.messageStatusLoading = true
 
 	updated, cmd := model.handleMessageStatusPollTick(
-		messageStatusPollTickMsg{generation: 8},
+		messageStatusPollTickMsg{},
 	)
-	if cmd != nil {
-		t.Fatal("old tick started a new request")
+	if cmd == nil {
+		t.Fatal("the old tick ended the poll loop")
 	}
-	if updated.messageStatusLoading {
-		t.Fatal("old tick set loading")
+	if !updated.messageStatusLoading {
+		t.Fatal("the old tick did not start a read of the current target")
+	}
+	_ = firstReadOf(t, cmd)
+	if reads.Load() != 1 {
+		t.Fatalf("reads = %d, want 1 of the current target", reads.Load())
 	}
 }
 
@@ -756,7 +773,7 @@ func TestMessageStatusPollingCurrentTickStartsRequest(t *testing.T) {
 	model.messageStatusGeneration = 9
 
 	updated, cmd := model.handleMessageStatusPollTick(
-		messageStatusPollTickMsg{generation: 9},
+		messageStatusPollTickMsg{},
 	)
 	if cmd == nil {
 		t.Fatal("current tick did not start a request")
@@ -798,7 +815,7 @@ func TestASlowReadIsDiscardedAfterANewerOne(t *testing.T) {
 	model.messageStatusLoading = true
 	model.statusReadSeq = 1
 	updated, _ := model.handleMessageStatusPollTick(
-		messageStatusPollTickMsg{generation: 2},
+		messageStatusPollTickMsg{},
 	)
 	if !updated.messageStatusLoading {
 		t.Fatal("the tick did not start a read while one was in flight")

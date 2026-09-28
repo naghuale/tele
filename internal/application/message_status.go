@@ -15,6 +15,13 @@ func projectMessageState(
 	case outbox.StateDispatching:
 		return MessageDeliverySending, nil
 	case outbox.StateAccepted:
+		// TDLib took the message and Telegram has not confirmed it yet.
+		// The identifier it holds is temporary and no history page will
+		// ever contain it, so the message is still on its way and is
+		// drawn as such: saying "Sent" here would be reporting Telegram's
+		// answer before Telegram gave one.
+		return MessageDeliverySending, nil
+	case outbox.StateSent:
 		return MessageDeliverySent, nil
 	case outbox.StateFailedRetryable:
 		return MessageDeliveryRetrying, nil
@@ -49,6 +56,7 @@ func projectMessageStatus(
 		AccountKey:    entry.AccountKey,
 		ChatID:        entry.ChatID,
 		State:         state,
+		MessageID:     entry.TelegramMessageID,
 		Attempt:       entry.AttemptCount,
 		NextAttemptAt: entry.NextAttempt,
 		UpdatedAt:     entry.UpdatedAt,
@@ -72,6 +80,7 @@ func projectEntryStatus(
 		AccountKey:    status.AccountKey,
 		ChatID:        status.ChatID,
 		State:         state,
+		MessageID:     status.TelegramMessageID,
 		Attempt:       status.Attempt,
 		NextAttemptAt: status.NextAttemptAt,
 		UpdatedAt:     status.UpdatedAt,

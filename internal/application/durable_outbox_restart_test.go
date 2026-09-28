@@ -477,11 +477,15 @@ func TestDurableLifecycleDispatchesQueuedEntryAfterRestart(t *testing.T) {
 	})
 
 	fixture.clock.fire(t)
+	// Sending, not sent: this session reports no live store, so nothing
+	// ever delivers TDLib's confirmation and the entry stays in the
+	// state TDLib's own answer put it in. The chain that moves it on
+	// from there is proved by the send-result reconciler's own test.
 	fixture.waitForEntryState(
 		context.Background(),
 		second,
 		submission.ID,
-		MessageDeliverySent,
+		MessageDeliverySending,
 	)
 
 	if got := secondSession.calls.Load(); got != 1 {
@@ -584,11 +588,13 @@ func TestDurableLifecyclePreservesRetryScheduleAcrossRestart(t *testing.T) {
 	// Move past the scheduled attempt and let the dispatcher run again.
 	fixture.clock.setNow(persisted.NextAttemptAt.Add(time.Second))
 	fixture.clock.fire(t)
+	// Sending, not sent: the confirmation that would move it on never
+	// arrives in this session, which reports no live store.
 	fixture.waitForEntryState(
 		context.Background(),
 		second,
 		submission.ID,
-		MessageDeliverySent,
+		MessageDeliverySending,
 	)
 
 	if got := secondSession.calls.Load(); got != 1 {

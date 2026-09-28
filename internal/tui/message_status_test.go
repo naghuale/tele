@@ -88,6 +88,7 @@ func TestMessageStatusContainsExpectedMetadataOnly(t *testing.T) {
 		"AccountKey",
 		"ChatID",
 		"State",
+		"MessageID",
 		"Attempt",
 		"NextAttemptAt",
 		"UpdatedAt",

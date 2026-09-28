@@ -43,6 +43,7 @@ type OutboxHealth struct {
 	Queued          int64
 	Dispatching     int64
 	Accepted        int64
+	Sent            int64
 	FailedRetryable int64
 	FailedPermanent int64
 	Uncertain       int64
@@ -72,6 +73,7 @@ func (h OutboxHealth) counts() []outboxHealthCount {
 		{name: "queued", value: h.Queued},
 		{name: "dispatching", value: h.Dispatching},
 		{name: "accepted", value: h.Accepted},
+		{name: "sent", value: h.Sent},
 		{name: "failed_retryable", value: h.FailedRetryable},
 		{name: "failed_permanent", value: h.FailedPermanent},
 		{name: "uncertain", value: h.Uncertain},

@@ -61,6 +61,10 @@ func (m *Model) mergePendingMessages(
 //
 // A message the statuses have never heard of keeps the state the queue
 // gave it: an empty snapshot is not a statement that nothing happened.
+//
+// The confirmed message identifier comes from the statuses too, because
+// that is the only place a final one is: while the queue is still sending
+// it holds a temporary identifier that no history page contains.
 func (m PendingMessage) withStateFrom(
 	statuses []MessageStatus,
 ) PendingMessage {
@@ -70,6 +74,7 @@ func (m PendingMessage) withStateFrom(
 		}
 
 		m.State = status.State
+		m.MessageID = status.MessageID
 		m.Attempt = status.Attempt
 		m.NextAttemptAt = status.NextAttemptAt
 

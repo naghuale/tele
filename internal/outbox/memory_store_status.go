@@ -36,14 +36,15 @@ func (s *MemoryStore) ListEntryStatuses(
 			continue
 		}
 		status := EntryStatus{
-			ID:            string(entry.ID),
-			AccountKey:    entry.AccountKey,
-			ChatID:        entry.ChatID,
-			State:         entry.State,
-			Attempt:       entry.AttemptCount,
-			NextAttemptAt: entry.NextAttempt,
-			UpdatedAt:     entry.UpdatedAt,
-			Version:       entry.Version,
+			ID:                string(entry.ID),
+			AccountKey:        entry.AccountKey,
+			ChatID:            entry.ChatID,
+			State:             entry.State,
+			TelegramMessageID: entry.TelegramMessageID,
+			Attempt:           entry.AttemptCount,
+			NextAttemptAt:     entry.NextAttempt,
+			UpdatedAt:         entry.UpdatedAt,
+			Version:           entry.Version,
 		}
 		if err := validateEntryStatus(status); err != nil {
 			return nil, fmt.Errorf("validate outbox status %q: %w", status.ID, err)

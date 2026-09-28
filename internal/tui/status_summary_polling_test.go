@@ -36,7 +36,7 @@ func TestTheStatusSummaryIsReadOnTheDeliveryTick(t *testing.T) {
 	model.messageStatusGeneration = 3
 
 	_, cmd := model.handleMessageStatusPollTick(
-		messageStatusPollTickMsg{generation: 3},
+		messageStatusPollTickMsg{},
 	)
 	if cmd == nil {
 		t.Fatal("the tick did not read anything")
@@ -227,7 +227,7 @@ func TestNothingIsPolledWithoutASource(t *testing.T) {
 	if model.deliveryPolling() {
 		t.Fatal("a model without sources must not poll")
 	}
-	if cmd := model.pollDeliverySources(1); cmd != nil {
+	if cmd := model.pollDeliverySources(); cmd != nil {
 		t.Fatal("a model without sources scheduled a poll")
 	}
 }

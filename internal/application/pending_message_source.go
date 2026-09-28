@@ -22,6 +22,13 @@ type PendingMessage struct {
 	Text    string
 	State   MessageDeliveryState
 
+	// MessageID is the identifier Telegram gave the message, and it is
+	// set only once Telegram has confirmed the send. It is a number TDLib
+	// assigned, in the same class as the chat id, and it is what lets the
+	// interface put a confirmed message into the chat history under the
+	// identifier the history will come back with.
+	MessageID int64
+
 	// Version is the version the queue read this record at, and it is what
 	// a cancel is made against: the store refuses a cancel of a record that
 	// has moved on since it was read (§13).
@@ -103,10 +110,13 @@ func NewOutboxPendingMessageSource(
 // ListPendingMessages returns the entries of one chat that the history does
 // not have yet, oldest first.
 //
-// An accepted entry is not one of them: Telegram has that message, and the
-// entry that sent it holds the temporary identifier of the sendMessage
-// response, not the identifier the history will come back with. Drawing it
-// here as well would show the user their own message twice (ADR-0003 §6).
+// A sent entry is not one of them: Telegram has that message, and the
+// history comes back with it under the final identifier the entry now
+// holds. Drawing it here as well would show the user their own message
+// twice (ADR-0003 §6). An accepted entry *is* one of them: TDLib has the
+// message but Telegram has not confirmed it, so the temporary identifier
+// the entry holds is in no history page, and the message is still on its
+// way out.
 func (s *OutboxPendingMessageSource) ListPendingMessages(
 	ctx context.Context,
 	accountKey string,
@@ -139,7 +149,7 @@ func (s *OutboxPendingMessageSource) ListPendingMessages(
 		if entry.AccountKey != accountKey || entry.ChatID != chatID {
 			continue
 		}
-		if entry.State == outbox.StateAccepted {
+		if entry.State == outbox.StateSent {
 			continue
 		}
 

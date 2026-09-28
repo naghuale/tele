@@ -76,7 +76,8 @@ var outboxResetStateLabels = []struct {
 	{outbox.StateFailedRetryable, "retrying"},
 	{outbox.StateUncertain, "uncertain"},
 	{outbox.StateFailedPermanent, "failed"},
-	{outbox.StateAccepted, "sent"},
+	{outbox.StateAccepted, "sending"},
+	{outbox.StateSent, "sent"},
 	{outbox.StateCanceled, "canceled"},
 }
 

@@ -656,11 +656,23 @@ func focusedStyle(background, accent lipgloss.Color) lipgloss.Style {
 |---|---|---|---|---|
 | StateQueued | Queued | ● | StatusInfo | без анимации, разрешена отмена |
 | StateDispatching | Sending… | ◐ | StatusActive | лёгкий spinner, отмена обычно недоступна |
+| StateAccepted | Sending… | ◐ | StatusActive | TDLib взял, Telegram ещё не подтвердил |
 | StateFailedRetryable | Retrying | ↻ | StatusWarning | relative time для коротких, absolute для длинных |
-| StateAccepted | ✓ Sent | ✓ | StatusSuccess | terminal |
+| StateSent | ✓ Sent | ✓ | StatusSuccess | terminal, подтверждено Telegram |
 | StateFailedPermanent | ! Failed | ! | StatusError | без automatic retry, действие: Create new message |
 | StateUncertain | ? Delivery uncertain | ? | StatusUncertain | warning о duplicate, без обычного Retry |
 | StateCanceled | Canceled | ⊘ | StatusCanceled | muted, не error red |
+
+`StateAccepted` и `StateSent` — это разные вещи, и различать их
+обязательно. Ответ на `sendMessage` приходит с **временным**
+идентификатором: TDLib отдаёт его раньше, чем отправлено сообщение, и
+заменяет на настоящий, когда Telegram подтвердит отправку. Нарисовать
+`✓ Sent` по ответу `sendMessage` — значит сообщить о доставке раньше
+Telegram.
+
+Подтверждённое сообщение (`StateSent`) перестаёт быть «ожидающим»:
+оно становится обычным сообщением открытого чата, под своим настоящим
+идентификатором, и остаётся в ленте при возврате в чат.
 
 ### 6.1 Проекция
 
@@ -683,13 +695,20 @@ UI не придумывает переходы state machine. Только от
 ### 6.2 Terminal states
 
 ```text
-Accepted        terminal
+Sent            terminal
 FailedPerm      terminal
 Canceled        terminal
 Queued          нетерминальное
 Dispatching     нетерминальное
+Accepted        нетерминальное: ждёт updateMessageSendSucceeded/Failed
 Uncertain       нетерминальное до явного решения пользователя
 ```
+
+`Accepted` нетерминальное **для очереди**, а не для интерфейса:
+диспетчер его больше не трогает, потому что TDLib уже взял сообщение, и
+повторная отправка была бы вторым сообщением. Дальше его ведёт
+`updateMessageSendSucceeded` (в `Sent`) или `updateMessageSendFailed`
+(в `FailedPermanent`).
 
 ### 6.3 Retrying без мерцания
 
@@ -1009,8 +1028,9 @@ const (
 ```text
 StateQueued           -> DeliveryQueued
 StateDispatching      -> DeliverySending
+StateAccepted         -> DeliverySending
 StateFailedRetryable  -> DeliveryRetrying
-StateAccepted         -> DeliverySent
+StateSent             -> DeliverySent
 StateFailedPermanent  -> DeliveryFailed
 StateUncertain        -> DeliveryUncertain
 StateCanceled         -> DeliveryCanceled
@@ -1172,7 +1192,7 @@ conversation — запрашивает полную перерисовку ок
 - [ ] `canceled` — не critical error.
 - [ ] `dispatching` показывается как `Sending`.
 - [ ] Queued не превращается в Failed при временном disconnect.
-- [ ] Accepted / FailedPermanent / Canceled — terminal states.
+- [ ] Sent / FailedPermanent / Canceled — terminal states.
 - [ ] Uncertain требует явного решения.
 
 ### Privacy

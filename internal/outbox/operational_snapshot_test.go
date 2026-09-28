@@ -168,6 +168,7 @@ func TestOperationalSnapshotContainsOnlyStateCounters(t *testing.T) {
 		"Queued",
 		"Dispatching",
 		"Accepted",
+		"Sent",
 		"FailedRetryable",
 		"FailedPermanent",
 		"Uncertain",

@@ -114,6 +114,30 @@ type Outbox struct {
 	runLock RunLock
 }
 
+// ReadOperationalSnapshot returns the aggregate state counters of the open
+// queue.
+//
+// It is a method on Outbox rather than a capability the caller has to
+// discover: the object Open returned is the queue, and asking the queue
+// how many of its entries are in each state is a question about the
+// queue, not about a store behind it.
+func (o *Outbox) ReadOperationalSnapshot(
+	ctx context.Context,
+) (OperationalSnapshot, error) {
+	if o == nil || o.Store == nil {
+		return OperationalSnapshot{}, errors.New(
+			"outbox: no store",
+		)
+	}
+	reader, ok := o.Store.(OperationalSnapshotReader)
+	if !ok {
+		return OperationalSnapshot{}, errors.New(
+			"outbox: store does not support operational snapshots",
+		)
+	}
+	return reader.ReadOperationalSnapshot(ctx)
+}
+
 // Close releases the underlying SQLite handle.
 //
 // Close is idempotent.

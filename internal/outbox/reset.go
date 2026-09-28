@@ -375,6 +375,13 @@ GROUP BY state
 
 // readOldestUnsent returns the creation time of the oldest entry that
 // never reached Telegram.
+// readOldestUnsent returns the creation time of the oldest entry that
+// never reached Telegram.
+//
+// accepted counts as unsent: TDLib took the message but Telegram has
+// not confirmed it, and a message whose outcome nobody knows is exactly
+// what the count is for. Only sent and canceled are messages the user
+// already has an answer about.
 func readOldestUnsent(
 	ctx context.Context,
 	db *sql.DB,
@@ -384,8 +391,8 @@ func readOldestUnsent(
 	err := db.QueryRowContext(ctx, `
 SELECT MIN(created_at_ns)
 FROM outbox_entries
-WHERE state <> ? AND state <> ?
-`, StateAccepted, StateCanceled).Scan(&createdAtNS)
+WHERE state NOT IN (?, ?, ?)
+`, StateSent, StateAccepted, StateCanceled).Scan(&createdAtNS)
 	if err != nil {
 		return time.Time{}, fmt.Errorf(
 			"outbox: read oldest unsent entry: %w",
@@ -402,11 +409,12 @@ WHERE state <> ? AND state <> ?
 
 // stateSent reports whether an entry in this state did reach Telegram.
 //
-// Anything that is not accepted and not canceled counts as unsent: a
-// permanently failed or uncertain message is exactly as lost to the
+// Anything that is not sent and not canceled counts as unsent: an
+// accepted message is one TDLib took and Telegram has not confirmed, and
+// a permanently failed or uncertain message is exactly as lost to the
 // user as one that never left the queue.
 func stateSent(state State) bool {
-	return state == StateAccepted || state == StateCanceled
+	return state == StateSent || state == StateCanceled
 }
 
 // unreadableSummary wraps a failure to read a queue.

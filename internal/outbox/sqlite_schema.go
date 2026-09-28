@@ -2,7 +2,7 @@ package outbox
 
 // sqliteSchemaVersion is the schema revision expected by sqliteStore.
 // Bump this and append a migration when the schema changes.
-const sqliteSchemaVersion = 2
+const sqliteSchemaVersion = 3
 
 // sqliteMigrations[i] brings the database from version i to i+1.
 //
@@ -50,6 +50,16 @@ ON outbox_entries (
     chat_id,
     updated_at_ns DESC,
     id ASC
+);
+`,
+	`
+ALTER TABLE outbox_entries ADD COLUMN sent_at_ns INTEGER;
+
+CREATE INDEX outbox_send_result_idx
+ON outbox_entries (
+    state,
+    account_key,
+    telegram_message_id
 );
 `,
 }

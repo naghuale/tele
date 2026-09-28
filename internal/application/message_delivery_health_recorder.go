@@ -87,6 +87,7 @@ func newOutboxHealthObservation(
 		Queued:          health.Queued,
 		Dispatching:     health.Dispatching,
 		Accepted:        health.Accepted,
+		Sent:            health.Sent,
 		FailedRetryable: health.FailedRetryable,
 		FailedPermanent: health.FailedPermanent,
 		Uncertain:       health.Uncertain,

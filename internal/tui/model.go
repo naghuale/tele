@@ -384,7 +384,7 @@ func (m Model) Init() tea.Cmd {
 			scheduleChatsLoadDeadline(m.chatsLoadOperation),
 		)
 	}
-	if cmd := m.pollDeliverySources(m.messageStatusGeneration); cmd != nil {
+	if cmd := m.pollDeliverySources(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if len(cmds) == 0 {

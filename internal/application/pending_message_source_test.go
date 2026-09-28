@@ -103,14 +103,20 @@ func TestPendingSourceListsTheQueueOfOneChat(t *testing.T) {
 	}
 }
 
-// An accepted entry is not pending: Telegram has the message, and the
-// entry holds a temporary identifier that the history will not match.
-func TestPendingSourceDoesNotListAcceptedEntries(t *testing.T) {
+// A sent entry is not pending: Telegram has the message, and the history
+// comes back with it under the final identifier the entry now holds.
+// Drawing it here as well would show the user their own message twice.
+//
+// An accepted entry is the opposite case and is listed: Telegram has not
+// confirmed it, so the temporary identifier it holds is in no history page
+// and the message is still on its way out.
+func TestPendingSourceDoesNotListSentEntries(t *testing.T) {
 	t.Parallel()
 
 	store := &pendingSourceStore{entries: []outbox.Entry{
 		pendingEntry("queued", 42, outbox.StateQueued, "в очереди"),
-		pendingEntry("accepted", 42, outbox.StateAccepted, "доставлено"),
+		pendingEntry("accepted", 42, outbox.StateAccepted, "ещё в пути"),
+		pendingEntry("sent", 42, outbox.StateSent, "доставлено"),
 	}}
 	source, err := NewOutboxPendingMessageSource(store, 0)
 	if err != nil {
@@ -122,8 +128,18 @@ func TestPendingSourceDoesNotListAcceptedEntries(t *testing.T) {
 		t.Fatalf("ListPendingMessages: %v", err)
 	}
 
-	if len(messages) != 1 || messages[0].EntryID != "queued" {
-		t.Fatalf("messages = %+v, want only the queued one", messages)
+	got := make([]string, 0, len(messages))
+	for _, message := range messages {
+		got = append(got, message.EntryID)
+	}
+	want := []string{"queued", "accepted"}
+	if len(got) != len(want) {
+		t.Fatalf("messages = %+v, want %v", got, want)
+	}
+	for index, id := range want {
+		if got[index] != id {
+			t.Fatalf("messages = %+v, want %v", got, want)
+		}
 	}
 }
 

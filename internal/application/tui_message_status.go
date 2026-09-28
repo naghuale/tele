@@ -69,6 +69,7 @@ func (a *tuiMessageStatusSourceAdapter) ListMessageStatuses(
 			AccountKey:    status.AccountKey,
 			ChatID:        status.ChatID,
 			State:         state,
+			MessageID:     status.MessageID,
 			Attempt:       status.Attempt,
 			NextAttemptAt: status.NextAttemptAt,
 			UpdatedAt:     status.UpdatedAt,

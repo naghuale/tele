@@ -12,9 +12,14 @@ import (
 // messageStatusPollInterval is the delay between two durable status reads.
 const messageStatusPollInterval = 2 * time.Second
 
-type messageStatusPollTickMsg struct {
-	generation uint64
-}
+// messageStatusPollTickMsg is the tick of the delivery poll.
+//
+// It carries nothing about which target it was armed for: a tick is a
+// timer, and the only question it answers is whether the loop is still
+// running. The reads it starts are asked for the target the model holds
+// now, which is the one thing a tick from a target the model has left must
+// not do.
+type messageStatusPollTickMsg struct{}
 
 type messageStatusesLoadedMsg struct {
 	generation uint64
@@ -428,9 +433,89 @@ func (m Model) handleMessageStatusesLoaded(
 	m.pendingSnapshot = clonePendingMessages(msg.pending)
 	m.mergePendingMessages(msg.pending, m.deliveryStatuses)
 
+	// A message Telegram has confirmed is no longer pending: it is a
+	// message of the conversation now, and leaving it drawn as one that is
+	// still going out is what made it disappear from the feed the moment
+	// the user looked at another chat. It is merged rather than dropped so
+	// that it stays in the timeline, under its final identifier, which is
+	// the one the history comes back with.
+	if delivered := m.deliverSentMessages(); delivered {
+		return m, withRepaint(m, nil)
+	}
+
 	// The next read is scheduled by the tick, not by this response: the
 	// cadence belongs to the loop and not to whichever read answered last.
 	return m, nil
+}
+
+// deliverSentMessages moves the messages this session queued that the
+// queue has confirmed into the history of their chat.
+//
+// The text comes from the pending message the model already holds and the
+// identifier from the status the queue reports, so nothing is fetched and
+// no message is read twice: the merge replaces by identifier, so a history
+// page that later brings the same message lands on the row that is
+// already there.
+//
+// It reports whether the timeline changed.
+func (m *Model) deliverSentMessages() bool {
+	if m.source == nil || m.selectedChat < 0 ||
+		m.selectedChat >= len(m.chats) {
+		return false
+	}
+
+	delivered := m.pendingSentByID()
+	if len(delivered) == 0 {
+		return false
+	}
+
+	chat := &m.chats[m.selectedChat]
+	atNewest := m.timelineFollowsNewest()
+	for _, message := range delivered {
+		chat.Messages = appendMessageByID(chat.Messages, message)
+	}
+
+	kept := make([]PendingMessage, 0, len(m.pending))
+	for _, message := range m.pending {
+		if _, stillPending := delivered[message.EntryID]; stillPending {
+			continue
+		}
+		kept = append(kept, message)
+	}
+	m.pending = kept
+	m.pendingSnapshot = clonePendingMessages(kept)
+
+	if atNewest {
+		*m = m.scrollToNewest()
+	}
+	*m = m.normalizeTimeline()
+	return true
+}
+
+// pendingSentByID returns the messages the queue has confirmed, keyed by
+// the queue entry they were sent as.
+//
+// A message is delivered only when the queue reports a final identifier
+// for it: without one the row would go into the history under nothing, and
+// a message the user wrote would be drawn twice with no way to tell them
+// apart.
+func (m Model) pendingSentByID() map[string]Message {
+	confirmed := make(map[string]Message)
+	for _, message := range m.pending {
+		if message.State != MessageDeliverySent || message.MessageID == 0 {
+			continue
+		}
+		confirmed[message.EntryID] = Message{
+			ID:       message.MessageID,
+			Outgoing: true,
+			Text:     message.Text,
+			Time:     formatMessageTime(message.CreatedAt),
+		}
+	}
+	if len(confirmed) == 0 {
+		return nil
+	}
+	return confirmed
 }
 
 func (m Model) handleMessageStatusesFailed(
@@ -460,20 +545,29 @@ func (m Model) handleMessageStatusesFailed(
 // timers would let the status line and the delivery states be read a
 // second apart, and the screen would show a queue count that does not match
 // the states under the messages it counts.
+//
+// A tick from a generation the model has left still schedules the next
+// one, for the generation that is current now. Dropping it is what made a
+// message sit on `Queued` for the rest of the session: opening a chat
+// starts a generation, the tick that was already on its way belongs to the
+// old one, and the loop ended there — a user who sent a message after
+// opening their first chat never saw it leave the queue.
 func (m Model) handleMessageStatusPollTick(
-	msg messageStatusPollTickMsg,
+	messageStatusPollTickMsg,
 ) (Model, tea.Cmd) {
-	if m.quitting || msg.generation != m.messageStatusGeneration {
+	if m.quitting {
 		return m, nil
 	}
 
-	// The previous attempt is over, or abandoned: a read that delivered
-	// nothing changed nothing, and a read that was slow must not stop the
-	// next one from being tried.
+	// The read a stale tick would have started belongs to a target the
+	// model has left, so it is not started. The loading flags are cleared
+	// anyway: the response that owned them is discarded by its
+	// generation, and leaving them set would block the next read until the
+	// tick after that one.
 	m.messageStatusLoading = false
 	m.summaryLoading = false
 
-	return m, m.pollDeliverySources(msg.generation)
+	return m, m.pollDeliverySources()
 }
 
 // deliveryPolling reports whether there is anything to poll.
@@ -494,7 +588,7 @@ func (m Model) deliveryPolling() bool {
 }
 
 // pollDeliverySources reads every source once and schedules the next tick.
-func (m *Model) pollDeliverySources(generation uint64) tea.Cmd {
+func (m *Model) pollDeliverySources() tea.Cmd {
 	if !m.deliveryPolling() {
 		return nil
 	}
@@ -506,19 +600,15 @@ func (m *Model) pollDeliverySources(generation uint64) tea.Cmd {
 	if cmd := m.loadMessageStatuses(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	cmds = append(cmds, scheduleMessageStatusPoll(generation))
+	cmds = append(cmds, scheduleMessageStatusPoll())
 
 	return tea.Batch(cmds...)
 }
 
-func scheduleMessageStatusPoll(
-	generation uint64,
-) tea.Cmd {
+func scheduleMessageStatusPoll() tea.Cmd {
 	return tea.Tick(
 		messageStatusPollInterval,
-		func(time.Time) tea.Msg {
-			return messageStatusPollTickMsg{generation: generation}
-		},
+		func(time.Time) tea.Msg { return messageStatusPollTickMsg{} },
 	)
 }
 

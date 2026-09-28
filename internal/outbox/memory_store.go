@@ -221,6 +221,33 @@ func (s *MemoryStore) MarkAccepted(
 	})
 }
 
+// MarkSent implements Store.
+func (s *MemoryStore) MarkSent(
+	ctx context.Context,
+	id ID,
+	expectedVersion uint64,
+	messageID int64,
+	now time.Time,
+) (Entry, error) {
+	return s.mutate(ctx, id, expectedVersion, func(e Entry) (Entry, error) {
+		return e.Sent(messageID, now)
+	})
+}
+
+// MarkSendFailed implements Store.
+func (s *MemoryStore) MarkSendFailed(
+	ctx context.Context,
+	id ID,
+	expectedVersion uint64,
+	code int,
+	message string,
+	now time.Time,
+) (Entry, error) {
+	return s.mutate(ctx, id, expectedVersion, func(e Entry) (Entry, error) {
+		return e.MarkSendFailed(code, message, now)
+	})
+}
+
 // MarkRetryable implements Store.
 func (s *MemoryStore) MarkRetryable(
 	ctx context.Context,
@@ -276,6 +303,12 @@ func (s *MemoryStore) Cancel(
 }
 
 // PurgeFinished implements Store.
+//
+// Accepted is not purged: TDLib took the message and Telegram has not
+// answered yet, and a record whose outcome is unknown is still a record
+// somebody may come back to. It is left to Sent or to a send failure,
+// and an accepted entry older than the retention window is a defect
+// worth seeing rather than a thing to tidy away.
 func (s *MemoryStore) PurgeFinished(
 	ctx context.Context,
 	cutoff time.Time,
@@ -289,7 +322,7 @@ func (s *MemoryStore) PurgeFinished(
 
 	purged := 0
 	for id, entry := range s.entries {
-		if entry.State != StateAccepted && entry.State != StateCanceled {
+		if entry.State != StateSent && entry.State != StateCanceled {
 			continue
 		}
 		if !entry.UpdatedAt.Before(cutoff) {

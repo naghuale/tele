@@ -31,6 +31,16 @@ type PendingMessage struct {
 	// State is where the message is in its delivery.
 	State MessageDeliveryState
 
+	// MessageID is the identifier Telegram knows the message by, and it
+	// is set only once Telegram has confirmed the send. Before that the
+	// queue holds a temporary identifier that no history page will ever
+	// contain, and a row placed under it could not be recognised as the
+	// same message when the history arrives.
+	//
+	// It arrives through withStateFrom, from the status list, which is
+	// the only place a final identifier is ever written.
+	MessageID int64
+
 	// Version is the version the queue read this record at.
 	//
 	// It is what a cancel is made against: the queue refuses a cancel of a

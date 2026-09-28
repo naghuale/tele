@@ -224,7 +224,7 @@ GROUP BY state
 	}
 	defer rows.Close()
 
-	var usedReadyIndex bool
+	var usedStateIndex bool
 	for rows.Next() {
 		var (
 			id     int
@@ -235,14 +235,21 @@ GROUP BY state
 		if err := rows.Scan(&id, &parent, &notUse, &detail); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(detail, "outbox_ready_idx") {
-			usedReadyIndex = true
+		// Any covering index that leads with the state column answers
+		// this aggregate without reading a row. outbox_send_result_idx
+		// leads with state too and is narrower for the grouping, so
+		// SQLite may prefer it; what matters is that the plan is a
+		// covering index scan rather than a scan of the rows.
+		if strings.Contains(detail, "USING COVERING INDEX") &&
+			(strings.Contains(detail, "outbox_ready_idx") ||
+				strings.Contains(detail, "outbox_send_result_idx")) {
+			usedStateIndex = true
 		}
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if !usedReadyIndex {
-		t.Fatal("operational aggregate does not use outbox_ready_idx")
+	if !usedStateIndex {
+		t.Fatal("operational aggregate does not use a state-leading covering index")
 	}
 }

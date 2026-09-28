@@ -325,13 +325,14 @@ func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
 	}
 
 	// The list, the column every region reserves, the inset between the
-	// marker and the text, and the margin the feed keeps on each side.
-	// The other side's messages start in the left margin: there is no
-	// block behind them, and a text that started one column further in
-	// would read as a message with a name hanging off its left edge.
+	// marker and the text, the margin the feed keeps on each side, and the
+	// air inside the block the words stand in: the other side's messages
+	// are a block against the left margin like everything else, and the
+	// text of a message is two columns in from the edge of its own block.
 	layout := LayoutFor(m.width, m.height)
 	first := layout.SidebarWidth() + paneGapWidth
-	want := first + focusColumnWidth + contentInsetWidth + layout.FeedMargin()
+	want := first + focusColumnWidth + contentInsetWidth +
+		layout.FeedMargin() + layout.BubbleInset()
 	if got := indentOf(incoming); got != want {
 		t.Fatalf("the incoming text starts at %d, want %d", got, want)
 	}
@@ -371,8 +372,8 @@ func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
 	layout := LayoutFor(m.width, m.height)
 	width := layout.ChatContentWidth()
 	limit := width * outgoingBubbleSharePercent / 100
-	block := m.outgoingBlockFor(
-		layout, width, strings.Repeat("long ", 60), "✓ Sent 10:01",
+	block := m.messageBlockFor(
+		sideOutgoing, layout, width, strings.Repeat("long ", 60), "✓ Sent 10:01",
 	)
 	if block.width > limit {
 		t.Fatalf("the block is %d columns, want at most %d", block.width, limit)
@@ -650,10 +651,15 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 	}
 }
 
-// The message under the cursor carries the same thing in the timeline: a
-// row of the conversation that is a highlight in its first column only is
-// a row that is not selected.
-func TestEveryColumnOfTheSelectedMessageIsOnItsBackground(t *testing.T) {
+// The message under the cursor is selected, and it is selected on its
+// block and on nothing else.
+//
+// The block is where the words are, so the block is where the selection
+// has to be: a selection that ran the width of the feed under a message
+// would be the band this feed stopped having, and a selection that stopped
+// before the block would be nowhere. The columns of the row around the
+// block are the feed's, on both sides, on every row of the message.
+func TestEveryColumnOfTheSelectedMessageBlockIsOnItsBackground(t *testing.T) {
 	m := focusedOn(
 		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
 		FocusHistory,
@@ -668,14 +674,54 @@ func TestEveryColumnOfTheSelectedMessageIsOnItsBackground(t *testing.T) {
 
 	layout := LayoutFor(m.width, m.height)
 	width := layout.ChatContentWidth()
-	background := backgroundParameters(m.styles().selected(true).Render("x"))
+	selected := backgroundParameters(m.styles().selected(true).Render("x"))
+	feed := backgroundParameters(
+		m.styles().on(m.tokens().ChatBackground, m.styles().unstyled()).
+			Render("x"),
+	)
 
 	entries := timelineEntries(m.selected().Messages)
 	rows := m.entryLines(entries[0], layout, width, m.styles())
 
 	// The first row of a block is the blank line between messages.
-	for _, row := range rows[1:] {
-		assertSelectedRow(t, m, background, "", row)
+	for index, row := range rows[1:] {
+		assertSelectedBlock(t, m, index, selected, feed, width, row)
+	}
+}
+
+// assertSelectedBlock fails unless the cells of a row of a selected
+// message are the selection inside the block and the feed outside it.
+//
+// The row is walked a run at a time rather than read as one string: a
+// reset in the middle of a row is invisible in the plain text and in a
+// substring search, and it is the only thing this is about.
+func assertSelectedBlock(
+	t *testing.T,
+	m Model,
+	index int,
+	selected, feed string,
+	width int,
+	row string,
+) {
+	t.Helper()
+
+	columns := 0
+	for _, run := range styleRuns(row) {
+		columns += m.widths.StringWidth(run.text)
+
+		switch {
+		case strings.Contains(run.sgr, selected):
+		case strings.Contains(run.sgr, feed):
+		default:
+			t.Errorf(
+				"row %d: %d columns are on neither the selection nor the feed: %q",
+				index, m.widths.StringWidth(run.text), run.text,
+			)
+		}
+	}
+
+	if columns != width {
+		t.Errorf("row %d: %d columns, want the %d of the feed", index, columns, width)
 	}
 }
 

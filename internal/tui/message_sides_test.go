@@ -200,8 +200,11 @@ func foregroundOf(rendered string) string {
 // tokens directly, because the question is not which colour a surface is
 // but which sequence a row carries for it, and a value the colour library
 // rounded on the way out is the value the terminal is given.
-func blockBackground(m Model) string {
-	return backgroundParameters(m.styles().bubble().Render("x"))
+func blockBackground(m Model, side messageSide) string {
+	return backgroundParameters(
+		m.styles().on(m.blockSurface(side, false), m.styles().unstyled()).
+			Render("x"),
+	)
 }
 
 func feedBackground(m Model) string {
@@ -387,7 +390,7 @@ func TestAnOutgoingBlockIsAsWideAsItsTextAndEndsAtTheRightMargin(t *testing.T) {
 	}
 	rows := entryRows(t, m, layout, feedTestWidth, message)
 
-	block := blockBackground(m)
+	block := blockBackground(m, sideOutgoing)
 	_, wantEnd := feedColumns(feedTestWidth, layout)
 	label, _ := m.historyStateLabel(message)
 	wantWidth := maxInt(m.widths.StringWidth(message.Text), m.widths.StringWidth(label)) +
@@ -433,7 +436,7 @@ func TestALongOutgoingMessageTakesTheShareAndWraps(t *testing.T) {
 		Time:     "12:05",
 	})
 
-	block := blockBackground(m)
+	block := blockBackground(m, sideOutgoing)
 	want := feedTestWidth * outgoingBubbleSharePercent / 100
 
 	_, textRows := rowsSaying(rows, "word")
@@ -457,13 +460,18 @@ func TestALongOutgoingMessageTakesTheShareAndWraps(t *testing.T) {
 	}
 }
 
-// The other side's messages have no background of its own: every cell of
-// them is the background of the feed, and they are told apart from this
-// user's by the side they are on rather than by a colour behind them.
+// Both sides are blocks, and the two are told apart in colour as well as
+// in position: the block of a message from the other side is the neutral
+// surface of the theme, the block of a message of this user is the accent's
+// tint of it, and neither is a band across the feed.
 //
-// A band behind every row of a column of messages is a spreadsheet, and a
-// spreadsheet is not what anybody is reading.
-func TestAMessageOfTheOtherSideIsOnTheBackgroundOfTheFeed(t *testing.T) {
+// The positions alone are not enough. A reader of a chat expects their own
+// messages to be the ones in the colour of the theme, and a feed whose two
+// sides are two greys of the same ramp is a feed they have to read the side
+// of the screen to follow — which is what the owner reported when the
+// incoming side lost its block altogether and the outgoing one was the only
+// thing on the screen with a surface.
+func TestTheTwoSidesAreBlocksOfTheirOwnColours(t *testing.T) {
 	m := focusedOn(
 		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
 		FocusHistory,
@@ -473,125 +481,74 @@ func TestAMessageOfTheOtherSideIsOnTheBackgroundOfTheFeed(t *testing.T) {
 		{ID: 2, Outgoing: true, Text: "from this side", Time: "12:01"},
 	}
 	m.historyState = loadStateLoaded
-	// The cursor is on the message of this user, so nothing of the other
-	// side's message is selected and every cell of it is the feed.
-	m.selectedMsg = 1
-	m.timelineTop = 0
-
-	view := m.View()
-	rows := renderedRows(t, m, view)
-	_, found := rowsSaying(rows, "from the other side")
-	if len(found) == 0 {
-		t.Fatalf("the message is not on the screen:\n%s", view)
-	}
-
-	feed := feedBackground(m)
-	first, last := conversationColumns(m)
-	for index, row := range found {
-		for column := first; column <= last && column < len(row); column++ {
-			switch row[column].background {
-			case feed:
-			case selectionBackground(m), blockBackground(m):
-				t.Errorf(
-					"row %d column %d is on a background of its own, want the feed's",
-					index, column,
-				)
-			default:
-				t.Errorf(
-					"row %d column %d is on %q, want the feed's background %q",
-					index, column, row[column].background, feed,
-				)
-			}
-		}
-	}
-}
-
-// No row of the feed carries the background of a block unless it is a row
-// of a message of this user, and the block of such a message ends at the
-// right margin of the feed and is as wide as the text in it.
-//
-// This is the whole of the change the owner asked for. The light band
-// that ran the width of the feed under every message, on both sides, is
-// what made the conversation look like a table rather than a
-// correspondence, and a block that reached both edges of the feed is that
-// band with a few words in the middle of it.
-func TestTheFeedHasNoBandUnderAnyMessage(t *testing.T) {
-	m := focusedOn(
-		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
-		FocusHistory,
-	)
-	outgoing := Message{ID: 2, Outgoing: true, Text: "from this side", Time: "12:01"}
-	m.chats[m.selectedChat].Messages = []Message{
-		{ID: 1, Text: "from the other side", Time: "12:00", Author: "Anna", AuthorID: 7},
-		outgoing,
-	}
-	m.historyState = loadStateLoaded
-	// The cursor is past the last message, so nothing in the feed is
-	// selected and every cell of it is either the feed's or a block's.
+	// The cursor is past the last message, so both blocks are on the
+	// surface of their own side and neither is on the selection.
 	m.selectedMsg = len(m.chats[m.selectedChat].Messages)
 	m.timelineTop = 0
 
 	view := m.View()
-	rows := renderedRows(t, m, view)
-	_, incoming := rowsSaying(rows, "from the other side")
-	if len(incoming) == 0 {
+	cells := renderedRows(t, m, view)
+
+	feed := feedBackground(m)
+	incoming := blockBackground(m, sideIncoming)
+	outgoing := blockBackground(m, sideOutgoing)
+	if incoming == outgoing {
+		t.Fatalf("the two blocks are both %q, so the sides are told apart by position only", incoming)
+	}
+	if incoming == feed || outgoing == feed {
+		t.Fatalf("a block is on the feed's own background %q", feed)
+	}
+
+	layout := LayoutFor(m.width, m.height)
+	start, end := feedColumns(layout.ChatContentWidth(), layout)
+
+	_, theirRows := rowsSaying(cells, "from the other side")
+	_, mineRows := rowsSaying(cells, "from this side")
+	if len(theirRows) == 0 || len(mineRows) == 0 {
 		t.Fatalf("both messages are on the screen:\n%s", view)
 	}
 
-	feed := feedBackground(m)
 	first, last := conversationColumns(m)
+	_ = last
 
-	// Nothing of the other side's message is on a background of its own,
-	// and no cell of it is left to whatever the terminal's own default is.
-	for index, row := range incoming {
-		for column := first; column <= last && column < len(row); column++ {
-			if row[column].background != feed {
-				t.Errorf(
-					"row %d column %d is on %q, want the feed's background",
-					index, column, row[column].background,
-				)
-			}
+	// The block of the other side's message is against the left margin and
+	// is as wide as the name and the text in it.
+	for _, row := range theirRows {
+		from, to, count := bandOf(row[first:], incoming)
+		if count == 0 {
+			t.Fatalf("the message of the other side has no block on it:\n%s", view)
+		}
+		if from != start {
+			t.Errorf("the block of the other side starts at lane column %d, want %d", from, start)
+		}
+		if to >= end {
+			t.Errorf("the block of the other side reaches lane column %d, past the feed", to)
 		}
 	}
 
-	// And the block of a message of this user is a block: as wide as the
-	// widest line in it, and ending at the right margin of the feed.
-	layout := LayoutFor(m.width, m.height)
-	width := layout.ChatContentWidth()
-	label, _ := m.historyStateLabel(outgoing)
-	want := m.outgoingBlockFor(layout, width, outgoing.Text, label)
-	block := blockBackground(m)
-	_, wantEnd := feedColumns(width, layout)
-
-	drawn := entryRows(t, m, layout, width, outgoing)
-	if len(drawn) < 3 {
-		t.Fatalf("the message took %d rows, want a blank, its text and its state", len(drawn))
-	}
-
-	for index, row := range drawn[1:] {
-		from, to, count := bandOf(row, block)
-		if count != want.width {
-			t.Errorf("row %d: the block is %d columns, want %d", index+1, count, want.width)
+	// The block of a message of this user is against the right margin.
+	for _, row := range mineRows {
+		from, to, count := bandOf(row[first:], outgoing)
+		if count == 0 {
+			t.Fatalf("the message of this user has no block on it:\n%s", view)
 		}
-		if to != wantEnd {
-			t.Errorf(
-				"row %d: the block ends at column %d, want the last column of the feed (%d)",
-				index+1, to, wantEnd,
-			)
+		if to != end {
+			t.Errorf("the block of this user ends at lane column %d, want %d", to, end)
 		}
-		if from < selectionMarkerWidth {
-			t.Errorf(
-				"row %d: the block starts at column %d, in front of the marker",
-				index+1, from,
-			)
+		if from <= start {
+			t.Errorf("the block of this user starts at lane column %d, want it right of the other side's", from)
 		}
 	}
 }
 
-// The selection of the message under the cursor is on that message and on
-// no other row: the whole width of the row for a message with no block,
-// and the block alone for a message of this user, whose block is the only
-// background on the screen a selection could disappear into.
+// The selection of the message under the cursor is on the block of that
+// message and on no other row, and it is on no cell of the block either
+// for the other message.
+//
+// The block is the only background on a row of the feed, so it is the
+// only place a selection can be seen: a selection that ran the width of
+// the feed under a message would be the band the feed stopped having, and
+// one that stopped before the block would be nowhere.
 func TestTheSelectionIsOnTheMessageUnderTheCursorAndNowhereElse(t *testing.T) {
 	for _, onOutgoing := range []bool{false, true} {
 		m := focusedOn(
@@ -616,13 +573,15 @@ func TestTheSelectionIsOnTheMessageUnderTheCursorAndNowhereElse(t *testing.T) {
 
 		incoming, _ := rowsSaying(rows, "from the other side")
 		outgoing, _ := rowsSaying(rows, "from this side")
+		if len(incoming) == 0 || len(outgoing) == 0 {
+			t.Fatalf("both messages are on the screen:\n%s", view)
+		}
 
 		chosen, other := incoming, outgoing
 		if onOutgoing {
 			chosen, other = outgoing, incoming
 		}
 
-		allowed := groupOf(rows, first, last, chosen)
 		unwanted := groupOf(rows, first, last, other)
 		selected := selectionBackground(m)
 		painted := 0
@@ -636,7 +595,8 @@ func TestTheSelectionIsOnTheMessageUnderTheCursorAndNowhereElse(t *testing.T) {
 
 				if unwanted[index] {
 					t.Errorf(
-						"outgoing=%v: row %d column %d is on the selection, and it belongs to the other message:\n%s",
+						"outgoing=%v: row %d column %d is on the selection, "+
+							"and it belongs to the other message:\n%s",
 						onOutgoing, index, column, view,
 					)
 				}
@@ -644,11 +604,103 @@ func TestTheSelectionIsOnTheMessageUnderTheCursorAndNowhereElse(t *testing.T) {
 		}
 
 		if painted == 0 {
-			t.Errorf("outgoing=%v: nothing in the feed is selected:\n%s", onOutgoing, view)
+			t.Errorf(
+				"outgoing=%v: nothing in the feed is selected:\n%s", onOutgoing, view,
+			)
 		}
-		if len(allowed) == 0 {
+		if len(chosen) == 0 {
 			t.Errorf("outgoing=%v: the message under the cursor is not on the screen", onOutgoing)
 		}
+	}
+}
+
+// The name of whoever sent a message is on the first row of its block, not
+// on the feed above it.
+//
+// A name on the background of the feed with a text in a block under it is
+// two things to read as one message, and a reader has to learn from the
+// shape that they belong together. Inside one block there is nothing to
+// learn, and the rows of the two are the same colour, which is what says
+// they are one thing.
+func TestTheNameOfTheSenderIsInsideTheBlockOfTheMessage(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	layout := LayoutFor(m.width, m.height)
+	message := Message{
+		ID: 1, Text: "from the other side", Time: "12:00",
+		Author: "Anna", AuthorID: 7,
+	}
+	rows := entryRows(t, m, layout, feedTestWidth, message)
+	incoming := blockBackground(m, sideIncoming)
+
+	if len(rows) < 3 {
+		t.Fatalf("the message took %d rows, want a blank, its name and its text", len(rows))
+	}
+
+	head, _, count := bandOf(rows[1], incoming)
+	if count == 0 {
+		t.Fatal("the row of the name has no block on it")
+	}
+	if !strings.Contains(cellText(rows[1]), messageAuthor(message)) {
+		t.Errorf("the name is not on the first row of the block: %q", cellText(rows[1]))
+	}
+	if head != layout.FeedMargin() {
+		t.Errorf("the block starts at column %d, want the left margin at %d", head, layout.FeedMargin())
+	}
+
+	// And the text is inside the same block as the name, which is the
+	// whole of what says they are one message.
+	from, to, _ := bandOf(rows[2], incoming)
+	if from != head || to != head+count-1 {
+		t.Errorf(
+			"the block of the text runs from %d to %d, want the same block as the name (%d to %d)",
+			from, to, head, head+count-1,
+		)
+	}
+}
+
+// The state under a message of this user is inside its block, at the right
+// edge of it, where the block is.
+//
+// It is a fact about the message rather than a continuation of its text, so
+// it is read where the message ends rather than where the last line of the
+// text starts — and it is inside the block because a state under a block
+// and not in it is a line the reader has to reassemble with the message
+// above it.
+func TestTheStateIsInsideTheBlockAndAtItsRightEdge(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	layout := LayoutFor(m.width, m.height)
+	message := Message{ID: 1, Outgoing: true, Text: "ok", Time: "12:01"}
+	label, _ := m.historyStateLabel(message)
+	rows := entryRows(t, m, layout, feedTestWidth, message)
+	outgoing := blockBackground(m, sideOutgoing)
+
+	if len(rows) < 3 {
+		t.Fatalf("the message took %d rows, want a blank, its text and its state", len(rows))
+	}
+
+	state := rows[len(rows)-1]
+	from, to, count := bandOf(state, outgoing)
+	if count == 0 {
+		t.Fatal("the row of the state has no block on it")
+	}
+
+	// The state ends at the right edge of the block, and the block is the
+	// same width as the row of the text above it.
+	_, textTo, _ := bandOf(rows[1], outgoing)
+	if to != textTo {
+		t.Errorf("the state ends at column %d, the text above it at %d", to, textTo)
+	}
+	if !strings.Contains(cellText(state), label) {
+		t.Errorf("the state is not on its own row: %q", cellText(state))
+	}
+	if indentOf(cellText(state)) >= from+count {
+		t.Errorf("the state is not at the right edge of the block: %q", cellText(state))
 	}
 }
 
@@ -677,7 +729,7 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 		})
 
 		ends := m.styles().roundedEnd(
-			m.blockSurface(false), m.tokens().ChatBackground,
+			m.blockSurface(sideOutgoing, false), m.tokens().ChatBackground,
 		)
 		wantForeground := foregroundOf(ends.Render(termwidth.NerdHalfLeft))
 		_, end := feedColumns(feedTestWidth, layout)
@@ -698,7 +750,7 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 			// is what makes them read as cut out of it rather than painted
 			// on it: the band in the middle is the block, and the halves
 			// are the columns on either side of it.
-			inner, last, count := bandOf(row, blockBackground(m))
+			inner, last, count := bandOf(row, blockBackground(m, sideOutgoing))
 			if count == 0 {
 				t.Fatalf("%v: row %d of the block has no block on it", mode, index+1)
 			}
@@ -824,7 +876,7 @@ func TestANarrowScreenLetsTheBlockFillTheFeed(t *testing.T) {
 	})
 
 	share := width * outgoingBubbleSharePercent / 100
-	block := blockBackground(m)
+	block := blockBackground(m, sideOutgoing)
 	_, textRows := rowsSaying(rows, "word")
 	if len(textRows) == 0 {
 		t.Fatalf("the text is not on the screen")

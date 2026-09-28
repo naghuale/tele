@@ -158,7 +158,6 @@ func (m Model) pendingMessageRows(
 	width int,
 	styles viewStyles,
 ) []string {
-	mark := styles.unstyled()
 	label, colour := m.deliveryStateLabel(message)
 
 	// The warning is a line of the block as much as the state is, and a
@@ -169,13 +168,16 @@ func (m Model) pendingMessageRows(
 		under = append(under, uncertainWarning)
 	}
 
-	block := m.outgoingBlockFor(layout, width, message.Text, under...)
+	block := m.messageBlockFor(sideOutgoing, layout, width, message.Text, under...)
 
 	rows := make([]string, 0, 4)
 	for _, line := range m.widths.Wrap(message.Text, block.text, ellipsis) {
-		rows = append(rows, m.outgoingRow(
-			styles, false, mark, spaces(selectionMarkerWidth),
-			block, line, m.tokens().OutgoingMessage, false,
+		rows = append(rows, m.blockRow(
+			false, styles, styles.unstyled(), spaces(selectionMarkerWidth),
+			block, []blockRun{{
+				style: styles.text(m.tokens().OutgoingMessage),
+				text:  line,
+			}}, false,
 		))
 	}
 
@@ -183,9 +185,9 @@ func (m Model) pendingMessageRows(
 	// one fact about the message: it is at this state, as of this moment.
 	// Two lines of it under a two-line message is a status block the reader
 	// has to assemble out of three rows.
-	rows = append(rows, m.outgoingRow(
-		styles, false, mark, spaces(selectionMarkerWidth),
-		block, label, colour, true,
+	rows = append(rows, m.blockRow(
+		false, styles, styles.unstyled(), spaces(selectionMarkerWidth),
+		block, []blockRun{{style: styles.text(colour), text: label}}, true,
 	))
 
 	// §3.1 puts the second row of an uncertain message under the state,
@@ -193,9 +195,12 @@ func (m Model) pendingMessageRows(
 	// has to decide: sending again may create a duplicate, and that is a
 	// decision rather than an error to retry away.
 	if message.State == MessageDeliveryUncertain {
-		rows = append(rows, m.outgoingRow(
-			styles, false, mark, spaces(selectionMarkerWidth),
-			block, uncertainWarning, m.tokens().StatusUncertain, true,
+		rows = append(rows, m.blockRow(
+			false, styles, styles.unstyled(), spaces(selectionMarkerWidth),
+			block, []blockRun{{
+				style: styles.text(m.tokens().StatusUncertain),
+				text:  uncertainWarning,
+			}}, true,
 		))
 	}
 

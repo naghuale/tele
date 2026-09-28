@@ -350,21 +350,6 @@ func authorHash(authorID int64) uint64 {
 	return hash
 }
 
-// bubble is the block a message of this user is drawn in: the text on the
-// composer's own surface, inset by a column on each side.
-//
-// It is a raised block and not a frame (§1, §24), and it is the surface of
-// the composer rather than a new colour, so a message of this user and the
-// field it was written in are visibly the same thing.
-func (s viewStyles) bubble() lipgloss.Style {
-	if !s.theme.Tokens.ComposerBackground.IsSet() {
-		return s.renderer.NewStyle()
-	}
-
-	return s.renderer.NewStyle().
-		Background(lipgloss.Color(s.theme.Tokens.ComposerBackground.Print()))
-}
-
 // roundedEnd is the style of one half of a rounded end of a block of a
 // message of this user: the colour of the block, on the background of the
 // feed.

@@ -486,7 +486,7 @@ func (m Model) incomingMessageLines(
 		))
 	}
 
-	return rows
+	return m.withAirAround(sideIncoming, selected, styles, block, rows)
 }
 
 // authorLine returns the runs of the first row of the block of a message
@@ -522,6 +522,15 @@ func (m Model) authorLine(entry timelineEntry, styles viewStyles) []blockRun {
 // short is not a screen where a message may be cut in half, and the block
 // around it is the one every other message is in, because a message that
 // loses its block as well as its name is a row of text.
+//
+// There is no air above and below the block here, and that is the one
+// thing about a short screen that is not a compromise made for want of
+// space: a half row of air at each end is two rows of the twenty this
+// screen has, and a message of a screen this short that is two rows
+// shorter is two rows of the conversation a user cannot read. The ends of
+// the block are the one piece of the shape that costs nothing — they are
+// the half circles of a pill in the row the message is in, and the row the
+// message is in is the row it has.
 func (m Model) shortMessageLines(
 	entry timelineEntry,
 	layout Layout,
@@ -589,14 +598,19 @@ func (m Model) outgoingMessageLines(
 	}
 
 	// The state is a line of the block like any other, at its right edge:
-	// it belongs to the message and it is read where the block ends.
-	rows = append(rows, m.blockRow(
-		selected, styles, m.selectionMarkStyle(selected),
-		spaces(selectionMarkerWidth), block,
-		[]blockRun{{style: styles.text(labelColour), text: label}}, true,
-	))
+	// it belongs to the message and it is read where the block ends. A
+	// state with nothing to say is no line of the block: a row of air
+	// between the text and the row that closes the block is a row of
+	// nothing, and it counts as one when the shape of the block is decided.
+	if label != "" {
+		rows = append(rows, m.blockRow(
+			selected, styles, m.selectionMarkStyle(selected),
+			spaces(selectionMarkerWidth), block,
+			[]blockRun{{style: styles.text(labelColour), text: label}}, true,
+		))
+	}
 
-	return rows
+	return m.withAirAround(sideOutgoing, selected, styles, block, rows)
 }
 
 // blockRun is one piece of a row of a block, in a colour of its own.
@@ -712,9 +726,31 @@ func (m Model) messageBlockFor(
 	under ...string,
 ) messageBlock {
 	inset := layout.BubbleInset()
-	ends := m.roundedEndColumns(side)
+	nerd := m.roundedEndColumns(side)
 	lane := maxInt(width-2*layout.FeedMargin(), 1)
-	most := m.messageBlockCap(layout, width) - 2*inset - ends
+	ceiling := m.messageBlockCap(layout, width)
+
+	// The ends of the block are a property of its shape and not of the
+	// font: they are the two half circles of a pill, and a pill is one row
+	// tall. Drawn on every row of a block they are a half circle on each
+	// row of it, which for a block of two rows is two pills stacked on top
+	// of each other — a shape nobody asked for and one that reads as two
+	// messages rather than one. So a block of one row of words is a pill
+	// and a block of more is a rectangle with square sides and half a row
+	// of air at each end (§4.4).
+	//
+	// The shape is measured with the ends in, because the ends are two
+	// columns of the text area and a text that only fits on one row
+	// *without* them is a text the pill would push onto a second row — the
+	// two stacked halves this is about. Such a block keeps its square
+	// sides, and is a rectangle of one row: the alternative to a pill is a
+	// rectangle, and the alternative to the rectangle is the two pills.
+	ends := 0
+	if nerd > 0 && m.blockTextRows(ceiling-2*inset-nerd, text, under) == 1 {
+		ends = nerd
+	}
+
+	most := ceiling - 2*inset - ends
 	if most < 1 {
 		most = 1
 	}
@@ -731,11 +767,20 @@ func (m Model) messageBlockFor(
 		natural = maxInt(natural, m.widths.StringWidth(line))
 	}
 
+	// The block is never narrower than the width of a message, and a
+	// two-word message in a block of eight columns is a sliver: the pill
+	// of §4.4 needs room to be a pill in, and a bubble a user cannot see
+	// the words in is a bubble that has to be read with effort. The floor
+	// is of the text and not of the block — the insets and the ends are
+	// added to it — and it never exceeds what the share allows, so a
+	// narrow screen still gets the block it can hold.
+	least := minInt(bubbleMinTextColumns, most)
+
 	block := messageBlock{
 		side:  side,
 		inset: inset,
 		ends:  ends,
-		text:  minInt(natural, most),
+		text:  minInt(maxInt(natural, least), most),
 	}
 	block.width = minInt(block.text+2*inset+ends, lane)
 	block.width = maxInt(block.width, 1)
@@ -749,6 +794,25 @@ func (m Model) messageBlockFor(
 	block.right = maxInt(width-block.offset-block.width, 0)
 
 	return block
+}
+
+// blockTextRows returns how many rows of words a block of a text and the
+// lines under it has.
+//
+// It is the shape of the block and nothing else: the lines under the text
+// are rows of the block like the text is — the name of whoever sent the
+// message is a row of it, and so is the state of a message of this user —
+// and an empty line under the text is no row at all, because a row of air
+// in the middle of a message is a row of nothing.
+func (m Model) blockTextRows(area int, text string, under []string) int {
+	rows := len(m.widths.Wrap(text, area, ellipsis))
+	for _, line := range under {
+		if strings.TrimSpace(line) != "" {
+			rows++
+		}
+	}
+
+	return rows
 }
 
 // messageBlockCap returns how many columns the block of a message may take
@@ -774,6 +838,10 @@ func (m Model) messageBlockCap(layout Layout, width int) int {
 
 // roundedEndColumns returns how many columns the two rounded ends of a
 // block take together, and nothing at all when they are not drawn.
+//
+// Whether a block takes them is its shape and not this: a block of one row
+// of words is a pill and a block of more is a rectangle (messageBlockFor).
+// This is the width of the ends for the block that takes them.
 //
 // They are drawn when the setting says the terminal has the font and the
 // block has a colour to be the colour of. A terminal with neither draws
@@ -851,7 +919,7 @@ func (m Model) blockRow(
 		own(styles.on(m.tokens().ChatBackground, markStyle), mark)
 
 	if block.ends > 0 {
-		row = row.own(m.roundedEndStyle(styles, block.side, selected), termwidth.NerdHalfLeft)
+		row = row.own(m.edgeStyle(styles, block.side, selected), termwidth.NerdHalfLeft)
 	}
 
 	// The air in front of the words, and the air behind them, add up to
@@ -879,22 +947,75 @@ func (m Model) blockRow(
 	row = row.own(raised, spaces(block.inset))
 
 	if block.ends > 0 {
-		row = row.own(m.roundedEndStyle(styles, block.side, selected), termwidth.NerdHalfRight)
+		row = row.own(m.edgeStyle(styles, block.side, selected), termwidth.NerdHalfRight)
 	}
 
 	return row.own(feed, spaces(block.right)).String()
 }
 
-// roundedEndStyle is the style of one half of a rounded end: the colour of
-// the block, on the background of the feed.
-func (m Model) roundedEndStyle(
+// edgeStyle is the style of one half of a rounded edge of a block: the
+// colour of the block, on the background of the feed behind it.
+func (m Model) edgeStyle(
 	styles viewStyles,
 	side messageSide,
 	selected bool,
 ) lipgloss.Style {
-	return styles.roundedEnd(
+	return styles.blockEdge(
 		m.blockSurface(side, selected), m.tokens().ChatBackground,
 	)
+}
+
+// withAirAround returns the rows of a block with a half row of air above
+// and below it: the lower half block and the upper half block, in the
+// colour of the block on the background of the feed.
+//
+// A block that is a rectangle of colour with its words pressed against the
+// edges of it is a band of colour, and the air inside it is what makes it
+// a message. One row at each end rather than a whole row each is the point:
+// the half blocks are drawn in the lower and the upper half of their cells,
+// so the block looks half a row taller on each side and the rows of the
+// feed above and below it are the rows they are in rather than rows taken
+// away from the conversation.
+//
+// The ends of a block drawn with a Nerd Font are square here on purpose.
+// The two halves beside the text already say that the block is rounded on
+// its left and its right; a row of them above and below would round it in
+// a second way and the message would stop being a block of text. They are
+// the same colour as the block, so the row reads as one more row of it.
+func (m Model) withAirAround(
+	side messageSide,
+	selected bool,
+	styles viewStyles,
+	block messageBlock,
+	rows []string,
+) []string {
+	above := m.airRow(selected, styles, block, termwidth.HalfBlockLower)
+	below := m.airRow(selected, styles, block, termwidth.HalfBlockUpper)
+
+	return append([]string{above}, append(rows, below)...)
+}
+
+// airRow draws one row of a half block across the width of a block.
+func (m Model) airRow(
+	selected bool,
+	styles viewStyles,
+	block messageBlock,
+	glyph string,
+) string {
+	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
+	air := halfRow(
+		m.edgeStyle(styles, block.side, selected),
+		m.blockSurface(block.side, selected).IsSet() &&
+			m.tokens().ChatBackground.IsSet(),
+		glyph,
+		block.width,
+	)
+
+	return m.painter(theme.Color{}).
+		own(feed, spaces(block.offset)).
+		own(feed, air).
+		own(feed, spaces(block.right)).
+		String()
 }
 
 // flushColumns returns how many columns of a block are not covered by the

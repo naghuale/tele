@@ -578,11 +578,24 @@
     in every message and a group has two names in two colours; a
     personal chat has one other person in it and one colour
   - a message of this user is a block on the right on the composer's
-    own surface, inset one column, at most 70% of the feed, with the
-    time and the state of the send under the text at the block's right
-    edge in the colour of the state itself ("✓ Sent 14:30", "● Queued
+    own surface, inset two columns on each side, at most 70% of the feed,
+    with the time and the state of the send under the text at the block's
+    right edge in the colour of the state itself ("✓ Sent 14:30", "● Queued
     14:30", "↻ Retrying at 14:35") and no author line: the block being
     on the right already says whose it is
+  - a block is as wide as its widest line and never narrower than
+    bubbleMinTextColumns (16) of text, insets and ends apart, so a
+    one-word message is a bubble and not a sliver; the name and the state
+    are as wide as they are whatever that floor is
+  - a block is opened by a half row of air and closed by one: a row of
+    U+2584 in the colour of the block above it and a row of U+2580 below
+    it, both on the background of the feed and both half a row high, so
+    the block looks half a row taller at each end without taking the rows
+    away from the conversation. They are square: a row of half blocks
+    beside the text already says where the block is rounded
+  - the air is not drawn on a screen below the short layout height, where
+    two rows of twenty are two rows of the conversation a reader cannot do
+    without, and where a block of one row is a pill of its own
   - a blank row separates two messages, and it is the first thing to go
     on a screen shorter than 20 rows
   - a run of consecutive messages from one sender that share a
@@ -794,16 +807,29 @@
     is a configuration error with the valid values in it, resolved by
     the composition root like the theme and reported by telecli doctor
   - nerd_font: a bool, default false. It says the terminal is drawn with
-    a Nerd Font, and the block of a message is then rounded with the two
-    halves the font provides (U+E0B6 and U+E0B4), each one column, painted
-    in the colour of the block on the background of the feed — on BOTH
-    sides of a conversation, since both are blocks. It is off by default
-    because a terminal without the font draws them as empty squares, and
-    a terminal does not report its font, so the user is the only party
-    that can say. Reported by telecli doctor and resolved by the
-    composition root like the theme and the width rule; under the
-    no-colour profile neither the ends nor the background of a block is
-    drawn, because there is no colour for the half to be the colour of
+    a Nerd Font, and the two halves the font provides (U+E0B6 and
+    U+E0B4), each one column, are painted in the colour of the thing they
+    belong to on the background behind it: on BOTH sides of a
+    conversation, since both are blocks. The halves are one row tall, so
+    they belong to a block of ONE row of words — the pill — and a block
+    of more than one row is a rectangle with square sides and a half row
+    of air at each end (U+2584 below the top of it, U+2580 above the
+    bottom), which is the roundness a multi-row block carries instead. A
+    message with a name or a state in it has a row for each and is
+    therefore a rectangle; the one-row block is a message on a screen
+    below the short layout height, where a message is its text and
+    nothing else. The same two halves round the pill of the unread count
+    in the chat list, and the selected chat, which is a card of four rows
+    (a half row of air, the name and its time, the preview and its
+    badge, a half row of air) with two columns of the list's background
+    inside each side of the highlight, takes no halves of its own. It is
+    off by default because a terminal without the font draws them as
+    empty squares, and a terminal does not report its font, so the user is
+    the only party that can say. Reported by telecli doctor and resolved
+    by the composition root like the theme and the width rule; under the
+    no-colour profile neither the ends, nor the air around a block or a
+    row of the list, nor the background of a block is drawn, because
+    there is no colour for the half to be the colour of
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
@@ -1142,7 +1168,11 @@
     reads as a cursor. The unread badge is the one exception, and it keeps
     the background of the badge on every row: a count drawn in the colour
     of the list on the background of the selection is a number nobody can
-    read
+    read. The two columns of air inside each side of a selected row are
+    the other exception, and they carry the background of the list: a
+    selection that ran the width of the pane is the band the pane stopped
+    having, and the two columns are the same two a message keeps inside
+    its block
   - OutgoingBubble is the surface of the block of a message of this user,
     and ComposerBackground is the surface of the block of a message of the
     other side: two roles because two colours, so that the two sides of a

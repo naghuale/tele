@@ -193,7 +193,11 @@ func TestSlashIsACharacterOutsideTheChatList(t *testing.T) {
 // puts the search above the composer in the hierarchy, so the first Esc
 // closes the line and puts the chat list back the way it was.
 func TestEscapeClosesTheSearchAndRestoresTheSelection(t *testing.T) {
-	m := searchable(t, 120, 24)
+	// The screen is tall enough for every chat of the list: a window
+	// placed against the last of six chats has to leave room for the
+	// first five above it, and a chat scrolled out of the window is a
+	// chat this test would then report as hidden (§4.2).
+	m := searchable(t, 120, 28)
 	m.selectedChat = 3
 	m, _ = updateModel(t, m, press(tea.KeyDown))
 	m.selectedChat = 4
@@ -422,7 +426,7 @@ func TestTheQueryFindsANameWithAnEmojiInIt(t *testing.T) {
 // do": an empty query is not a query that matches nothing, it is a
 // question that has not been asked yet.
 func TestAnEmptyQueryLeavesTheListAlone(t *testing.T) {
-	m := searchable(t, 120, 24)
+	m := searchable(t, 120, 30)
 	m, _ = updateModel(t, m, pressRunes("/"))
 
 	assertVisible(t, m, []string{"Alice", "Dev Team", "Saved Messages", "Ёлка"}, nil)

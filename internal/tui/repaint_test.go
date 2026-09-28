@@ -137,64 +137,80 @@ func TestAModelWithoutASizeHasNothingToRepaint(t *testing.T) {
 // One whole screen is every cell of the window. A repaint writes all of
 // them; a patch writes the rows that changed, which for one row of the
 // chat list is three of thirty.
-func TestTheTerminalIsDrawnOverAgainWhenTheChatChanges(t *testing.T) {
-	widths := termwidth.Unmeasured(termwidth.ModeGrapheme)
-	harness := startProgram(
-		t, repaintModel(t, termwidth.ModeGrapheme), widths,
-		repaintWidth, repaintHeight,
-	)
-	harness.send(t, tea.WindowSizeMsg{
-		Width:  repaintWidth,
-		Height: repaintHeight,
+func TestAChangeOfChatIsFollowedByAWholeScreenOfCells(t *testing.T) {
+	t.Run("the selection moves to another chat", func(t *testing.T) {
+		harness := sizedScreen(t, repaintWidth, repaintHeight)
+
+		for step, keys := range []string{keyDown, keyDown, keyUp, keyDown} {
+			before := harness.emulator.paintedCells()
+			harness.key(t, fmt.Sprintf("key %d", step+1), keys)
+			harness.awaitAScreenPainted(t, fmt.Sprintf("key %d", step+1), before)
+		}
 	})
 
-	screen := repaintWidth * repaintHeight
+	t.Run("a chat is opened", func(t *testing.T) {
+		harness := sizedScreen(t, repaintWidth, repaintHeight)
 
-	// Walking the list, opening a chat and moving the focus afterwards:
-	// the three moments repaint.go names, and the keys around them that
-	// name no chat at all. The keys of the timeline move the cursor inside
-	// a conversation, which changes no row of the list.
-	steps := []struct {
-		label string
-		keys  string
-	}{
-		{"down", keyDown},
-		{"down", keyDown},
-		{"down", keyDown},
-		{"up", keyUp},
-		{"enter", keyEnter},
-		{"esc", keyEsc},
-		{"tab", keyTab},
-	}
-
-	for step, keys := range steps {
 		before := harness.emulator.paintedCells()
-		harness.key(t, fmt.Sprintf("key %d (%s)", step+1, keys.label), keys.keys)
-		drawn := harness.emulator.paintedCells() - before
+		harness.key(t, "enter", keyEnter)
+		harness.awaitAScreenPainted(t, "enter", before)
+	})
 
-		if !repaintNeeded(keys.keys) {
-			continue
-		}
-		if drawn < screen {
-			t.Fatalf(
-				"key %d (%s) painted %d cells, want a whole screen (%d): "+
-					"the rows the program left alone are the ones a "+
-					"terminal and a program can disagree about",
-				step+1, keys.label, drawn, screen,
-			)
-		}
-	}
+	// A conversation is left only on a single-pane screen: a screen with
+	// two panes puts the chat list next to the conversation rather than
+	// behind it, and there is nothing for Esc to go back to (§8.5).
+	t.Run("a conversation is left", func(t *testing.T) {
+		harness := sizedScreen(t, 60, 30)
+		harness.key(t, "enter", keyEnter)
+		harness.key(t, "esc to the timeline", keyEsc)
+
+		before := harness.emulator.paintedCells()
+		harness.key(t, "esc out of the conversation", keyEsc)
+		harness.awaitAScreenPainted(t, "esc out of the conversation", before)
+	})
 }
 
-// repaintNeeded says which keys are the ones the screen has to be drawn
-// again for: the selection moving to another chat, and the chat being
-// opened. The keys of the timeline move no chat and say nothing about
-// which one is selected.
-func repaintNeeded(keys string) bool {
-	switch keys {
-	case keyDown, keyEnter:
-		return true
-	}
+// sizedScreen is a program of the given size with a list of chats in it and
+// a terminal in memory in front of it, sized and drawn.
+func sizedScreen(t *testing.T, width, height int) *screenHarness {
+	t.Helper()
 
-	return false
+	harness := startProgram(
+		t,
+		repaintModel(t, termwidth.ModeGrapheme),
+		termwidth.Unmeasured(termwidth.ModeGrapheme),
+		width, height,
+	)
+	harness.send(t, tea.WindowSizeMsg{Width: width, Height: height})
+
+	return harness
+}
+
+// The half of the chain above that is the renderer's: a repaint is a
+// WindowSizeMsg of the size the window already is, and it is written to
+// the terminal in full rather than in the rows that changed.
+//
+// It is a test of its own so that a failure of the one above says which
+// half is at fault: the program asked and the terminal was not given
+// anything, or the program never asked.
+func TestARepaintIsWrittenOverEveryCellOfTheWindow(t *testing.T) {
+	harness := sizedScreen(t, repaintWidth, repaintHeight)
+
+	// The repaint is of a screen that really did change: a repaint of a
+	// screen that did not is the one case a renderer satisfies without
+	// writing anything, and the one case that says nothing about a chat
+	// changing.
+	harness.key(t, "down", keyDown)
+
+	before := harness.emulator.paintedCells()
+	harness.repaint(t, "the repaint after ↓")
+	whole := harness.wholeScreen()
+	if painted := harness.emulator.paintedCells() - before; painted < whole {
+		t.Fatalf(
+			"the repaint painted %d cells, want a whole screen (%d): the "+
+				"rows the program left alone are the ones a terminal and a "+
+				"program can disagree about",
+			painted, whole,
+		)
+	}
 }

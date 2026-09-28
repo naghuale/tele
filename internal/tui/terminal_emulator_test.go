@@ -89,8 +89,16 @@ type screenEmulator struct {
 	params  []byte
 	private byte
 
-	writes    int
-	lastWrite time.Time
+	// changed is closed and replaced by every write, so that a test
+	// waiting for the screen to catch up with the program waits for the
+	// write and not for a length of time it guessed at. The renderer
+	// draws on a clock of its own, so "the frame is on the screen" is
+	// the one thing a test cannot know from the outside.
+	changed chan struct{}
+
+	// paintedFrames is how many times the program has written to the
+	// terminal.
+	paintedFrames int
 }
 
 // newScreenEmulator returns a terminal of the given size that draws with
@@ -101,10 +109,11 @@ func newScreenEmulator(width, height int, widths termwidth.WidthModel) *screenEm
 	}
 
 	emulator := &screenEmulator{
-		widths: widths,
-		width:  width,
-		cells:  make([][]string, height),
-		taken:  make([][]bool, height),
+		widths:  widths,
+		width:   width,
+		cells:   make([][]string, height),
+		taken:   make([][]bool, height),
+		changed: make(chan struct{}),
 	}
 	for row := range emulator.cells {
 		emulator.cells[row] = make([]string, width)
@@ -117,28 +126,79 @@ func newScreenEmulator(width, height int, widths termwidth.WidthModel) *screenEm
 // Write applies what the program wrote to the terminal.
 //
 // It is the io.Writer the program is given instead of a terminal. A test
-// knows a frame has been drawn by the cells it covers and by the time of
-// the write, and not by the count of the calls: the renderer writes
-// nothing when the frame did not change, so an idle program writes
-// nothing at all.
+// knows a frame is on the screen by the cells it holds and not by the
+// count of the calls: the renderer writes nothing when the frame did not
+// change, so a key that changes nothing on the screen draws a frame the
+// terminal is never told about — and it is the frame it already holds.
 func (e *screenEmulator) Write(p []byte) (int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	e.feed(string(p))
-	e.writes++
-	e.lastWrite = time.Now()
+	e.paintedFrames++
+
+	// Whoever is waiting for the screen to catch up with the program is
+	// waiting on this, and on nothing else.
+	close(e.changed)
+	e.changed = make(chan struct{})
 
 	return len(p), nil
 }
 
-// idleFor reports whether nothing has been drawn to the terminal for
-// longer than wait.
-func (e *screenEmulator) idleFor(wait time.Duration) bool {
+// writes reports how many times the program has written to the terminal.
+//
+// A test that wants to know a frame was *written* rather than merely
+// produced compares this across the frame: the renderer skips the write
+// altogether when the frame did not change, so a frame of the same bytes
+// as the one before it is drawn without the terminal being told, and only
+// a repaint gets through.
+func (e *screenEmulator) writes() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	return time.Since(e.lastWrite) >= wait
+	return e.paintedFrames
+}
+
+// waitForAChange blocks until the program has written to the terminal, or
+// until every is over, or until within is over, whichever comes first.
+//
+// It is how a test waits for a frame, and it is not a wait for a length of
+// time that happens to be longer than the clock of the renderer: the
+// screen is looked at again after every write and after every moment, and
+// the wait ends when the screen is the frame. The moment is there for the
+// frame a key draws is already on the screen — a key that changes nothing
+// draws a frame the renderer never writes, and a wait that ended only on a
+// write would sit on it until something unrelated drew one.
+func (e *screenEmulator) waitForAChange(within, every time.Duration) {
+	e.mu.Lock()
+	changed := e.changed
+	e.mu.Unlock()
+
+	wait := min(within, every)
+	if wait <= 0 {
+		return
+	}
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	select {
+	case <-changed:
+	case <-timer.C:
+	}
+}
+
+// rows returns every row of the screen as the terminal has left it.
+func (e *screenEmulator) rows() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	rows := make([]string, len(e.cells))
+	for row := range e.cells {
+		rows[row] = e.rowText(row)
+	}
+
+	return rows
 }
 
 // paintedCells reports how many cells have been written to the terminal.
@@ -149,18 +209,12 @@ func (e *screenEmulator) paintedCells() int {
 	return e.painted
 }
 
-// line returns one row of the screen as a terminal would leave it: the
-// cells that hold something, the right-hand cell of a wide character
-// included in the one before it and not on its own, and a space for
-// every cell nothing was ever written to.
-func (e *screenEmulator) line(row int) string {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	if row < 0 || row >= len(e.cells) {
-		return ""
-	}
-
+// rowText is one row of the screen, with the right-hand cell of a wide
+// character in the one before it and not on its own, and a space for every
+// cell nothing was ever written to.
+//
+// The caller holds the lock.
+func (e *screenEmulator) rowText(row int) string {
 	var out strings.Builder
 	for col, cell := range e.cells[row] {
 		if e.taken[row][col] {

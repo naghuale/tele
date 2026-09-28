@@ -494,6 +494,15 @@
     line of every frame, so a line whose bytes change without its
     width changing is a line the terminal was never told about, and a
     chat list that scrolls by a pixel is exactly that (#57)
+  - a test against a terminal in memory synchronises on the frame and
+    not on a length of time: every update draws exactly one frame, the
+    frame is marked with the number of the update it was drawn from,
+    and the wait ends when the cells of the terminal are the cells of
+    the frame drawn after the key — or when the frame is the very bytes
+    the terminal already holds, which is what a key that changes
+    nothing draws and the renderer does not write. There is no sleep
+    standing in for a write, and a wait that is over says which rows
+    did not agree
   - the feed is bottom-anchored: fewer messages than the feed has rows
     for means the empty rows are above them, so the newest message sits
     on the row directly above the composer

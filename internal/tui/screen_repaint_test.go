@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -76,58 +77,69 @@ func repaintChats(count int) []Chat {
 	return chats
 }
 
-// frameLog is what the program drew, and when.
+// frameLog is the newest frame the program has drawn and the update it
+// was drawn from.
 //
-// The renderer writes a frame on a clock rather than in the middle of a
-// key press, so a test that compared the terminal with the view the moment
-// the key was sent would be comparing it with a frame that has not been
-// drawn yet. The log is what both sides of the comparison are timed
-// against: the view the program produced and the write that put it on the
-// screen.
+// The renderer of Bubble Tea writes a frame on a clock of its own rather
+// than in the middle of a key press, so a test that looked at the terminal
+// the moment a key was sent would be looking at the frame before it — the
+// one that says "Chats" where the program had already drawn the chat it
+// opened. A test that waited out a length of time instead would pass on a
+// fast machine and fail on a slow one, which is the same test twice.
+//
+// So both sides of the comparison are numbered. Every update of the program
+// draws exactly one frame, so the number of the frame says which update it
+// belongs to, and a wait is for the cells of the terminal to be the cells
+// of the frame that belongs to the key that was pressed. The clock of the
+// renderer is then a thing the test is patient about rather than a thing it
+// guesses at.
 type frameLog struct {
-	mu     sync.Mutex
-	frames []string
+	mu   sync.Mutex
+	gen  int
+	view string
 }
 
-func (l *frameLog) add(view string) {
+// drawnFrom returns the newest frame drawn from an update later than gen,
+// and whether the program has drawn one yet.
+func (l *frameLog) drawnFrom(gen int) (string, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.frames = append(l.frames, view)
-}
-
-func (l *frameLog) count() int {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	return len(l.frames)
-}
-
-func (l *frameLog) last() string {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if len(l.frames) == 0 {
-		return ""
+	if l.gen <= gen {
+		return "", false
 	}
 
-	return l.frames[len(l.frames)-1]
+	return l.view, true
+}
+
+// newest returns the update the newest frame was drawn from.
+func (l *frameLog) newest() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.gen
 }
 
 // recordedModel is the model of the program under test with a log on it.
 //
 // It is the same model, value for value: the wrapper only remembers what
-// was drawn, so the screen the terminal ends up with is compared with the
-// view of the state that produced it rather than with a second model a
-// test kept in step by hand.
+// was drawn and counts the updates, so the screen the terminal ends up with
+// is compared with the view of the state that produced it rather than with
+// a second model a test kept in step by hand.
 type recordedModel struct {
 	Model
 	log *frameLog
+	gen int
 }
 
 func (m recordedModel) View() string {
 	view := m.Model.View()
-	m.log.add(view)
+
+	m.log.mu.Lock()
+	defer m.log.mu.Unlock()
+
+	m.log.gen = m.gen
+	m.log.view = view
 
 	return view
 }
@@ -135,7 +147,7 @@ func (m recordedModel) View() string {
 func (m recordedModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	next, cmd := m.Model.Update(msg)
 
-	return recordedModel{Model: next.(Model), log: m.log}, cmd
+	return recordedModel{Model: next.(Model), log: m.log, gen: m.gen + 1}, cmd
 }
 
 // screenHarness is a program, a terminal and a way of waiting for one to
@@ -146,6 +158,14 @@ type screenHarness struct {
 	program  *tea.Program
 	input    *io.PipeWriter
 	done     chan struct{}
+	width    int
+	height   int
+
+	// held is the frame the terminal was last seen to hold, and it is what
+	// a key that draws a frame of the very same bytes is settled by: the
+	// renderer skips the write when nothing changed, so there is no write
+	// to wait for, and the screen is the frame already.
+	held string
 }
 
 // startProgram starts a program with the options the composition root
@@ -178,6 +198,8 @@ func startProgram(
 		program:  program,
 		input:    writer,
 		done:     make(chan struct{}),
+		width:    width,
+		height:   height,
 	}
 
 	go func() {
@@ -203,85 +225,207 @@ func (h *screenHarness) stop() {
 	}
 }
 
-// key presses a key the way a terminal delivers it, waits for the frame
-// it produced to reach the terminal, and returns the view of the program.
+// key presses a key the way a terminal delivers it, waits for the frame it
+// produced to reach the terminal, and returns that frame.
 //
-// The renderer draws on a clock rather than in the middle of a key press,
-// so the wait is for the terminal to go quiet rather than for a write: a
-// key that changes nothing on the screen is a key the program answers with
-// a frame the renderer never writes, and a test that waited for the write
-// would sit on it until it timed out. The second half of the wait is what
-// keeps that from being a race: a frame is a frame only after the
-// renderer has had a whole frame's worth of clock to write it.
+// The wait is the frame and not the time: the number the program has
+// updated to is read before the key is written, and the wait ends when the
+// cells of the terminal are the cells of the frame drawn from an update
+// later than that number. A key that changes nothing on the screen answers
+// with a frame the renderer never writes, and the wait ends at once
+// because the terminal is already holding it — which is right, and is the
+// one thing a wait for a write could not manage.
 func (h *screenHarness) key(t *testing.T, label, keys string) string {
 	t.Helper()
 
-	drawn := h.log.count()
+	before := h.log.newest()
 	if _, err := io.WriteString(h.input, keys); err != nil {
 		t.Fatalf("%s: send %q: %v", label, keys, err)
 	}
 
-	waitFor(t, label+": a frame", func() bool {
-		return h.log.count() > drawn
-	})
-	h.waitForTheFrame(t, label)
-
-	return h.log.last()
+	return h.awaitTheFrame(t, label, before)
 }
 
 // send puts a message into the program the way the resize handler does.
-func (h *screenHarness) send(t *testing.T, msg tea.Msg) {
+func (h *screenHarness) send(t *testing.T, msg tea.Msg) string {
 	t.Helper()
 
-	drawn := h.log.count()
+	before := h.log.newest()
 	h.program.Send(msg)
-	waitFor(t, "the size of the screen: a frame", func() bool {
-		return h.log.count() > drawn
-	})
-	h.waitForTheFrame(t, "the size of the screen")
+
+	return h.awaitTheFrame(t, "the size of the screen", before)
 }
 
-// screenQuiet is how long the program has to leave the terminal alone
-// before the frame is taken to be the one on the screen. It is several
-// frames of the renderer's clock, so that a frame which is on its way is
-// waited for rather than raced.
-const screenQuiet = 60 * time.Millisecond
-
-// waitForTheFrame waits until the frame the program has produced has been
-// written to the terminal, or until there is nothing to write.
+// repaint asks the program for the whole screen to be drawn again at the
+// size the window already is, which is the message a change of chat asks
+// for (repaint.go), and waits until the terminal has been written the
+// frame it produced.
 //
-// The two halves are the same statement from either side: the frame has to
-// have been given a whole frame's worth of the renderer's clock to be
-// written, and the terminal has to have been left alone for that long
-// since. A key that changes nothing on the screen produces a frame the
-// renderer never writes, and a wait that asked for a write would sit on
-// it until it timed out.
-func (h *screenHarness) waitForTheFrame(t *testing.T, label string) {
+// It is a wait for a write rather than for a frame, because the frame is
+// the one the terminal is already holding: a repaint of a screen that did
+// not change is the same bytes again, and the only thing that tells it
+// apart from the silence is that the cells were written once more.
+func (h *screenHarness) repaint(t *testing.T, label string) string {
 	t.Helper()
 
-	produced := time.Now()
-	waitFor(t, label+": the frame on the screen", func() bool {
-		return time.Since(produced) >= screenQuiet &&
-			h.emulator.idleFor(screenQuiet)
-	})
+	before, written := h.log.newest(), h.emulator.writes()
+	h.program.Send(tea.WindowSizeMsg{Width: h.width, Height: h.height})
+
+	return h.awaitTheWrittenFrame(t, label, before, written)
 }
 
-// waitFor waits for a condition, and says what it was waiting for when it
-// never came.
-func waitFor(t *testing.T, what string, done func() bool) {
+// frameDeadline is how long the terminal is given to catch up with a frame
+// the program has drawn. The renderer draws on a clock of a sixtieth of a
+// second, so this is two hundred of them: a wait that is over sooner than
+// this fails on a machine with a slow clock, which is the machine CI is.
+const frameDeadline = 2 * time.Second
+
+// framePoll is how often the screen is looked at again when the program
+// has not written to the terminal. It is not how long the wait is: the wait
+// ends when the screen is the frame, and this is how often that is asked.
+const framePoll = time.Millisecond
+
+// awaitTheFrame waits until the terminal holds the frame the program drew
+// after the update it was reading the number of, and returns it.
+//
+// Two things settle it, and both of them are statements about the screen
+// rather than about the time: either the cells of the terminal are the
+// cells of the frame, or the frame is the very bytes the terminal was seen
+// to hold a moment ago and the renderer had nothing to write. Anything else
+// is the program ahead of the terminal, which is the state a test of this
+// is waiting out.
+func (h *screenHarness) awaitTheFrame(t *testing.T, label string, after int) string {
 	t.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for !done() {
-		if time.Now().After(deadline) {
-			t.Fatalf("the program produced no %s", what)
+	deadline := time.Now().Add(frameDeadline)
+	for {
+		view, drawn := h.log.drawnFrom(after)
+		switch {
+		case drawn && (view == h.held || len(rowsThatDisagree(h.emulator.rows(), view)) == 0):
+			h.held = view
+
+			return view
+
+		case time.Now().After(deadline):
+			h.failOnTheRowsThatDisagree(t, label, after)
 		}
-		time.Sleep(time.Millisecond)
+
+		h.emulator.waitForAChange(time.Until(deadline), framePoll)
 	}
 }
 
-// assertScreenIsTheFrame compares the terminal with the frame of the
-// program, row by row.
+// awaitTheWrittenFrame waits until the terminal has been written the frame
+// the program drew after the update it was reading the number of, and
+// returns it.
+//
+// It is awaitTheFrame plus the write: the frame has to have reached the
+// terminal, not only to have been produced. A test that counts the cells a
+// repaint wrote needs that difference, because a frame the renderer skips
+// is a frame that costs the terminal nothing.
+func (h *screenHarness) awaitTheWrittenFrame(
+	t *testing.T,
+	label string,
+	after, written int,
+) string {
+	t.Helper()
+
+	deadline := time.Now().Add(frameDeadline)
+	for {
+		view, drawn := h.log.drawnFrom(after)
+		switch {
+		case drawn &&
+			h.emulator.writes() > written &&
+			len(rowsThatDisagree(h.emulator.rows(), view)) == 0:
+			h.held = view
+
+			return view
+
+		case time.Now().After(deadline):
+			h.failOnTheRowsThatDisagree(t, label, after)
+		}
+
+		h.emulator.waitForAChange(time.Until(deadline), framePoll)
+	}
+}
+
+// awaitAScreenPainted waits until the terminal has been given a whole
+// screen of cells since from, and returns how many cells it was given.
+//
+// One whole screen is every cell of the window. A repaint writes all of
+// them; a patch writes the rows that changed, which for one row of the
+// chat list is three of thirty. So this is the other half of the same
+// condition awaitTheFrame waits on: the screen is the frame *and* the
+// terminal was given the cells of it.
+//
+// Counting cells is what tells the two apart where a frame of the very
+// same bytes would not: the renderer skips a write when nothing changed,
+// and only a repaint gets through.
+func (h *screenHarness) wholeScreen() int {
+	return h.width * h.height
+}
+
+func (h *screenHarness) awaitAScreenPainted(t *testing.T, label string, from int) int {
+	t.Helper()
+
+	whole := h.wholeScreen()
+	deadline := time.Now().Add(frameDeadline)
+	for {
+		painted := h.emulator.paintedCells() - from
+		if painted >= whole {
+			return painted
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"%s: the terminal was given %d cells in %s, want a whole "+
+					"screen (%d): the rows the program left alone are the "+
+					"ones a terminal and a program can disagree about",
+				label, painted, frameDeadline, whole,
+			)
+		}
+
+		h.emulator.waitForAChange(time.Until(deadline), framePoll)
+	}
+}
+
+// failOnTheRowsThatDisagree says what the terminal was showing and what
+// the program had drawn, a few rows of it.
+func (h *screenHarness) failOnTheRowsThatDisagree(
+	t *testing.T,
+	label string,
+	after int,
+) {
+	t.Helper()
+
+	view, drawn := h.log.drawnFrom(after)
+	if !drawn {
+		t.Fatalf("%s: the program drew no frame in %s", label, frameDeadline)
+	}
+
+	rows := rowsThatDisagree(h.emulator.rows(), view)
+	for _, row := range rows[:minInt(len(rows), 8)] {
+		t.Logf(
+			"row %d\n  terminal: %q\n  program:  %q",
+			row.row+1, row.have, row.want,
+		)
+	}
+
+	t.Fatalf(
+		"%s: the terminal was not the frame of the program in %s, "+
+			"and %d of its %d rows do not agree",
+		label, frameDeadline, len(rows), len(h.emulator.rows()),
+	)
+}
+
+// rowMismatch is one row where the terminal and the program differ.
+type rowMismatch struct {
+	row  int
+	have string
+	want string
+}
+
+// rowsThatDisagree compares the screen with a frame of the program, row by
+// row.
 //
 // The rows are compared on their text and not on their escape sequences:
 // what a user is looking at is the words and where they are, and a colour
@@ -290,35 +434,41 @@ func waitFor(t *testing.T, what string, done func() bool) {
 // The right-hand spaces are dropped from both sides because they are not
 // what is drawn, they are what a row of a fixed width is padded with, and
 // comparing them would turn a difference in how a row is padded into a
-// failure about the row.
-func assertScreenIsTheFrame(
-	t *testing.T,
-	emulator *screenEmulator,
-	view string,
-	width, height int,
-) {
-	t.Helper()
-
+// disagreement about the row.
+func rowsThatDisagree(screen []string, view string) []rowMismatch {
 	lines := strings.Split(view, "\n")
-	if len(lines) != height {
-		t.Fatalf(
-			"the frame is %d rows and the window is %d: %s",
-			len(lines), height, strings.Join(lines, "\n"),
-		)
+	if len(lines) != len(screen) {
+		return []rowMismatch{{
+			row:  minInt(len(screen), len(lines)),
+			have: strconv.Itoa(len(screen)) + " rows on the terminal",
+			want: strconv.Itoa(len(lines)) + " rows in the frame",
+		}}
 	}
 
-	for row := range height {
-		want := strings.TrimRight(plain(lines[row]), " ")
-		got := strings.TrimRight(emulator.line(row), " ")
-
-		if got == want {
+	var mismatches []rowMismatch
+	for row, line := range lines {
+		have := strings.TrimRight(screen[row], " ")
+		want := strings.TrimRight(plain(line), " ")
+		if have == want {
 			continue
 		}
 
+		mismatches = append(mismatches, rowMismatch{row: row, have: have, want: want})
+	}
+
+	return mismatches
+}
+
+// assertScreenIsTheFrame compares the terminal with the frame of the
+// program, row by row.
+func assertScreenIsTheFrame(t *testing.T, emulator *screenEmulator, view string) {
+	t.Helper()
+
+	for _, row := range rowsThatDisagree(emulator.rows(), view) {
 		t.Errorf(
 			"row %d of the screen is not the row the program drew\n"+
 				"  terminal: %q\n  program:  %q",
-			row+1, got, want,
+			row.row+1, row.have, row.want,
 		)
 	}
 }
@@ -414,13 +564,11 @@ func TestTheProgramDrawsWhatItThinksItDraws(t *testing.T) {
 				repaintHeight,
 			)
 
-			harness.send(t, tea.WindowSizeMsg{
+			view := harness.send(t, tea.WindowSizeMsg{
 				Width:  repaintWidth,
 				Height: repaintHeight,
 			})
-			assertScreenIsTheFrame(
-				t, harness.emulator, harness.log.last(), repaintWidth, repaintHeight,
-			)
+			assertScreenIsTheFrame(t, harness.emulator, view)
 
 			for step, keys := range repaintWalk() {
 				view := harness.key(
@@ -428,9 +576,7 @@ func TestTheProgramDrawsWhatItThinksItDraws(t *testing.T) {
 					fmt.Sprintf("key %d (%s)", step+1, repaintKeyNames[step]),
 					keys,
 				)
-				assertScreenIsTheFrame(
-					t, harness.emulator, view, repaintWidth, repaintHeight,
-				)
+				assertScreenIsTheFrame(t, harness.emulator, view)
 			}
 		})
 	}

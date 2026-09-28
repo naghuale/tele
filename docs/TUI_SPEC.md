@@ -1300,15 +1300,31 @@ TestPageThatSaysThereIsMoreKeepsTheLoading
 `github.com/charmbracelet/x/vt` в дереве зависимостей нет, поэтому
 эмулятор — минимальный и в тестовых файлах.
 
+Ожидание кадра — по кадру, а не по времени. Рендерер рисует по своему
+тамеру (60 fps), поэтому «экран равен тому, что нарисовала программа» —
+единственное, что можно знать снаружи; кадр помечен номером обновления,
+каждый `Update` рисует ровно один кадр, и ожидание заканчивается, когда
+ячейки терминала совпали с кадром, нарисованным позже отправленного ключа,
+либо когда кадр побайтово тот же, что терминал уже держит (рендерер не
+пишет кадр, который не изменился, и ждать записи тогда нечего). Дедлайн
+2 с, при несовпадении печатаются расходящиеся строки.
+
 ```text
 TestMovingTheSelectionDrawsTheScreenAgain
 TestOpeningAChatDrawsTheScreenAgain
 TestLeavingAChatDrawsTheScreenAgain
 TestAModelWithoutASizeHasNothingToRepaint
-TestTheTerminalIsDrawnOverAgainWhenTheChatChanges
+TestAChangeOfChatIsFollowedByAWholeScreenOfCells
+TestARepaintIsWrittenOverEveryCellOfTheWindow
 TestTheProgramDrawsWhatItThinksItDraws
 TestEveryFrameIsTheSizeOfTheWindow
 ```
+
+Две половины утверждения измеряются по отдельности: первая группа тестов —
+что смена чата просит `tea.WindowSizeMsg` текущего размера, вторая — что
+такое сообщение действительно записано в терминал целиком. Считать ячейки
+вокруг одного нажатия («надеемся, repaint попал в это окно») — это гонка с
+таймером рендерера, чего тест делать не должен.
 
 ## 22. Порядок PR
 

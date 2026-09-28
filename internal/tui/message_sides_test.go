@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
 	"telecli/internal/tui/termwidth"
@@ -229,13 +230,6 @@ func selectionForeground(m Model) string {
 	)
 
 	return foregroundOf(edge.Render(termwidth.HalfBlockLower))
-}
-
-func listBackground(m Model) string {
-	return backgroundParameters(
-		m.styles().on(m.tokens().SidebarBackground, m.styles().unstyled()).
-			Render("x"),
-	)
 }
 
 func selectionBackground(m Model) string {
@@ -1188,13 +1182,13 @@ func TestTheUnreadBadgeIsInTheSameColumnAsTheTime(t *testing.T) {
 			}
 
 			lines := m.chatListRowLines(m.chatListEntries()[index], false, layout, width)
-			if len(lines) != 4 {
-				t.Fatalf("preview %q: a chat takes %d rows, want two of air and two of words",
+			if len(lines) != 3 {
+				t.Fatalf("preview %q: a chat takes %d rows, want two of words and a gap",
 					preview, len(lines))
 			}
 
-			head := renderedCells(t, m, lines[1])
-			detail := renderedCells(t, m, lines[2])
+			head := renderedCells(t, m, lines[0])
+			detail := renderedCells(t, m, lines[1])
 			timeEnd := lastWord(head)
 			from, to, count := bandOf(
 				detail, backgroundParameters(badge.pill.Render("x")),
@@ -1293,16 +1287,16 @@ func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
 }
 
 // The air of a selected row is two half rows of the colour of the
-// selection, one above the name and one below the preview, and it is
-// drawn on every row of the list so that every chat is the same height.
+// selection, one above the name and one below the preview.
 //
 // A half row rather than a whole one is the point: the selection looks
 // half a row taller on each side and the rows of the list above and below
 // it are the rows it is drawn in rather than rows taken away from the
-// list. On a row that is not selected the half block is in the background
-// of the list and there is nothing to see, which is also why it has to be
-// drawn there: a row that was four rows long only while it was selected
-// would be a list whose window could not be placed against its rows.
+// list. A chat that is not selected has no half rows at all and keeps the
+// blank line the list had before, which is a quarter more chats on the
+// same screen and — with the half block being a glyph rather than a patch
+// of colour — is also the only way a row of the list can be free of a
+// light stripe under every chat in it.
 func TestTheAirOfTheSelectedRowIsTwoHalfRowsOfIt(t *testing.T) {
 	for _, selected := range []bool{false, true} {
 		m := chatListWith(t, "ok")
@@ -1313,49 +1307,54 @@ func TestTheAirOfTheSelectedRowIsTwoHalfRowsOfIt(t *testing.T) {
 		layout := LayoutFor(m.width, m.height)
 		width := layout.SidebarContentWidth()
 		lines := m.chatListRowLines(m.chatListEntries()[0], selected, layout, width)
-		if len(lines) != 4 {
-			t.Fatalf("selected=%v: a chat takes %d rows, want four", selected, len(lines))
-		}
-
-		// The colour of a rounded edge is the colour of the glyph and the
-		// background of the list is behind it, so a selected row is found
-		// by its foreground and a row that is not selected by its
-		// background: an edge with no colour of its own is a row of the
-		// background of the list, and there is nothing to see.
-		highlight := listBackground(m)
-		inForeground := false
+		want := 3
 		if selected {
-			highlight, inForeground = selectionForeground(m), true
+			want = 4
+		}
+		if len(lines) != want {
+			t.Fatalf("selected=%v: a chat takes %d rows, want %d", selected, len(lines), want)
 		}
 
 		for index, glyph := range map[int]string{
 			0: termwidth.HalfBlockLower,
 			3: termwidth.HalfBlockUpper,
 		} {
-			cells := renderedCells(t, m, lines[index])
-			from, to, count := bandOf(cells, highlight)
-			if inForeground {
-				from, to, count = bandOfForeground(cells, highlight)
+			if index >= len(lines) {
+				continue
 			}
 
-			if count == 0 {
-				t.Errorf("selected=%v: row %d has no row of the highlight on it", selected, index)
+			cells := renderedCells(t, m, lines[index])
+
+			// A half block is a glyph: drawn where it has no foreground of
+			// its own it takes the terminal's, which on a dark theme is a
+			// light stripe. So where the row is not a card's air the glyph
+			// must not be on it at all.
+			if !selected {
+				if strings.ContainsRune(cellText(cells), []rune(glyph)[0]) {
+					t.Errorf(
+						"a row that is not selected draws %q: %q",
+						glyph, cellText(cells),
+					)
+				}
 
 				continue
 			}
-			if selected &&
-				(from != chatListInset || to != maxInt(width-chatListInset-1, 0)) {
+
+			from, to, count := bandOfForeground(cells, selectionForeground(m))
+			if count == 0 {
+				t.Errorf("row %d has no row of the highlight on it", index)
+
+				continue
+			}
+			if from != chatListInset || to != maxInt(width-chatListInset-1, 0) {
 				t.Errorf(
-					"selected=%v: row %d runs from column %d to %d, want %d to %d",
-					selected, index, from, to,
+					"row %d runs from column %d to %d, want %d to %d",
+					index, from, to,
 					chatListInset, width-chatListInset-1,
 				)
 			}
 			if !strings.ContainsRune(cellText(cells), []rune(glyph)[0]) {
-				t.Errorf(
-					"selected=%v: row %d has no %q on it: %q",
-					selected, index, glyph, cellText(cells),
-				)
+				t.Errorf("row %d has no %q on it: %q", index, glyph, cellText(cells))
 			}
 		}
 	}
@@ -1411,6 +1410,96 @@ func TestTheCountOfAChatIsAPillAndRoundsWithTheFont(t *testing.T) {
 			}
 		}
 	}
+}
+
+// A half block is a glyph and not a patch of colour: drawn where the
+// program has no foreground of its own for it, it is drawn in whatever
+// foreground the terminal happens to be in, and on a dark theme that is a
+// light stripe. Every one of them on the screen therefore carries the
+// colour of the block it belongs to, and there is one on the screen only
+// where there is a block: the air of a message, and the air of the selected
+// card of the list.
+//
+// Both halves of the screen are walked, and not one of them: a light stripe
+// under every chat in the list is a defect the conversation beside it
+// cannot show, and a bubble of the feed drawn in the colour of the list
+// would pass a test that only looked at the list.
+func TestEveryHalfBlockOnTheScreenIsInTheColourOfItsBlock(t *testing.T) {
+	m := focusedOn(
+		programModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusChatList,
+	)
+	m.chats = []Chat{
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05"},
+		{ID: 3, Title: "Notes", Unread: 1, Preview: "milk, bread", Time: "11:58"},
+	}
+	m.chatsState = loadStateLoaded
+	m.selectedChat = 0
+
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    1,
+		operation: m.historyOperation,
+		page: HistoryPage{Messages: []Message{
+			{ID: 2, Text: "I will take the release notes", Time: "12:04", Author: "Anna", AuthorID: 5},
+			{ID: 1, Text: "the build is green again", Time: "12:02", Outgoing: true},
+		}},
+	})
+	m = m.scrollToNewest()
+
+	first, last := conversationColumns(m)
+	inList, inFeed := 0, 0
+
+	for row, cells := range renderedRows(t, m, m.View()) {
+		for column, cell := range cells {
+			if cell.text != termwidth.HalfBlockLower &&
+				cell.text != termwidth.HalfBlockUpper {
+				continue
+			}
+
+			switch {
+			case column >= first && column <= last:
+				inFeed++
+
+			default:
+				inList++
+			}
+
+			// The colour of the block the half belongs to: the selection
+			// on the list, and the surface of the message in the feed.
+			want := map[string]bool{
+				selectionForeground(m):                  true,
+				foregroundParametersOf(m, sideIncoming): true,
+				foregroundParametersOf(m, sideOutgoing): true,
+			}
+			if !want[cell.foreground] {
+				t.Errorf(
+					"row %d column %d draws %q painted %q, want the colour of the "+
+						"block it belongs to (%v)",
+					row, column, cell.text, cell.foreground, want,
+				)
+			}
+		}
+	}
+
+	if inList == 0 {
+		t.Error("the list has no half block on it, so the card is not being proved")
+	}
+	if inFeed == 0 {
+		t.Error("the feed has no half block on it, so the air of a block is not being proved")
+	}
+}
+
+// foregroundParametersOf is the SGR foreground a half of the air of a
+// message is painted in: the colour of the block, which for a message
+// under the cursor is the selection.
+func foregroundParametersOf(m Model, side messageSide) string {
+	edge := m.styles().blockEdge(
+		m.blockSurface(side, false), m.tokens().ChatBackground,
+	)
+
+	return foregroundOf(edge.Render(termwidth.HalfBlockLower))
 }
 
 // chatListWith returns a model whose chat list is three rows long, with

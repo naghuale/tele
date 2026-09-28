@@ -44,9 +44,8 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 	}
 
 	budget := height - layout.hintLines() - len(lines)
-	rowHeight := m.chatListRowHeight(layout)
 
-	start, end := visibleRange(len(rows), selected, budget/rowHeight)
+	start, end := visibleHeights(chatListHeights(rows), selected, budget)
 
 	for index := start; index < end; index++ {
 		lines = append(lines, rows[index]...)
@@ -119,22 +118,71 @@ func (m Model) chatListSummaryLine(width int) string {
 // chatListSearchHint is how the list says that it can be searched.
 const chatListSearchHint = "/ Search"
 
-// chatListRowHeight returns how many lines one chat takes.
+// chatListHeights returns how many lines each chat of the list takes.
 //
-// A chat is a name and a preview with a blank line under it, so that two
-// chats are two blocks rather than four lines of one column. On a screen
-// too short for that (§3.4) the row is one line and the blank lines go.
-func (m Model) chatListRowHeight(layout Layout) int {
-	if layout.Short() {
-		return 1
+// The height is read back off the rows rather than computed beside them, so
+// the window of the list is placed against the rows that are drawn and not
+// against a number that has to be kept in step with them: a budget of three
+// for a chat drawn at four is a list whose window is a row below the rows
+// it is placed against.
+func chatListHeights(rows [][]string) []int {
+	heights := make([]int, len(rows))
+	for index, row := range rows {
+		heights[index] = len(row)
 	}
 
-	// Two rows of words between two rows of half a row of air (§4.2). The
-	// height a row is budgeted with is the height it is drawn at: a budget
-	// of three for a row of four is a list that believes it is a row of
-	// air shorter than it is, and the window it places is then a row lower
-	// than the rows it is placed against.
-	return 4
+	return heights
+}
+
+// visibleHeights returns the window of items to draw when they are of
+// heights of their own rather than all of one, with the selected item
+// inside it.
+//
+// It is visibleRange over lines instead of over items, and it is a
+// separate function because a list of rows that are not all the same height
+// cannot be windowed by dividing the budget: the selected chat is one line
+// taller than the others (§4.2), and a division that assumed otherwise
+// would either cut it off the bottom or leave a row of nothing under the
+// list.
+func visibleHeights(heights []int, selected, available int) (int, int) {
+	if len(heights) == 0 || available <= 0 {
+		return 0, 0
+	}
+
+	total := 0
+	for _, height := range heights {
+		total += height
+	}
+	if total <= available {
+		return 0, len(heights)
+	}
+
+	if selected < 0 {
+		selected = 0
+	}
+	if selected >= len(heights) {
+		selected = len(heights) - 1
+	}
+
+	// Half of the window goes above the selection and the rest below it,
+	// which is where visibleRange puts a selected item: a list that always
+	// scrolled to the top of its selection would show a message above the
+	// one the user moved to, and a list that always scrolled to the bottom
+	// would hide it.
+	half := available / 2
+	start, above := selected, 0
+	for start > 0 && above+heights[start-1] <= half {
+		above += heights[start-1]
+		start--
+	}
+
+	end, used := start+1, above+heights[selected]
+	for end < len(heights) && used+heights[end] <= available {
+		used += heights[end]
+		end++
+	}
+
+	return start, end
 }
 
 // chatListRows renders every chat the list shows into its lines, and the
@@ -164,9 +212,9 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 	return rows, selected
 }
 
-// chatListRowLines renders one chat as four rows: half a row of air, the
-// name with its time, the preview with its unread badge, and half a row of
-// air again.
+// chatListRowLines renders one chat as two rows of words and a row of
+// separation: the name with its time, the preview with its unread badge,
+// and either a blank line or half a row of air above and half a row below.
 //
 // The two rows of words are the two things a chat list is: who it is and
 // what it is about. The time and the badge end in the same column, so the
@@ -175,15 +223,17 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 // chat happened to end is a column the eye has to find on every row, and a
 // column the eye has to find is a column that is not there.
 //
-// The two rows of air are what make the selected chat a chat rather than a
-// stripe, and they are the same drawing as the air around a message in the
-// conversation: a half block in the colour of the row, which rounds the
-// selection at the top and at the bottom without a row of its own. A row
-// that is not selected draws them in the background of the list, where
-// they are invisible, so the rows of the list keep their spacing and only
-// the chosen one has an edge. They are drawn on every row, selected or not,
-// because a row that was four rows long only while it was the chosen one
-// would be a list whose window could not be placed against its rows.
+// The chosen chat is a card: half a row of the colour of the selection above
+// it and half a row below it, which rounds the selection at the top and at
+// the bottom without a row of its own — the same drawing as the air around
+// a message in the conversation. A chat that is not chosen keeps the blank
+// line it had before, so the list holds a quarter more chats than a card on
+// every row would leave it, and the two shapes are the same height where
+// they meet: a blank line under a card is a blank line, and half a row over
+// one is half a row. Nothing is drawn on the rows of the other chats,
+// because a half block in the background of the list is a glyph in
+// whatever foreground the terminal happens to be in, and the terminal's
+// foreground is not a colour the program chose.
 //
 // The selection also keeps the same two columns of air on the left and on
 // the right that a message keeps inside its block. A selection that runs
@@ -247,7 +297,7 @@ func (m Model) chatListRowLines(
 		return row.own(list, spaces(chatListInset)).String()
 	}
 
-	if m.chatListRowHeight(layout) == 1 {
+	if layout.Short() {
 		short := maxInt(nameWidth-m.widths.StringWidth(badge.text())-2, 1)
 
 		// On a screen too short for a preview (§3.4) the row is one line:
@@ -300,11 +350,20 @@ func (m Model) chatListRowLines(
 		width-chatListInset,
 	))
 
+	// The card is the chosen chat and nothing else. A half block is a
+	// glyph, so a half block drawn in a colour the program did not choose
+	// is a glyph in the terminal's own foreground: on a dark theme that is
+	// a light stripe under every chat in the list, and the list is then a
+	// list of stripes with words in them.
+	if !selected {
+		return []string{head, detail, m.painter(theme.Color{}).own(list, spaces(width)).String()}
+	}
+
 	return []string{
-		m.chatListAirRow(selected, styles, content, termwidth.HalfBlockLower),
+		m.chatListAirRow(styles, content, termwidth.HalfBlockLower),
 		head,
 		detail,
-		m.chatListAirRow(selected, styles, content, termwidth.HalfBlockUpper),
+		m.chatListAirRow(styles, content, termwidth.HalfBlockUpper),
 	}
 }
 
@@ -318,32 +377,36 @@ func (m Model) chatListRowLines(
 // upper half of the next — half a row of air above a row of words and half
 // a row below it, without either of them being a row of its own.
 //
-// A chat that is not selected draws the halves in the background of the
-// list, where they cannot be seen. The rows are drawn either way, because a
-// row of four rows only while it was the chosen one is a list whose window
-// cannot be placed against its rows.
+// Only the chosen chat has them, and it is the one thing this function
+// needs to be careful about: a half block is a glyph, so drawing one
+// without a foreground of its own hands the terminal its own foreground for
+// it, and a list of chats on a dark theme turns into a list of light
+// stripes. The glyph therefore always carries an explicit foreground (the
+// colour of the selection) and an explicit background (the list's), or it
+// is not drawn at all: a theme with no colours for either is a card with no
+// edges, which is what a theme with no colours draws everywhere else too.
 func (m Model) chatListAirRow(
-	selected bool,
 	styles viewStyles,
 	content int,
 	glyph string,
 ) string {
 	list := styles.on(m.tokens().SidebarBackground, styles.unstyled())
-	// Neither is drawn where the theme has no colour for it (halfRow),
-	// which is a chat list on a screen with no colours that is a list of
-	// chats and not a list of bars.
-	drawn := m.tokens().SidebarBackground.IsSet()
-	glyphs := list
-	if selected {
-		drawn = drawn && m.tokens().Selected.IsSet()
-		glyphs = styles.blockEdge(
-			m.tokens().Selected, m.tokens().SidebarBackground,
-		)
-	}
+	// behind is the colour the half block is drawn in, and drawn is
+	// whether there is one at all: halfRow turns a row of them into a row
+	// of spaces where there is not, so the card keeps its height on a
+	// screen with no colours without painting a glyph in the terminal's
+	// own foreground.
+	behind := m.tokens().Selected
+	drawn := behind.IsSet() && m.tokens().SidebarBackground.IsSet()
 
 	return m.painter(theme.Color{}).
 		own(list, spaces(chatListInset)).
-		own(list, halfRow(glyphs, drawn, glyph, content)).
+		own(list, halfRow(
+			styles.blockEdge(behind, m.tokens().SidebarBackground),
+			drawn,
+			glyph,
+			content,
+		)).
 		own(list, spaces(chatListInset)).
 		String()
 }

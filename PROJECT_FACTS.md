@@ -819,17 +819,28 @@
     therefore a rectangle; the one-row block is a message on a screen
     below the short layout height, where a message is its text and
     nothing else. The same two halves round the pill of the unread count
-    in the chat list, and the selected chat, which is a card of four rows
-    (a half row of air, the name and its time, the preview and its
-    badge, a half row of air) with two columns of the list's background
-    inside each side of the highlight, takes no halves of its own. It is
-    off by default because a terminal without the font draws them as
-    empty squares, and a terminal does not report its font, so the user is
-    the only party that can say. Reported by telecli doctor and resolved
-    by the composition root like the theme and the width rule; under the
+    in the chat list, and the selected chat, which is a card (a half row
+    of air, the name and its time, the preview and its badge, a half row
+    of air) with two columns of the list's background inside each side of
+    the highlight, takes no halves of its own. It is off by default
+    because a terminal without the font draws them as empty squares, and
+    a terminal does not report its font, so the user is the only party
+    that can say. Reported by telecli doctor and resolved by the
+    composition root like the theme and the width rule; under the
     no-colour profile neither the ends, nor the air around a block or a
     row of the list, nor the background of a block is drawn, because
     there is no colour for the half to be the colour of
+  - a half block is a GLYPH and not a patch of colour, so it is only ever
+    drawn where the program has an explicit foreground for it: the colour
+    of the block it belongs to. A chat of the list that is not selected
+    has no air rows at all and keeps the blank line the list had before,
+    because a half block in the background of the list and in the
+    terminal's own foreground is a light stripe under every chat of the
+    list on a dark theme — and because it would cost the list a quarter
+    of its chats. Only the selected chat is a card. The rows of the list
+    are therefore of two heights, and the window of the list is placed by
+    the heights of the rows that were drawn (chatListHeights,
+    visibleHeights) rather than by dividing the budget by one of them
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there

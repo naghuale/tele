@@ -320,6 +320,14 @@ func (e *screenEmulator) draw() {
 }
 
 // put writes one grapheme cluster at the cursor.
+//
+// The cell it lands on stops being the right-hand half of whatever wide
+// character used to own it. A terminal that kept the flag would go on
+// hiding the cell that is now there, and a row the program drew in full
+// would come back a character short: the chat list of §4.2 has a flag in
+// every preview, so a row that moves up under a row of a narrower one lands
+// a narrow glyph on the flag's second half often enough to be a name in
+// this file.
 func (e *screenEmulator) put(cluster string) {
 	width := maxInt(e.widths.StringWidth(cluster), 1)
 
@@ -331,6 +339,7 @@ func (e *screenEmulator) put(cluster string) {
 	}
 
 	e.cells[e.row][e.col] = cluster
+	e.taken[e.row][e.col] = false
 	for offset := 1; offset < width && e.col+offset < e.width; offset++ {
 		e.cells[e.row][e.col+offset] = ""
 		e.taken[e.row][e.col+offset] = true

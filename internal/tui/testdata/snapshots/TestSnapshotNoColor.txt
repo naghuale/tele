@@ -14,17 +14,17 @@
     › Anna Example        12:07                                                                                         
     ›  the build is green …  2                                                                                          
                                                                                                                         
-                                                                                                                        
       Release Room        12:05                                                                                         
        the tag is pushed                                                                                                
                                                                                                                         
-                                                                                                                        
       Notes               11:58                                                                                         
        milk, bread, coffee   1                                                                                          
-                                         Anna Example · 12:02                                                           
-                                         The build is green again                                                       
+                                                                                                                        
       Команда Разработки  11:40                                                                                         
-       созвон в 15:00                                                                                                   
+       созвон в 15:00                    Anna Example · 12:02                                                           
+                                         The build is green again                                                       
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                           Shipped the release notes     
                                                                                                        ✓ Sent 12:05     
@@ -46,17 +46,17 @@
 "    › Anna Example        12:07                                                                                         "
 "    ›  the build is green …  2                                                                                          "
 "                                                                                                                        "
-"                                                                                                                        "
 "      Release Room        12:05                                                                                         "
 "       the tag is pushed                                                                                                "
 "                                                                                                                        "
-"                                                                                                                        "
 "      Notes               11:58                                                                                         "
 "       milk, bread, coffee   1                                                                                          "
-"                                         Anna Example · 12:02                                                           "
-"                                         The build is green again                                                       "
+"                                                                                                                        "
 "      Команда Разработки  11:40                                                                                         "
-"       созвон в 15:00                                                                                                   "
+"       созвон в 15:00                    Anna Example · 12:02                                                           "
+"                                         The build is green again                                                       "
+"                                                                                                                        "
+"                                                                                                                        "
 "                                                                                                                        "
 "                                                                                          Shipped the release notes     "
 "                                                                                                       ✓ Sent 12:05     "

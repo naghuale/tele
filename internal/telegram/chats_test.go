@@ -488,14 +488,14 @@ func TestGetChatRejectsMismatchedResponseID(t *testing.T) {
 // ---- parseLastMessage / placeholder unit coverage ----
 
 func TestParseLastMessageNil(t *testing.T) {
-	id, text := parseLastMessage(nil)
-	if id != 0 || text != "" {
-		t.Fatalf("got (%d, %q), want (0, \"\")", id, text)
+	id, text, at := parseLastMessage(nil)
+	if id != 0 || text != "" || !at.IsZero() {
+		t.Fatalf("got (%d, %q, %v), want (0, \"\", zero)", id, text, at)
 	}
 
-	id, text = parseLastMessage(json.RawMessage(`null`))
-	if id != 0 || text != "" {
-		t.Fatalf("got (%d, %q), want (0, \"\")", id, text)
+	id, text, at = parseLastMessage(json.RawMessage(`null`))
+	if id != 0 || text != "" || !at.IsZero() {
+		t.Fatalf("got (%d, %q, %v), want (0, \"\", zero)", id, text, at)
 	}
 }
 

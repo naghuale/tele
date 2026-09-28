@@ -82,10 +82,10 @@ func (s *programSubmitter) SubmitMessage(
 	return Submission{ID: "1", State: SubmissionSent}, nil
 }
 
-// The focus of a region is a bar in the first column of that region, and
-// it is a bar in every profile. §2.7 requires it in no colour at all, and
-// the no-colour profile is the one that drops the attributes and the
-// colours that could have carried the meaning instead.
+// The focus of a panel is a rule under its heading, and it is a rule in
+// every profile. §2.7 requires it in no colour at all, and the no-colour
+// profile is the one that drops the attributes and the colours that could
+// have carried the meaning instead.
 func TestProgramPathDrawsTheFocusInNoColor(t *testing.T) {
 	cases := map[string]struct {
 		focus Focus
@@ -103,7 +103,7 @@ func TestProgramPathDrawsTheFocusInNoColor(t *testing.T) {
 				testCase.focus,
 			)
 
-			assertFocusColumn(t, model, focusColumnOf(model, testCase.want))
+			assertPanelRule(t, model, testCase.want)
 		})
 	}
 }
@@ -139,10 +139,11 @@ func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 }
 
 // The chat that is open stays marked while the focus is on the
-// conversation: it is the one chat in the list that is not a list entry any
-// more, and in colour mode the mark is a dimmer accent rather than the
-// bright one the list has while it is focused.
-func TestProgramPathKeepsTheOpenChatMarked(t *testing.T) {
+// conversation: it is the one chat in the list the keys act on whichever
+// pane they are in. In colour the selection is the background of the row,
+// and without colour it is the `›` in its own column — the same thing
+// said the only way each profile can say it.
+func TestProgramPathKeepsTheOpenChatSelected(t *testing.T) {
 	for _, profile := range []theme.Profile{
 		theme.ProfileTrueColor,
 		theme.ProfileNoColor,
@@ -153,10 +154,42 @@ func TestProgramPathKeepsTheOpenChatMarked(t *testing.T) {
 		)
 
 		view := plain(model.View())
-		if !strings.Contains(view, theme.SelectionMark+model.selected().Title) {
-			t.Fatalf("profile %v: the open chat is not marked:\\n%s", profile, view)
+		if profile == theme.ProfileNoColor {
+			if !strings.Contains(view, theme.SelectionMark+model.selected().Title) {
+				t.Fatalf("profile %v: the open chat is not marked:\n%s", profile, view)
+			}
+
+			continue
+		}
+
+		if !strings.Contains(model.View(), selectedBackgroundEscape(model)) {
+			t.Fatalf("profile %v: the open chat has no selected background:\n%s", profile, view)
 		}
 	}
+}
+
+// selectedBackgroundEscape is the escape sequence a selected row carries in
+// a True Color profile: the Selected token of the resolved theme, printed
+// the way the renderer prints it.
+//
+// The sequence is taken from a style rather than written out here, because
+// the question is which token the row is drawn with and not how many
+// decimal digits a colour has: a hand-written sequence would go stale the
+// first time the colour library rounded a value.
+func selectedBackgroundEscape(m Model) string {
+	rendered := m.styles().selected(true).Render("x")
+
+	start := strings.Index(rendered, "\x1b[48;2;")
+	if start < 0 {
+		return ""
+	}
+
+	end := strings.Index(rendered[start:], "m")
+	if end < 0 {
+		return ""
+	}
+
+	return rendered[start : start+end+1]
 }
 
 // A wide and a medium screen have two panes before a chat is chosen, and

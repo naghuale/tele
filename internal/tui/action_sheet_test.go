@@ -1097,6 +1097,10 @@ func TestThePopupIsDrawnOverTheConversation(t *testing.T) {
 // §5: one focused region at a time. While a popup is open it is the popup,
 // and the timeline gives its accent line up: two regions marked at once is a
 // screen where the user cannot tell which one has the keys.
+// A popup takes the focus mark of the timeline with it, and the mark is a
+// rule under the header of the panel that has the keys: a sheet has its
+// own bar down its side, and a screen with a rule under a panel and a bar
+// down a menu is a screen with two claims on the keys.
 func TestThePopupTakesTheFocusLineFromTheTimeline(t *testing.T) {
 	model, _ := actionModel(t, MessageDeliveryQueued, false)
 	model = withProfile(model, theme.ProfileTrueColor)
@@ -1107,10 +1111,9 @@ func TestThePopupTakesTheFocusLineFromTheTimeline(t *testing.T) {
 	bar := firstRune(theme.FocusBar)
 	inConversation := 0
 	for _, line := range viewLines(ansi.Strip(view)) {
-		if !strings.ContainsRune(line, bar) {
-			continue
+		if strings.ContainsRune(line, bar) {
+			inConversation++
 		}
-		inConversation++
 	}
 
 	// The popup has one focus line per row and the timeline has none, so
@@ -1127,19 +1130,23 @@ func TestThePopupTakesTheFocusLineFromTheTimeline(t *testing.T) {
 	if inConversation == 0 {
 		t.Fatal("the popup has no focus line of its own")
 	}
+	if rules := panelRuleLines(viewLines(ansi.Strip(view))); len(rules) != 0 {
+		t.Fatalf("a panel rule is drawn while the popup is open, on row %d", rules[0])
+	}
 
-	// The timeline alone is the opposite.
+	// The timeline alone is the opposite: it has the rule and no bar.
 	closed, _ := actionModel(t, MessageDeliveryQueued, false)
 	closed = withProfile(closed, theme.ProfileTrueColor)
 	closed.focus = FocusHistory
-	marked := 0
-	for _, line := range viewLines(ansi.Strip(closed.View())) {
-		if strings.ContainsRune(line, bar) {
-			marked++
-		}
+	closedLines := viewLines(ansi.Strip(closed.View()))
+
+	if rules := panelRuleLines(closedLines); len(rules) != 1 {
+		t.Fatalf("the timeline draws %d rules, want 1", len(rules))
 	}
-	if marked == 0 {
-		t.Fatal("the timeline has no focus line while it is the focused region")
+	for _, line := range closedLines {
+		if strings.ContainsRune(line, bar) {
+			t.Fatalf("the timeline draws a bar of its own: %q", line)
+		}
 	}
 }
 

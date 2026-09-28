@@ -80,24 +80,25 @@ func lineIndexWith(view, want string) (int, bool) {
 	return index, ok
 }
 
-// The sender's line carries the time at the right edge, so the times of a
-// conversation line up in one column and the eye can run down them.
-func TestTimeIsRightAlignedInTheAuthorLine(t *testing.T) {
+// The sender's line says who sent the message and when, on one line: "who
+// · when" is the whole of what a reader needs before the words start.
+func TestTheAuthorLineSaysTheSenderAndTheTime(t *testing.T) {
 	m := openedProgramModel(t, theme.ProfileNoColor, 60, 20)
 	m.focus = FocusHistory
 
 	view := plain(m.View())
-	line, _, ok := lineWith(view, incomingAuthor)
+	first := m.selected().Messages[0]
+	line, _, ok := lineWith(view, first.Time)
 	if !ok {
 		t.Fatalf("no author line on the screen:\n%s", view)
 	}
 
-	trimmed := strings.TrimRight(line, " ")
-	if !strings.HasSuffix(trimmed, "10:00") {
-		t.Fatalf("the time is not at the end of the line: %q", trimmed)
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, messageAuthor(first)) {
+		t.Fatalf("the name does not start the line: %q", trimmed)
 	}
-	if m.widths.StringWidth(trimmed) != m.width {
-		t.Fatalf("the time ends at column %d, want %d", m.widths.StringWidth(trimmed), m.width)
+	if !strings.HasSuffix(trimmed, first.Time) {
+		t.Fatalf("the time does not end the line: %q", trimmed)
 	}
 }
 
@@ -208,12 +209,16 @@ func TestOlderPageKeepsTheFirstVisibleMessageOnScreen(t *testing.T) {
 }
 
 // firstTimelineMessage returns the text of the first message on the screen.
+//
+// It looks for the words of the message rather than for the name above
+// them: a screen too short for a name and a text on separate rows has only
+// the text, and a screen with them has both.
 func firstTimelineMessage(t *testing.T, m Model) string {
 	t.Helper()
 
 	view := plain(m.View())
 	for _, line := range viewLines(view) {
-		if strings.Contains(line, incomingAuthor) {
+		if strings.Contains(line, m.selected().Messages[0].Text) {
 			return strings.TrimSpace(line)
 		}
 	}
@@ -239,23 +244,50 @@ func TestNoColorMarksTheSelectedMessageWithAGlyph(t *testing.T) {
 		t.Fatalf("the selected message is not marked:\n%s", view)
 	}
 
-	// One marker, on the message the cursor is on: the row under it is the
-	// text of that message, and there is no second marker anywhere.
+	// One marker, on the message the cursor is on, and nowhere else. The
+	// marker is on the first row of a message: its name for a message from
+	// the other side, and its text for one of this user, whose block is on
+	// the right and has no name above it.
 	selected := m.selected().Messages[m.selectedMsg]
-	if !strings.Contains(marked, messageAuthor(selected)) {
-		t.Fatalf("the marker is not on a message: %q", marked)
+	below := viewLines(view)[at+1]
+	if selected.Outgoing {
+		if !strings.Contains(marked, selected.Text) {
+			t.Fatalf(
+				"the marker is not on the message it belongs to, want %q: %q",
+				selected.Text,
+				marked,
+			)
+		}
+	} else {
+		if !strings.Contains(marked, messageAuthor(selected)) {
+			t.Fatalf("the marker is not on a message: %q", marked)
+		}
+		if !strings.Contains(below, selected.Text) {
+			t.Fatalf(
+				"the marker is on the wrong message, want %q: %q",
+				selected.Text,
+				below,
+			)
+		}
 	}
-	if below := viewLines(view)[at+1]; !strings.Contains(below, selected.Text) {
-		t.Fatalf("the marker is on the wrong message, want %q: %q", selected.Text, below)
+	// One marker in the timeline. The composer draws a prompt of the same
+	// shape, and it is a different thing: one is the message the keys act
+	// on and the other is the field they are typed into.
+	composer, ok := lineIndexWith(view, composerPlaceholder)
+	if !ok {
+		t.Fatalf("there is no composer:\n%s", view)
 	}
-	if got := strings.Count(view, theme.SelectionMark); got != 1 {
-		t.Fatalf("%d markers on the screen, want 1:\n%s", got, view)
+	timeline := strings.Join(viewLines(view)[:composer], "\n")
+	if got := strings.Count(timeline, theme.SelectionMark); got != 1 {
+		t.Fatalf("%d markers in the timeline, want 1:\n%s", got, view)
 	}
 }
 
-// The marker of a selected row and the bar of a focused region are two
-// different things, so they are two different glyphs. A list that marked
-// both with `▌` read as a double line, which the review of #30 named as the
+// The selected chat is a row with a marker of its own in a column of its
+// own, and the focus of the list is a rule under its heading. The two are
+// different things, and the row carries neither a focus glyph nor a
+// `▌`: a list that marked both as `▌` read as a double line, which the
+// review of #30 named as the
 // one thing left to fix.
 func TestSelectedChatRowIsMarkedWithItsOwnGlyph(t *testing.T) {
 	m := focusedOn(
@@ -268,11 +300,13 @@ func TestSelectedChatRowIsMarkedWithItsOwnGlyph(t *testing.T) {
 	if !ok {
 		t.Fatalf("the selected chat is not marked with %q:\n%s", theme.SelectionMark, view)
 	}
-	if !strings.HasPrefix(row, theme.FocusBar) {
-		t.Fatalf("the focused region has no focus bar: %q", row)
+	if !strings.HasPrefix(strings.TrimLeft(row, " "), theme.SelectionMark) {
+		t.Fatalf("the marker is not in a column of its own: %q", row)
 	}
-	if got := strings.Count(row, theme.FocusBar); got != 1 {
-		t.Fatalf("the row carries %d focus bars, want 1: %q", got, row)
+	for _, glyph := range focusBarGlyphs {
+		if strings.ContainsRune(row, glyph) {
+			t.Fatalf("the selected row carries the focus glyph %q: %q", glyph, row)
+		}
 	}
 }
 
@@ -306,52 +340,31 @@ func TestAMessageTallerThanTheTimelineKeepsTheComposer(t *testing.T) {
 // as §4.4 draws them. A body one column to the left of its own name reads
 // as a second message with the name of the first.
 func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
-	for name, model := range map[string]Model{
-		"history": openedProgramModel(t, theme.ProfileNoColor, 60, 24),
-		"pending": deliveredFor(t, &pendingSource{messages: []PendingMessage{{
-			EntryID: "entry-1",
-			ChatID:  7,
-			Text:    "текст сообщения",
-			State:   MessageDeliveryQueued,
-		}}}),
-	} {
-		t.Run(name, func(t *testing.T) {
-			layout := LayoutFor(model.width, model.height)
-			width := layout.ChatContentWidth()
-			styles := model.styles()
+	t.Run("history", func(t *testing.T) {
+		model := openedProgramModel(t, theme.ProfileNoColor, 60, 24)
+		layout := LayoutFor(model.width, model.height)
+		width := layout.ChatContentWidth()
 
-			var rows []string
-			if name == "history" {
-				rows = model.messageLines(
-					model.selected().Messages[0],
-					false,
-					layout,
-					width,
-					styles,
-				)
-			} else {
-				rows = model.pendingMessageRows(
-					model.pending[0],
-					layout,
-					width,
-					styles,
+		entries := timelineEntries(model.selected().Messages)
+		rows := model.entryLines(entries[0], layout, width, model.styles())
+
+		// The first row of a block is the blank line between messages, so
+		// the name is on the second and the text under it. The name is one
+		// column further right than the row starts, because the column in
+		// front of it is the marker of the message under the cursor.
+		head := indentOf(rows[1]) + selectionMarkerWidth
+		for index, row := range rows[2:] {
+			if got := indentOf(row); got != head {
+				t.Fatalf(
+					"row %d starts at column %d, the sender's name at %d: %q",
+					index+2,
+					got,
+					head,
+					plain(row),
 				)
 			}
-
-			head := indentOf(rows[0])
-			for index, row := range rows[1:] {
-				if got := indentOf(row); got != head {
-					t.Fatalf(
-						"row %d starts at column %d, the sender's name at %d: %q",
-						index+1,
-						got,
-						head,
-						plain(row),
-					)
-				}
-			}
-		})
-	}
+		}
+	})
 }
 
 // indentOf returns how many spaces a rendered row starts with.

@@ -34,11 +34,17 @@ const composerMaxRows = 4
 // (§4.5: "максимум — до 30% высоты conversation view").
 const composerMaxShare = 0.3
 
-// composerLines returns the rows of the composer region: the draft, and
-// then whatever the last send has to say about itself.
+// composerLines returns the rows of the composer region: a line of space,
+// the draft, whatever the last send has to say about itself, and the hints.
+//
+// The space above the field is what §4.5 draws and what a full-width band
+// needs: the composer's surface starts one row below the messages instead
+// of cutting into the last line of them, and the band reads as a band
+// rather than as a background that happens to be there.
 func (m Model) composerLines(layout Layout, width int) []string {
 	rows := m.composerRowCount(layout, width)
-	lines := m.composerTextLines(layout, width, rows)
+	lines := []string{""}
+	lines = append(lines, m.composerTextLines(layout, width, rows)...)
 
 	// A composer-only screen has no room for a second line, and the reason
 	// a send failed is worth less than the composer a user is typing in.
@@ -46,7 +52,26 @@ func (m Model) composerLines(layout Layout, width int) []string {
 		return lines
 	}
 
-	return append(lines, m.sendStateLines(width)...)
+	lines = append(lines, m.sendStateLines(width)...)
+	lines = append(lines, m.bandHintLines(layout, width)...)
+
+	return lines
+}
+
+// bandHintLines returns the hints as they are drawn inside the composer's
+// band.
+//
+// They are the last row of the band and not a separate footer: the field
+// and the keys that work in it are one thing, and §4.6 asks for the keys
+// of the focus the user is in. A key line in a different surface under a
+// field is a second thing to look at, and a user who is about to type
+// looks at the field.
+func (m Model) bandHintLines(layout Layout, width int) []string {
+	if m.screen != ScreenConversation {
+		return nil
+	}
+
+	return m.hintLines(layout, width)
 }
 
 // composerRowCount returns how many rows the draft takes on the screen.
@@ -84,7 +109,7 @@ func (m Model) composerTextWidth(width int) int {
 func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 	styles := m.styles()
 	textWidth := m.composerTextWidth(width)
-	inset := spaces(contentInsetWidth)
+	focused := m.focus == FocusComposer
 
 	laid := m.layoutComposer(m.composer, m.composerCursor, textWidth)
 	visible := laid.visibleRows(rows)
@@ -101,15 +126,32 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 		lines = append(lines, m.composerRowLine(
 			styles,
 			row,
-			onCursorRow,
+			onCursorRow && focused,
 			offset,
 			textWidth,
-			m.focus == FocusComposer,
-			inset,
+			focused,
 		))
 	}
 
 	return lines
+}
+
+// composerPrompt is the marker in front of the draft.
+//
+// It is in the accent of the theme when the composer has the keys and in
+// the dim step when it does not, so the field that takes what is typed
+// looks different from the two fields around it before anything is typed
+// into it. It is a character and not a colour, which is what keeps it
+// visible in a terminal that has no colour at all.
+const composerPrompt = "›"
+
+// composerPromptStyle is the style of the marker in front of the draft.
+func (m Model) composerPromptStyle(focused bool) string {
+	if focused {
+		return m.styles().text(m.tokens().Focus).Render(composerPrompt)
+	}
+
+	return m.styles().dimmed(m.tokens().MutedText).Render(composerPrompt)
 }
 
 // composerRowLine draws one row of the draft, with the cursor on it when
@@ -119,6 +161,11 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 // moved over clusters, and a cursor style in the middle of a ZWJ emoji
 // does not mark it: the terminal draws the pieces one after another and
 // the emoji comes apart on the screen.
+//
+// A row the composer does not have the keys for carries no cursor at all.
+// A field the user is not typing into is not blinking at them, and a bar
+// that is there in every focus is a bar that says nothing about where the
+// keys are; the `›` in front of it and the colour of that are what say so.
 //
 // Where the profile prints attributes, the cursor is reverse video on the
 // cluster it is at, and a bar when it is past the last one. Where it
@@ -134,15 +181,16 @@ func (m Model) composerRowLine(
 	offset int,
 	textWidth int,
 	focused bool,
-	inset string,
 ) string {
+	inset := m.composerPromptStyle(focused)
+
 	if !onCursorRow {
-		return styles.text(m.tokens().PrimaryText).
-			Render(inset + m.widths.Fit(row.text, textWidth, ellipsis))
+		return inset + styles.text(m.tokens().PrimaryText).
+			Render(m.widths.Fit(row.text, textWidth, ellipsis))
 	}
 
 	before, under, after := splitAtCluster([]rune(row.text), offset)
-	cursorStyle := styles.cursor(focused)
+	cursorStyle := styles.cursor(true)
 	bar := cursorStyle.Render(cursorBar)
 
 	if under == "" {
@@ -206,7 +254,11 @@ func splitAtCluster(text []rune, offset int) (before, under, after string) {
 const cursorBar = "▏"
 
 // composerPlaceholderLines returns the rows of an empty composer, with the
-// cursor at the start of the first one.
+// cursor at the start of the first one while the composer has the keys.
+//
+// An empty composer the keys are not in carries no cursor: a bar blinking
+// in a field nobody is typing into is the one thing on the screen that says
+// the user is somewhere else.
 func (m Model) composerPlaceholderLines(
 	styles viewStyles,
 	layout Layout,
@@ -228,12 +280,15 @@ func (m Model) composerPlaceholderLines(
 		text = composerPlaceholderShort
 	}
 
-	lines := []string{
-		style.Render(spaces(contentInsetWidth) + cursorBar + text),
+	focused := m.focus == FocusComposer
+	first := m.composerPromptStyle(focused) + style.Render(text)
+	if focused {
+		first += styles.cursor(true).Render(cursorBar)
 	}
 
+	lines := []string{first}
 	for len(lines) < rows {
-		lines = append(lines, spaces(contentInsetWidth))
+		lines = append(lines, "")
 	}
 
 	return lines[:maxInt(rows, 1)]

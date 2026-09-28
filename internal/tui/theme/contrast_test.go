@@ -6,12 +6,14 @@ import "testing"
 // text is 4.5:1. The built-in palettes are held to it for the two roles a
 // user actually reads, on every surface those roles are drawn on.
 //
-// The two dimmer tiers are below the bar by design: muted and disabled
-// text say nothing that the words do not already say, and a theme whose
-// timestamps are the only thing at 2:1 is a theme where the timestamps
-// cannot be read at all. What is checked instead is that the tiers get
-// dimmer in order, so a future palette change cannot quietly make a
-// secondary text brighter than a primary one.
+// The muted tier is held to the same bar on the two surfaces a chat
+// preview and a timestamp are drawn on, which is what makes them readable
+// rather than merely present: a timestamp nobody can read is not a
+// timestamp, and the words of the preview are somebody else's. The
+// disabled tier is below it by design, because a disabled control says
+// nothing the words around it do not say. What is checked instead is that
+// the tiers get dimmer in order, so a future palette change cannot quietly
+// make a secondary text brighter than a primary one.
 
 // textBackgroundRoles are the surfaces PrimaryText and SecondaryText are
 // required to be readable on.
@@ -22,7 +24,16 @@ var textBackgroundRoles = []string{
 	"ComposerBackground",
 }
 
-// contrastTextRoles are the two roles held to the WCAG AA bar.
+// mutedBackgroundRoles are the surfaces MutedText is required to be
+// readable on. It is the colour of a chat preview and of a time, and both
+// are drawn on the list or in the timeline; the composer is a draft the
+// user is writing, and a placeholder there is a hint rather than text.
+var mutedBackgroundRoles = []string{
+	"SidebarBackground",
+	"ChatBackground",
+}
+
+// contrastTextRoles are the two roles held to the WCAG AA bar everywhere.
 var contrastTextRoles = []string{"PrimaryText", "SecondaryText"}
 
 // textRoles walks the four text tiers in the order they must lose
@@ -58,6 +69,36 @@ func TestEveryBuiltInThemeHasReadableText(t *testing.T) {
 						MinimumTextContrast,
 					)
 				}
+			}
+		}
+	}
+}
+
+// The previews and the times are read, so the tier that draws them has to
+// be held to the same bar as the words above them. A palette change that
+// quietly puts a timestamp at 3:1 has taken a fact off the screen, and no
+// other test would notice: the words are still there and only the colour
+// has moved.
+func TestMutedTextIsReadableWhereItIsDrawn(t *testing.T) {
+	for _, name := range ThemeNames() {
+		built := mustTheme(t, name)
+		roles := colorRoles(t, built.Tokens)
+		muted := roles["MutedText"]
+
+		for _, backgroundRole := range mutedBackgroundRoles {
+			background := roles[backgroundRole]
+
+			ratio := muted.ContrastRatio(background)
+			if ratio < MinimumTextContrast {
+				t.Errorf(
+					"theme %s: MutedText (%s) on %s (%s) = %.2f:1, want at least %.1f:1",
+					name,
+					muted,
+					backgroundRole,
+					background,
+					ratio,
+					MinimumTextContrast,
+				)
 			}
 		}
 	}
@@ -161,5 +202,44 @@ func TestContrastRatioOfAnUnsetColourIsZero(t *testing.T) {
 				"whatever the user's terminal decided",
 			got,
 		)
+	}
+}
+
+// The muted tier is computed, not named, and the walk has to stop at the
+// right place in both directions. A palette whose dim step is already
+// readable keeps the colour it was authored with, because a lift nobody
+// needed is a colour a theme author did not choose; a step that has to
+// move stops at the first one that clears; and a ramp on which nothing
+// clears returns the text ramp, because a muted tier that cannot be read
+// is not a tier.
+func TestTheMutedTierLiftsOnlyAsFarAsItHasTo(t *testing.T) {
+	dim := RGB("#3c3c3c")
+	ramp := RGB("#ffffff")
+
+	// A dim step a user can read on both surfaces is its own answer: a
+	// lift nobody needed is a colour the theme author did not choose.
+	readable := []Color{RGB("#101010"), RGB("#0c0c0c")}
+	if got := readableMuted(RGB("#909090"), ramp, readable); got != RGB("#909090") {
+		t.Errorf("a readable dim step was lifted to %v, want it left alone", got)
+	}
+
+	unreadable := []Color{RGB("#404040"), RGB("#3a3a3a")}
+	got := readableMuted(dim, ramp, unreadable)
+	if got == dim {
+		t.Errorf("an unreadable dim step was left at %v", got)
+	}
+	for _, surface := range unreadable {
+		if got.ContrastRatio(surface) < MinimumTextContrast {
+			t.Errorf(
+				"the lifted step is at %.2f:1 on a surface it is drawn on",
+				got.ContrastRatio(surface),
+			)
+		}
+	}
+
+	// A ramp on which nothing clears gives up at the top of it, rather
+	// than returning something unreadable out of the middle of the walk.
+	if got := readableMuted(RGB("#dddddd"), ramp, []Color{ramp}); got != ramp {
+		t.Errorf("an unreadable ramp gave %v, want the text ramp", got)
 	}
 }

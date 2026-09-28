@@ -43,7 +43,6 @@ const searchCursorWidth = 1
 func (m Model) chatSearchRegion(width int) string {
 	return m.renderRegion(
 		m.styles().list,
-		m.focus == FocusSearch,
 		width,
 		m.chatSearchLines(width),
 		searchRegionHeight,
@@ -228,7 +227,8 @@ func (m Model) chatTitleLine(
 ) string {
 	segments := m.chatTitleSegments(title, m.chatSearch.query, width)
 	if len(segments) == 1 && !segments[0].matched {
-		return styles.rowText(selected).Render(m.widths.Fit(segments[0].text, width, ellipsis))
+		return styles.rowText(selected).
+			Render(m.widths.TruncateMarked(segments[0].text, width, ellipsis))
 	}
 
 	var line string

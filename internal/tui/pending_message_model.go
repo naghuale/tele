@@ -144,13 +144,13 @@ func (m Model) pendingMessageLines(layout Layout, width int) []string {
 	return rows
 }
 
-// pendingMessageLines returns the rows of one pending message: the sender
-// with the time it was queued, the text, and the state of the message
-// under them (§4.4).
+// pendingMessageRows returns the rows of one pending message: its text in
+// the block on the right, and the time and the state of the send under it
+// (§4.4).
 //
 // It is the same shape as a message of the history — the timeline is one
 // column of messages, and a message that is still leaving the program looks
-// like every other one of them — with one row more: the state, which is
+// like every other one of them — with one difference: the state, which is
 // what the history does not have to say because the history is the past.
 func (m Model) pendingMessageRows(
 	message PendingMessage,
@@ -158,91 +158,89 @@ func (m Model) pendingMessageRows(
 	width int,
 	styles viewStyles,
 ) []string {
-	indent := outgoingIndent
+	blockWidth := m.outgoingBlockWidth(width)
+	offset := maxInt(width-selectionMarkerWidth-blockWidth, 0)
+	textWidth := maxInt(blockWidth-2*outgoingBubbleInset, 1)
 
-	// The text and the state start in the column the sender's name starts
-	// in, so a pending message is the same shape as every other one.
-	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
-
-	head := inset + styles.author(true, false).Render(outgoingAuthor)
-	if time := formatMessageTime(message.CreatedAt); time != "" {
-		head = m.leftAndRight(
-			head,
-			styles.dimmed(m.tokens().MutedText).Render(time),
-			width,
-		)
-	}
-
-	lines := []string{styles.text(m.tokens().PrimaryText).Render(head)}
-
-	textWidth := maxInt(width-selectionMarkerWidth-contentInsetWidth-indent, 1)
-
+	rows := make([]string, 0, 4)
 	for _, line := range m.widths.Wrap(message.Text, textWidth, ellipsis) {
-		lines = append(
-			lines,
-			styles.text(m.tokens().OutgoingMessage).Render(inset+line),
-		)
+		rows = append(rows, m.outgoingRow(
+			styles, spaces(selectionMarkerWidth), offset, blockWidth,
+			line, false,
+		))
 	}
 
-	return append(lines, m.pendingStateLines(message, inset, width, styles)...)
+	if state := m.deliveryStateLabelFor(message, textWidth); state != "" {
+		rows = append(rows, m.outgoingRow(
+			styles, spaces(selectionMarkerWidth), offset, blockWidth,
+			state, true,
+		))
+	}
+	if at := formatMessageTime(message.CreatedAt); at != "" {
+		rows = append(rows, m.outgoingRow(
+			styles, spaces(selectionMarkerWidth), offset, blockWidth, at, true,
+		))
+	}
+
+	// §3.1 puts the second row of an uncertain message under the state,
+	// and it is the only thing in the interface that says what the user
+	// has to decide: sending again may create a duplicate, and that is a
+	// decision rather than an error to retry away.
+	if message.State == MessageDeliveryUncertain {
+		rows = append(rows, m.outgoingRow(
+			styles, spaces(selectionMarkerWidth), offset, blockWidth,
+			uncertainWarning, true,
+		))
+	}
+
+	return rows
 }
 
-// pendingStateLines returns the rows that say where a pending message is,
-// under its text.
+// uncertainWarning is the second row of an uncertain message.
+const uncertainWarning = "Message may already have been sent"
+
+// deliveryStateLabel returns the words of a delivery state: the symbol and
+// the word, and never one without the other.
 //
 // The words carry the meaning and the symbol makes it readable at a glance
-// (§2.7, §14): the label is never the symbol alone, so a terminal without
-// the glyph says the same thing. An uncertain message says what the user
-// has to know, which is that it may already have been delivered, and it
-// does not borrow the wording of a failure: a message that may have gone
-// out is not a message that did not.
-func (m Model) pendingStateLines(
-	message PendingMessage,
-	inset string,
+// (§2.7, §14), so a terminal without the glyph says the same thing. An
+// uncertain message does not borrow the wording of a failure: a message
+// that may have gone out is not a message that did not.
+func (m Model) deliveryStateLabel(
+	state MessageDeliveryState,
 	width int,
-	styles viewStyles,
-) []string {
-	state, known := deliveryStateOf(message.State)
+) string {
+	marked, known := deliveryStateOf(state)
 	if !known {
-		return nil
+		return ""
 	}
 
-	mark := state.Mark()
-	label := mark.Symbol + " " + mark.Text
+	return m.widths.TruncateMarked(marked.Mark().String(), width, ellipsis)
+}
 
-	// A retry is a time, not a countdown: §6.3 asks for a screen that does
-	// not repaint itself every second, and a countdown is a screen that
-	// repaints itself every second.
+// deliveryStateLabelFor returns the words of the state of a pending
+// message and the time it is due at.
+//
+// A retry is a time, not a countdown: §6.3 asks for a screen that does not
+// repaint itself every second, and a countdown is a screen that repaints
+// itself every second.
+func (m Model) deliveryStateLabelFor(
+	message PendingMessage,
+	width int,
+) string {
+	label := m.deliveryStateLabel(message.State, width)
+	if label == "" {
+		return ""
+	}
+
 	if message.State == MessageDeliveryRetrying {
 		if at := formatMessageTime(message.NextAttemptAt); at != "" {
 			label += " at " + at
 		}
 	}
 
-	// The inset is spent out of the width and not added to it: a line
-	// padded to the width and then indented is wider than the pane, and the
-	// region cuts it with an ellipsis at the far edge of the screen.
-	room := maxInt(width-m.widths.StringWidth(inset), 1)
-
-	lines := []string{
-		styles.text(state.Color(m.tokens())).
-			Render(inset + m.widths.Fit(label, room, ellipsis)),
-	}
-
-	if message.State == MessageDeliveryUncertain {
-		lines = append(lines, styles.dimmed(m.tokens().StatusUncertain).
-			Render(inset+m.widths.Fit(uncertainWarning, room, ellipsis)))
-	}
-
-	return lines
+	return m.widths.TruncateMarked(label, width, ellipsis)
 }
-
-// uncertainWarning is the second row of an uncertain message.
-//
-// §3.1 puts it under the state, and it is the only thing in the interface
-// that says what the user has to decide: sending again may create a
-// duplicate, and that is a decision, not an error to retry away.
-const uncertainWarning = "Message may already have been sent"
 
 // deliveryStateOf maps a TUI delivery state onto the theme's vocabulary of
 // states.

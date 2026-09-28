@@ -442,17 +442,21 @@ func TestGetChatHistoryHasMoreWhenFullPage(t *testing.T) {
 	}
 }
 
-// ---- Placeholders ----
+// ---- What a message carries ----
 
-func TestGetChatHistoryPlaceholders(t *testing.T) {
+// A message that carries a file has no text of its own: the interface says
+// what the message is in its own words through the Media field, and a
+// placeholder in the text would be drawn twice.
+func TestGetChatHistoryMedia(t *testing.T) {
 	cases := []struct {
 		contentType string
-		wantText    string
+		wantMedia   string
 	}{
-		{"messagePhoto", "[photo]"},
-		{"messageVideo", "[video]"},
-		{"messageDocument", "[document]"},
-		{"messageFuture", "[unsupported message]"},
+		{"messagePhoto", "photo"},
+		{"messageVideo", "video"},
+		{"messageDocument", "file"},
+		{"messageVoiceNote", "voice note"},
+		{"messageFuture", ""},
 	}
 
 	for _, tc := range cases {
@@ -493,9 +497,13 @@ func TestGetChatHistoryPlaceholders(t *testing.T) {
 				if len(r.page.Messages) != 1 {
 					t.Fatalf("len(messages) = %d, want 1", len(r.page.Messages))
 				}
-				if r.page.Messages[0].Text != tc.wantText {
-					t.Fatalf("Text = %q, want %q",
-						r.page.Messages[0].Text, tc.wantText)
+				if r.page.Messages[0].Media != tc.wantMedia {
+					t.Fatalf("Media = %q, want %q",
+						r.page.Messages[0].Media, tc.wantMedia)
+				}
+				if r.page.Messages[0].Text != "" {
+					t.Fatalf("Text = %q, want a message with no text of its own",
+						r.page.Messages[0].Text)
 				}
 				if r.page.Messages[0].ID != 100 {
 					t.Fatalf("ID = %d, want 100", r.page.Messages[0].ID)

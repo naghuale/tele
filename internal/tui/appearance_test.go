@@ -1,0 +1,587 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
+
+	"telecli/internal/tui/theme"
+)
+
+// The tests in this file are about the way the interface looks: where the
+// focus is, which row is selected, which side a message is on, and what a
+// picture says. They are the tests the approved drawing asked for, and each
+// one names a thing a person would otherwise have to look at the screen to
+// find out.
+
+// focusBarGlyphs are the glyphs a focus has been drawn with.
+//
+// They are named here because the rule is a negative one: no row of a chat
+// list and no row of a timeline may carry any of them. A line of focus down
+// the side of a list is a column of the list — a user reads `▌ Alice` as a
+// name that begins with a block — and a rule under a header is one line, in
+// one place, and cannot be mistaken for anything else on the screen.
+var focusBarGlyphs = []rune{'▌', '┃', '│'}
+
+// assertNoFocusGlyphsInRows fails if any row of a screen carries a glyph
+// that has been used to mark the focus of a list or a timeline.
+//
+// A popup is the one place a bar is still drawn, down the side of the menu
+// it belongs to, so the rows it covers are not checked for the bar glyph:
+// the block of a menu is found by the first and the last of its rows, and
+// everything in between is the menu's own. A bar anywhere else is a list
+// or a timeline that has grown a column it should not have, and that is
+// what this is here to catch.
+func assertNoFocusGlyphsInRows(t *testing.T, name string, lines []string) {
+	t.Helper()
+
+	first, last := -1, -1
+	for index, line := range lines {
+		if !strings.ContainsRune(line, '▌') {
+			continue
+		}
+		if first < 0 {
+			first = index
+		}
+		last = index
+	}
+
+	for index, line := range lines {
+		popup := first >= 0 && index >= first && index <= last
+
+		for _, glyph := range focusBarGlyphs {
+			if glyph == '▌' && popup {
+				continue
+			}
+			if strings.ContainsRune(line, glyph) {
+				t.Errorf(
+					"%s: row %d carries the focus glyph %q: %q",
+					name,
+					index+1,
+					string(glyph),
+					line,
+				)
+			}
+		}
+	}
+}
+
+// The focus is a rule under the heading of the panel that has the keys, and
+// nowhere else. §5.2 asks for one focused region at a time, and a rule in a
+// single place is the only shape of that which is not also a column of the
+// list beside it.
+func TestTheFocusIsOneRuleUnderTheHeadingOfTheActivePanel(t *testing.T) {
+	for _, focus := range []Focus{FocusChatList, FocusHistory, FocusComposer} {
+		t.Run(focus.String(), func(t *testing.T) {
+			m := focusedOn(openedProgramModel(t, theme.ProfileTrueColor, 120, 30), focus)
+			lines := viewLines(m.View())
+			rules := panelRuleLines(lines)
+
+			if len(rules) != 1 {
+				t.Fatalf("the screen draws %d rules, want 1:\n%s", len(rules), m.View())
+			}
+
+			heading := lines[rules[0]-1]
+			if !strings.Contains(ansi.Strip(heading), chatListTitle) &&
+				!strings.Contains(ansi.Strip(heading), m.selected().Title) {
+				t.Fatalf(
+					"the rule is under %q, which is not a panel heading",
+					ansi.Strip(heading),
+				)
+			}
+
+			assertNoFocusGlyphsInRows(t, focus.String(), lines)
+		})
+	}
+}
+
+// The selected chat is a row with the background of the Selected token and
+// its name in the accent, and nothing else: no marker, no reverse. A `›`
+// in front of the name is the first letter of the name to half the people
+// who see it, and reverse video is a highlight nobody asked for.
+func TestTheSelectedChatIsARowAndNoMarker(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusChatList,
+	)
+
+	view := m.View()
+	if strings.Contains(view, "\x1b[7m") {
+		t.Fatalf("the selected row is in reverse video:\n%q", view)
+	}
+
+	// The list, and not the whole screen: the composer draws a prompt of
+	// the same shape, and that one says the field has the keys.
+	layout := LayoutFor(m.width, m.height)
+	rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+	for _, row := range rows {
+		for _, line := range row {
+			if strings.ContainsRune(ansi.Strip(line), firstRune(theme.SelectionMark)) {
+				t.Fatalf("a row of the list carries a selection glyph: %q", line)
+			}
+		}
+	}
+
+	// The row the cursor is on is the one with the background on it, and it
+	// is the background of both of its lines rather than of one of them.
+	background := selectedBackgroundEscape(m)
+	if background == "" {
+		t.Fatal("the theme has no selected background to draw")
+	}
+
+	marked := 0
+	for _, line := range viewLines(view) {
+		if strings.Contains(line, background) {
+			marked++
+		}
+	}
+	if marked < 2 {
+		t.Fatalf("the selected background is on %d rows, want both of the row's:\n%q", marked, view)
+	}
+}
+
+// Without colour there is no background to show, and the selection comes
+// back as a glyph in a column of its own with the name in bold — §2.7 asks
+// the selection to survive a terminal that prints nothing, and a row that
+// is only a colour is not a selection.
+func TestNoColorMarksTheSelectedChatWithAGlyphInItsOwnColumn(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileNoColor, 120, 30),
+		FocusChatList,
+	)
+
+	row, _, ok := lineWith(plain(m.View()), theme.SelectionMark)
+	if !ok {
+		t.Fatalf("the selected chat has no marker:\n%s", plain(m.View()))
+	}
+	if !strings.HasPrefix(strings.TrimLeft(row, " "), theme.SelectionMark) {
+		t.Fatalf("the marker is not in a column of its own: %q", row)
+	}
+
+	// The row also asks to be bold, which is the second half of §2.7's
+	// "reverse or bold". The profile that has no colour prints neither,
+	// so the check is on what the theme asks for rather than on what the
+	// screen shows — which is why the glyph above has to be there.
+	if attributes := m.theme.SelectionAttributes(true); !attributes.Bold {
+		t.Fatal("the selected row is not asked to be bold")
+	}
+}
+
+// A chat is a name with a time and a preview with a badge, and a blank line
+// between it and the next one. Two chats with no gap between them are one
+// block of four lines, and a user has to read them to tell them apart.
+func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
+	m := sizedModel(t, 120, 30)
+	layout := LayoutFor(m.width, m.height)
+	rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+
+	if len(rows) < 2 {
+		t.Fatalf("the list draws %d rows, want at least 2", len(rows))
+	}
+
+	first := rows[0]
+	if len(first) != 3 {
+		t.Fatalf("a chat takes %d rows, want a name, a preview and a gap", len(first))
+	}
+	if strings.TrimSpace(plain(first[0])) == "" {
+		t.Fatalf("the first row of a chat is empty: %q", plain(first[0]))
+	}
+	if strings.TrimSpace(plain(first[2])) != "" {
+		t.Fatalf("the gap under a chat is not empty: %q", plain(first[2]))
+	}
+	if rows[1][0] == first[0] {
+		t.Fatal("two chats are drawn on the same line")
+	}
+}
+
+// The badge of an unread count is a pill, not a `● 2` in the text: a
+// number that is part of the sentence is a number a user has to parse, and
+// the pill says the same thing in a shape that is not a word. It is in the
+// accent for a chat with one other person in it and in the muted step for a
+// group, because a hundred unread messages in a channel is background.
+func TestTheUnreadBadgeIsAPillAndGroupsAreQuieter(t *testing.T) {
+	m := openedProgramModel(t, theme.ProfileTrueColor, 120, 30)
+	m.chats = []Chat{
+		{ID: 1, Title: "Anna", Unread: 2, Preview: "hello", Time: "10:02"},
+		{ID: 2, Title: "Room", Unread: 2, Preview: "hello", Time: "10:02", Kind: ChatKindGroup},
+	}
+	m.chatsState = loadStateLoaded
+
+	view := m.View()
+	private := selectedBackgroundEscapeFor(m, m.tokens().Unread, m.tokens().SidebarBackground)
+	grouped := selectedBackgroundEscapeFor(m, m.tokens().MutedText, m.tokens().SidebarBackground)
+
+	if private == "" || grouped == "" || private == grouped {
+		t.Skipf("the theme has no distinct pill colours: %q and %q", private, grouped)
+	}
+	if !strings.Contains(view, private) {
+		t.Fatalf("a private chat has no accent pill:\n%q", view)
+	}
+	if !strings.Contains(view, grouped) {
+		t.Fatalf("a group has no muted pill:\n%q", view)
+	}
+}
+
+// selectedBackgroundEscapeFor is the escape sequence for a background of
+// one colour with a text of another, printed the way the renderer prints
+// it.
+func selectedBackgroundEscapeFor(
+	m Model,
+	background theme.Color,
+	surface theme.Color,
+) string {
+	if background.Kind() != theme.ColorKindRGB || surface.Kind() != theme.ColorKindRGB {
+		return ""
+	}
+
+	style := m.styles().pill(background, surface)
+	rendered := style.Render("x")
+
+	start := strings.Index(rendered, "48;2;")
+	if start < 0 {
+		return ""
+	}
+
+	rest := rendered[start:]
+	end := strings.Index(rest, "m")
+	if end < 0 {
+		return ""
+	}
+
+	return rest[:end]
+}
+
+// The feed is pressed against the composer: a conversation with three
+// messages in it has those three messages on the rows directly above the
+// field, and the empty rows are above them. A screen with the newest message
+// in its top row makes a user scroll to read what just arrived.
+func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileNoColor, 120, 30),
+		FocusHistory,
+	)
+	m.chats[m.selectedChat].Messages = []Message{
+		{ID: 1, Text: "the oldest", Time: "10:00", Author: "Anna"},
+	}
+	m.historyState = loadStateLoaded
+	m.selectedMsg = 0
+	m.timelineTop = 0
+
+	view := plain(m.View())
+	composer, ok := lineIndexWith(view, composerPlaceholder)
+	if !ok {
+		t.Fatalf("there is no composer:\n%s", view)
+	}
+
+	_, text, ok := lineWith(view, "the oldest")
+	if !ok {
+		t.Fatalf("the message is not on the screen:\n%s", view)
+	}
+
+	// The band is a blank line, the prompt and the hints, so the text of
+	// the newest message is three rows above the prompt and the empty rows
+	// of the feed are all above the author line.
+	if composer-text != 2 {
+		t.Fatalf(
+			"the text is on row %d and the composer on row %d, want them against the field:\n%s",
+			text,
+			composer,
+			view,
+		)
+	}
+	if _, author, ok := lineWith(view, "Anna"); !ok || author <= 2 {
+		t.Fatalf("the feed is not anchored to the composer:\n%s", view)
+	}
+}
+
+// A message from the other side is on the left with the name of whoever
+// sent it above the text; a message of this user is a block on the right
+// with the state of the send under it. The two are told apart by where they
+// are, which is a thing every reader of a chat already knows.
+func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileNoColor, 120, 30),
+		FocusHistory,
+	)
+	m.chats[m.selectedChat].Messages = []Message{
+		{ID: 1, Text: "from the other side", Time: "10:00", Author: "Anna", AuthorID: 7},
+		{ID: 2, Outgoing: true, Text: "from this side", Time: "10:01"},
+	}
+	m.historyState = loadStateLoaded
+	m.selectedMsg = 1
+	m.timelineTop = 0
+
+	view := plain(m.View())
+	incoming, _, ok := lineWith(view, "from the other side")
+	if !ok {
+		t.Fatalf("the incoming message is not on the screen:\n%s", view)
+	}
+	outgoing, _, ok := lineWith(view, "from this side")
+	if !ok {
+		t.Fatalf("the outgoing message is not on the screen:\n%s", view)
+	}
+
+	// The list, the column every region reserves, the inset between the
+	// marker and the text, and the marker's own column.
+	first := LayoutFor(m.width, m.height).SidebarWidth() + paneGapWidth
+	want := first + 2*focusColumnWidth + 2*contentInsetWidth
+	if got := indentOf(incoming); got != want {
+		t.Fatalf("the incoming text starts at %d, want %d", got, want)
+	}
+	// The column of the words themselves: the marker of the message under
+	// the cursor is in front of the block, and it is a column of its own.
+	outgoingColumn := strings.Index(outgoing, "from this side")
+	if outgoingColumn <= indentOf(incoming) {
+		t.Fatalf(
+			"the incoming text starts at %d and the outgoing at %d, want the outgoing further right",
+			indentOf(incoming),
+			outgoingColumn,
+		)
+	}
+	if !strings.Contains(view, "Anna") {
+		t.Fatalf("the sender is not named:\n%s", view)
+	}
+	if !strings.Contains(view, "✓ Sent 10:01") {
+		t.Fatalf("the outgoing message has no state under it:\n%s", view)
+	}
+}
+
+// A block of a message of this user is never more than seventy per cent of
+// the feed, because a conversation with messages from both sides has a seam
+// down it and a user can tell which is which without reading either.
+func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	m.chats[m.selectedChat].Messages = []Message{{
+		ID: 1, Outgoing: true, Text: strings.Repeat("long ", 60), Time: "10:01",
+	}}
+	m.historyState = loadStateLoaded
+	m.selectedMsg = 0
+	m.timelineTop = 0
+
+	width := LayoutFor(m.width, m.height).ChatContentWidth()
+	limit := int(float64(width) * outgoingBubbleShare)
+	if got := m.outgoingBlockWidth(width); got > limit {
+		t.Fatalf("the block is %d columns, want at most %d", got, limit)
+	}
+}
+
+// A picture is a word in brackets and the caption under it, and an album is
+// one entry with the number of its parts. Three photographs are one thing
+// somebody did, and a feed that shows them as three messages is a feed of
+// nine lines for one picture.
+func TestAnAlbumOfPhotosIsOneEntry(t *testing.T) {
+	messages := []Message{
+		{
+			ID: 1, Media: "photo", AlbumID: 5, Caption: "at the bridge",
+			Time: "10:00", Author: "Anna", AuthorID: 7,
+		},
+		{ID: 2, Media: "photo", AlbumID: 5, Time: "10:00", Author: "Anna", AuthorID: 7},
+		{ID: 3, Media: "photo", AlbumID: 5, Time: "10:00", Author: "Anna", AuthorID: 7},
+	}
+
+	entries := timelineEntries(messages)
+	if len(entries) != 1 {
+		t.Fatalf("%d entries, want 1", len(entries))
+	}
+	if got := entries[0].count(); got != 3 {
+		t.Fatalf("the entry stands for %d parts, want 3", got)
+	}
+	if got := entryText(entries[0]); got != "[3 photos] at the bridge" {
+		t.Fatalf("the album reads %q, want %q", got, "[3 photos] at the bridge")
+	}
+}
+
+// A message with a picture and no caption says what it carries and nothing
+// else. A row of empty columns where the words should be is a message a
+// user cannot read.
+func TestAPhotoWithoutACaptionSaysOnlyWhatItCarries(t *testing.T) {
+	message := Message{ID: 1, Media: "photo", Time: "10:00", Author: "Anna"}
+
+	entries := timelineEntries([]Message{message})
+	if got := entryText(entries[0]); got != "[photo]" {
+		t.Fatalf("the message reads %q, want %q", got, "[photo]")
+	}
+	if got := entryText(timelineEntries([]Message{{ID: 2, Time: "10:00"}})[0]); got != "" {
+		t.Fatalf("a message with no text and no media reads %q, want nothing", got)
+	}
+}
+
+// Two photos from two people are two messages: an album is a run from one
+// sender, and collapsing across senders would take somebody's picture away.
+func TestOnlyOneSendersRunIsAnAlbum(t *testing.T) {
+	messages := []Message{
+		{ID: 1, Media: "photo", AlbumID: 5, Author: "Anna", AuthorID: 7},
+		{ID: 2, Media: "photo", AlbumID: 5, Author: "Boris", AuthorID: 9},
+	}
+
+	if got := len(timelineEntries(messages)); got != 2 {
+		t.Fatalf("%d entries, want 2", got)
+	}
+}
+
+// A group has a colour per person, so that two names in the same
+// conversation are not the same word, and the same person is the same
+// colour in every message and in every chat.
+func TestAuthorColoursFollowTheSenderAndNothingElse(t *testing.T) {
+	m := openedProgramModel(t, theme.ProfileTrueColor, 120, 30)
+
+	first := m.styles().authorColor(7).Render("Anna")
+	again := m.styles().authorColor(7).Render("Anna")
+	other := m.styles().authorColor(9).Render("Boris")
+
+	if first != again {
+		t.Fatalf("the same sender got two styles: %q and %q", first, again)
+	}
+	if first == other {
+		t.Fatalf("two senders got the same style: %q", first)
+	}
+}
+
+// The composer is a band across the width of the conversation, with a `›`
+// in front of the draft, and the keys under it inside the same band. The
+// prompt is in the accent while the keys are in it and in the muted step
+// while they are not, and there is no cursor at all in the second case: a
+// bar blinking in a field nobody is typing into is the one thing on the
+// screen that says the user is somewhere else.
+func TestTheComposerIsABandWithAPromptAndNoStrayCursor(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusComposer,
+	)
+
+	view := plain(m.View())
+	if _, ok := lineIndexWith(view, composerPlaceholder); !ok {
+		t.Fatalf("there is no composer:\n%s", view)
+	}
+	if !strings.Contains(view, composerPrompt) {
+		t.Fatalf("the composer has no prompt:\n%s", view)
+	}
+	if !strings.Contains(view, m.hintText(LayoutFor(m.width, m.height))) {
+		t.Fatalf("the hints are not inside the band:\n%s", view)
+	}
+	if !strings.Contains(m.View(), cursorBar) {
+		t.Fatalf("the focused composer has no cursor:\n%q", m.View())
+	}
+
+	elsewhere := focusedOn(m, FocusHistory)
+	if strings.Contains(elsewhere.View(), cursorBar) {
+		t.Fatalf("a composer without the keys has a cursor:\n%q", elsewhere.View())
+	}
+	if !strings.Contains(elsewhere.View(), composerPrompt) {
+		t.Fatalf("a composer without the keys has no prompt:\n%q", elsewhere.View())
+	}
+}
+
+// The own chat is called "Saved Messages" by Telegram and "Избранное" by
+// the person using it, and a user who is looking for it types the word they
+// know. The second name is a way of finding the row and never a second
+// thing on the screen.
+func TestTheOwnChatIsFoundByEitherOfItsNames(t *testing.T) {
+	m := typedSearching(t, sizedModel(t, 120, 30), "избр")
+
+	if len(m.chatListEntries()) != 1 {
+		t.Fatalf(
+			"the query matched %d chats, want the one with oneself",
+			len(m.chatListEntries()),
+		)
+	}
+	if got := m.chatListEntries()[0].chat.Title; got != "Saved Messages" {
+		t.Fatalf("the match is %q, want the chat with oneself", got)
+	}
+
+	if names := m.selected().Aliases; len(names) != 1 || names[0] != "Избранное" {
+		t.Fatalf("the own chat is not found by %q: %q", "Избранное", names)
+	}
+}
+
+// The alias is a way of finding a row, not a second name for it: the list
+// says "Saved Messages" and nothing else.
+func TestTheAliasOfTheOwnChatIsNeverDrawn(t *testing.T) {
+	m := sizedModel(t, 120, 30)
+
+	if strings.Contains(plain(m.View()), "Избранное") {
+		t.Fatalf("the alias is on the screen:\n%s", plain(m.View()))
+	}
+}
+
+// typedSearching returns a model with a query typed into the search.
+func typedSearching(t *testing.T, m Model, query string) Model {
+	t.Helper()
+
+	m, _ = updateModel(t, m, pressRunes("/"))
+	for _, letter := range query {
+		m, _ = updateModel(t, m, pressRunes(string(letter)))
+	}
+
+	return m
+}
+
+// The keys still reach the composer after the band grew: the draft goes in,
+// and the message is queued when Enter is pressed.
+func TestTheComposerStillTakesTextAfterTheBandGrew(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileNoColor, 120, 30),
+		FocusComposer,
+	)
+
+	m, _ = updateModel(t, m, pressRunes("привет"))
+
+	if got := m.Composer(); got != "привет" {
+		t.Fatalf("the draft is %q, want the typed text", got)
+	}
+	if _, _, ok := lineWith(plain(m.View()), "привет"); !ok {
+		t.Fatalf("the draft is not on the screen:\n%s", plain(m.View()))
+	}
+}
+
+// The screen is a rectangle on every size and in every profile, which is
+// what the whole layout is for.
+func TestTheScreenIsARectangleAtEverySize(t *testing.T) {
+	for _, size := range [][2]int{
+		{120, 30}, {100, 24}, {80, 24}, {72, 20}, {60, 24}, {60, 12}, {40, 5},
+	} {
+		for _, profile := range []theme.Profile{
+			theme.ProfileTrueColor, theme.ProfileNoColor,
+		} {
+			m := focusedOn(
+				openedProgramModel(t, profile, size[0], size[1]),
+				FocusHistory,
+			)
+
+			lines := viewLines(m.View())
+			if len(lines) != size[1] {
+				t.Errorf(
+					"%dx%d %v: %d rows, want %d",
+					size[0], size[1], profile, len(lines), size[1],
+				)
+			}
+
+			for index, line := range lines {
+				if got := m.widths.StringWidth(line); got != size[0] {
+					t.Errorf(
+						"%dx%d %v: row %d is %d columns, want %d",
+						size[0], size[1], profile, index, got, size[0],
+					)
+				}
+			}
+		}
+	}
+}
+
+// The tea key that carries the focus is Tab and it moves between the panes
+// the rule is on. A rule that did not move with the keys would be a
+// decoration rather than a claim.
+func TestTabMovesTheRuleBetweenThePanes(t *testing.T) {
+	m := focusedOn(openedProgramModel(t, theme.ProfileNoColor, 120, 30), FocusChatList)
+
+	m, _ = updateModel(t, m, press(tea.KeyTab))
+	assertPanelRule(t, m, conversationPane)
+
+	m, _ = updateModel(t, m, press(tea.KeyTab))
+	assertPanelRule(t, m, listPane)
+}

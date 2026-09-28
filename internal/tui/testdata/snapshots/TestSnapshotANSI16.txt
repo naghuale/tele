@@ -7,65 +7,65 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-▌ Chats                    Anna Example                                                                                 
-▌ / Search · 3 unread        Peer                                                                                  12:07
-▌ ›Anna Example              Спасибо, посмотрю после обеда                                                              
-▌  ● 2  the build is gr…       You                                                                                 12:05
-▌  Release Room                Shipped the release notes                                                                
-▌    the tag is pushed     › Peer                                                                                  12:02
-▌  Notes                     The build is green again                                                                   
-▌  ● 1  milk, bread, co…                                                                                                
-▌  Команда Разработки                                                                                                   
-▌    созвон в 15:00                                                                                                     
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                                                                                                                       
-▌                           ▏Write a message…                                                                           
-▌                          Enter open · / search · q quit                                                               
+  Chats                    Anna Example                                                                                 
+  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                
+  / Search · 3 unread                                                                                                   
+  ›Anna Example    12:07                                                                                                
+    the build is gr…  2                                                                                                 
+                                                                                                                        
+   Release Room    12:05                                                                                                
+    the tag is pushed                                                                                                   
+                                                                                                                        
+   Notes           11:58                                                                                                
+    milk, bread, co…  1                                                                                                 
+                                                                                                                        
+   Команда Разраб… 11:40                                                                                                
+    созвон в 15:00                                                                                                      
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                            Anna Example · 12:07                                                                        
+                             Спасибо, посмотрю после обеда                                                              
+                                                                                                                        
+                                                        Shipped the release notes                                       
+                                                        ✓ Sent 12:05                                                    
+                                                                                                                        
+                           ›Anna Example · 12:02                                                                        
+                             The build is green again                                                                   
+                                                                                                                        
+                           ›Write a message…                                                                            
+                           Enter open · / search · q quit                                                               
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"▌ Chats                    Anna Example                                                                                 "
-"▌ / Search · 3 unread        Peer                                                                                  12:07"
-"▌ \x1b[1;7m\x1b[1;7m›\x1b[0mAnna Example         \x1b[0m     Спасибо, посмотрю после обеда                                                              "
-"▌  ● 2  the build is gr…       You                                                                                 12:05"
-"▌  Release Room                Shipped the release notes                                                                "
-"▌    the tag is pushed     \x1b[1;7m\x1b[1;7m›\x1b[0m Peer                                                                                  12:02\x1b[0m"
-"▌  Notes                     The build is green again                                                                   "
-"▌  ● 1  milk, bread, co…                                                                                                "
-"▌  Команда Разработки                                                                                                   "
-"▌    созвон в 15:00                                                                                                     "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                                                                                                                       "
-"▌                           ▏Write a message…                                                                           "
-"▌                          Enter open · / search · q quit                                                               "
+"  \x1b[1mChats                 \x1b[0m   Anna Example                                                                                 "
+"  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                "
+"  / Search · 3 unread                                                                                                   "
+"  \x1b[1m\x1b[1m›\x1b[0m\x1b[1mAnna Example\x1b[0m    12:07\x1b[0m                                                                                                "
+"  \x1b[1m  the build is gr… \x1b[1m 2 \x1b[0m\x1b[0m                                                                                                "
+"  \x1b[1m\x1b[0m                                                                                                                      "
+"   \x1b[1mRelease Room\x1b[0m    12:05                                                                                                "
+"    the tag is pushed                                                                                                   "
+"                                                                                                                        "
+"   \x1b[1mNotes\x1b[0m           11:58                                                                                                "
+"    milk, bread, co… \x1b[1m 1 \x1b[0m                                                                                                "
+"                                                                                                                        "
+"   \x1b[1mКоманда Разраб…\x1b[0m 11:40                                                                                                "
+"    созвон в 15:00                                                                                                      "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                                                                                                                        "
+"                            Anna Example · 12:07                                                                        "
+"                             Спасибо, посмотрю после обеда                                                              "
+"                                                                                                                        "
+"                                                        Shipped the release notes                                       "
+"                                                        ✓ Sent 12:05                                                    "
+"                                                                                                                        "
+"                           \x1b[1m\x1b[1m›\x1b[0mAnna Example · 12:02\x1b[0m                                                                        "
+"                             The build is green again                                                                   "
+"                                                                                                                        "
+"                           ›Write a message…                                                                            "
+"                           Enter open · / search · q quit                                                               "

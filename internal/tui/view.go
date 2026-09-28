@@ -33,6 +33,30 @@ const (
 	conversationPane
 )
 
+// panelFocused reports whether a pane is the one the keys are in.
+//
+// A pane is the unit, not a region inside it: the timeline and the
+// composer are two regions of one conversation, and the rule under the
+// header of that conversation says the same thing about both of them. The
+// search line is the other way round — it is a region of the chat list, and
+// the list's own heading still belongs to the pane the keys are in.
+//
+// While a popup is open the popup is the focus, §5.2 in one sentence: two
+// panels marked at once is a screen where a user cannot tell which one has
+// the keys.
+func (m Model) panelFocused(which pane) bool {
+	if m.popupOpen() {
+		return false
+	}
+
+	switch which {
+	case listPane:
+		return m.focus == FocusChatList || m.focus == FocusSearch
+	default:
+		return m.focus == FocusHistory || m.focus == FocusComposer
+	}
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
@@ -241,7 +265,6 @@ func (m Model) emptyConversationRegion(layout Layout) string {
 
 	return m.renderRegion(
 		styles.conversation,
-		false,
 		width,
 		lines,
 		layout.Height-lineCount(footer),
@@ -324,26 +347,23 @@ func (m Model) viewSinglePane(layout Layout, which pane) string {
 // conversationPaneRegion draws the conversation: the messages, the
 // composer, and the hint bar.
 //
-// The composer and the hint bar are the last rows of the pane and the
-// messages take what is left, so a screen with three messages in it is a
-// screen with a hint bar at the bottom rather than three lines at the top.
+// The composer is the last block of the pane and the messages take what is
+// left, so a screen with three messages in it is three messages on the rows
+// directly above the composer rather than three lines at the top. The hints
+// are the last row of the composer's own band: the field and the keys that
+// work in it are one thing, and a key line in a different surface under a
+// field is a second thing to look at.
 func (m Model) conversationPaneRegion(layout Layout) string {
-	composer := m.composerRegion(
-		layout,
-		layout.ChatContentWidth(),
-		m.composerHeight(layout, layout.ChatContentWidth()),
-	)
-	footer := m.footerRegion(layout, layout.ChatContentWidth())
-	composerLines := lineCount(composer)
-	footerLines := lineCount(footer)
+	width := layout.ChatContentWidth()
+	composer := m.composerRegion(layout, width, m.composerHeight(layout, width))
 
 	history := m.conversationRegion(
 		layout,
-		layout.ChatContentWidth(),
-		layout.Height-composerLines-footerLines,
+		width,
+		layout.Height-lineCount(composer),
 	)
 
-	return m.joinRegions(history, composer, footer)
+	return m.joinRegions(history, composer)
 }
 
 // chatListRegion draws the chat list pane at the given content width and
@@ -378,7 +398,6 @@ func (m Model) chatListBodyRegion(
 ) string {
 	return m.renderRegion(
 		m.styles().list,
-		m.focus == FocusChatList,
 		width,
 		m.chatListLines(layout, width, height),
 		height,
@@ -399,7 +418,6 @@ func (m Model) composerHeight(layout Layout, width int) int {
 func (m Model) composerRegion(layout Layout, width, height int) string {
 	return m.renderRegion(
 		m.styles().composer,
-		m.focus == FocusComposer,
 		width,
 		m.composerLines(layout, width),
 		height,
@@ -416,7 +434,6 @@ func (m Model) footerRegion(layout Layout, width int) string {
 
 	return m.renderRegion(
 		m.styles().footer,
-		false,
 		width,
 		lines,
 		len(lines),
@@ -468,7 +485,6 @@ func (m Model) fitHeight(rendered string, layout Layout) string {
 // one the model measured — the one the terminal was measured for.
 func (m Model) renderRegion(
 	region themeRegion,
-	focused bool,
 	width int,
 	lines []string,
 	height int,
@@ -486,7 +502,7 @@ func (m Model) renderRegion(
 		fitted = append(fitted, m.widths.Fit("", width, ellipsis))
 	}
 
-	style := m.styles().region(region, focused)
+	style := m.styles().region(region)
 	rendered := make([]string, 0, len(fitted))
 	for _, line := range fitted {
 		rendered = append(rendered, style.Render(line))

@@ -173,7 +173,7 @@ func TestTabCycleKeepsOneAccentAtEveryStop(t *testing.T) {
 					t.Fatalf("focus = %v, want %v", m.focus, want)
 				}
 
-				assertFocusColumn(t, m, focusColumnOf(m, paneOf(m.focus)))
+				assertPanelRule(t, m, paneOf(m.focus))
 
 				m, _ = updateModel(t, m, press(tea.KeyTab))
 			}
@@ -221,8 +221,8 @@ func TestViewColoursComeFromTheResolvedProfile(t *testing.T) {
 	if !strings.Contains(view, "48;2;") {
 		t.Fatalf("a True Color profile painted no surface:\n%q", view)
 	}
-	if !strings.Contains(view, theme.FocusBar) {
-		t.Fatalf("a True Color profile drew no accent:\n%q", view)
+	if !strings.Contains(view, focusRuleGlyph) {
+		t.Fatalf("a True Color profile drew no rule under the header:\n%q", view)
 	}
 
 	plain := openedModel(t, 80, 24)
@@ -230,8 +230,8 @@ func TestViewColoursComeFromTheResolvedProfile(t *testing.T) {
 	if strings.Contains(plainView, "48;2;") {
 		t.Fatalf("a no-colour profile painted a surface:\n%q", plainView)
 	}
-	if !strings.Contains(plainView, theme.FocusBar) {
-		t.Fatalf("a no-colour profile drew no accent:\n%q", plainView)
+	if !strings.Contains(plainView, focusRuleGlyph) {
+		t.Fatalf("a no-colour profile drew no rule under the header:\n%q", plainView)
 	}
 }
 

@@ -268,7 +268,11 @@ func TestTheStatusIsUnderTheConversationTitle(t *testing.T) {
 	if title < 0 || status < 0 {
 		t.Fatalf("the conversation title or the status line is missing: %q", lines)
 	}
-	if status != title+1 {
+
+	// The status is under the title and under the rule that says the
+	// timeline has the keys: the name of the chat, then the line that
+	// marks the pane, then what the program is doing in it.
+	if status != title+2 {
 		t.Fatalf("the status is on line %d and the title on %d", status, title)
 	}
 }
@@ -519,12 +523,19 @@ func chatListHeaderLines(t *testing.T, model Model) []string {
 	}
 	lines := model.chatListLines(layout, width, layout.Height)
 
-	if len(lines) < 2 {
+	if len(lines) < chatListHeaderRows {
 		return lines
 	}
 
-	return lines[:2]
+	// The header is the title, the rule that says this pane has the keys
+	// and the second line under them. The rule is not one of them: it says
+	// where the focus is and not what the list is about.
+	return lines[:chatListHeaderRows]
 }
+
+// chatListHeaderRows is how many rows the header of the chat list takes
+// before the first chat: the title, the rule and the second line.
+const chatListHeaderRows = 3
 
 func statusLineOf(t *testing.T, model Model) string {
 	t.Helper()

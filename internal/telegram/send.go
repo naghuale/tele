@@ -138,11 +138,15 @@ func (s *AuthorizedSession) SendTextMessage(
 		)
 	}
 
+	media, caption := extractMedia(response.Content)
+
 	return Message{
 		ID:        MessageID(response.ID),
 		ChatID:    ChatID(response.ChatID),
 		Outgoing:  response.IsOutgoing,
 		Timestamp: time.Unix(response.Date, 0).UTC(),
 		Text:      extractMessageText(response.Content),
+		Media:     media,
+		Caption:   caption,
 	}, nil
 }

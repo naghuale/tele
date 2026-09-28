@@ -21,7 +21,9 @@ import (
 // box around a region would say "this is a box" where the interface is
 // supposed to say "this is a chat list". A test has to name the
 // characters it forbids, or it only forbids the ones somebody thought of.
-const boxDrawing = "─│┌┐└┘├┤┬┴┼━┃╭╮╰╯║═╔╗╚╝╠╣╦╩╬╞╡"
+// The heavy rule of the focused panel is not in this list: it is the mark
+// of the focus and not a frame, and the tests below check for it by name.
+const boxDrawing = "─│┌┐└┘├┤┬┴┼┃╭╮╰╯║═╔╗╚╝╠╣╦╩╬╞╡"
 
 // uncolored rebuilds a model for a terminal that shows no colour.
 //
@@ -37,22 +39,6 @@ func uncolored(m Model) Model {
 	m.rendererForProfile = nil
 
 	return m
-}
-
-// barColumnOf returns the column the focus bar of a line is drawn in, or
-// -1 where the line has none.
-//
-// The column is measured, not counted: the search gives a byte offset, and
-// a title with a dash in it is more bytes than columns, so an offset read
-// as a column would put the two panes' markers in different places on
-// different lines.
-func barColumnOf(widths termwidth.WidthModel, line string) int {
-	index := strings.Index(line, theme.FocusBar)
-	if index < 0 {
-		return -1
-	}
-
-	return widths.StringWidth(line[:index])
 }
 
 // sizedModel returns a model on the chat list of a given size.
@@ -80,88 +66,66 @@ func viewLines(view string) []string {
 	return strings.Split(view, "\n")
 }
 
-// accentColumns returns the columns of the screen in which a bar is drawn.
-//
-// A bar in a pane's own column is the focus of that region; a bar one
-// column further in is the marker of a selected row, which is a different
-// thing and is not counted as a focus.
-func accentColumns(widths termwidth.WidthModel, line string) []int {
-	var (
-		columns []int
-		rest    = line
-	)
+// panelRuleLines returns the indexes of the rows that carry the rule of a
+// focused panel.
+func panelRuleLines(lines []string) []int {
+	var found []int
 
-	for {
-		index := barColumnOf(widths, rest)
-		if index < 0 {
-			return columns
+	for index, line := range lines {
+		if strings.Contains(line, focusRuleGlyph) {
+			found = append(found, index)
 		}
-
-		columns = append(columns, index)
-		rest = rest[index+len(theme.FocusBar):]
-	}
-}
-
-// focusColumns returns the columns the focus of a size can be drawn in, one
-// per pane: the chat list on the left and the conversation on the right of
-// a two-pane screen, and only the first of them on a narrow one.
-//
-// It is the layout that says where a pane starts, and the accent column is
-// the first column of its pane.
-func focusColumns(layout Layout) []int {
-	if !layout.TwoPane() {
-		return []int{0}
 	}
 
-	return []int{0, layout.SidebarWidth() + paneGapWidth}
+	return found
 }
 
-// assertFocusColumn fails unless the bar of the screen is in the column of
-// the expected pane and in no other pane's column.
+// assertPanelRule fails unless the screen draws exactly one rule, and it
+// is the row under the heading of the pane that has the keys.
 //
-// The invariant of §5.2 is that exactly one region is focused, so the
-// check is about the panes rather than about counting bars: a selected row
-// carries a marker of its own inside its region, and a screen that drew
-// that as a second focus is what this is here to catch.
-func assertFocusColumn(t *testing.T, m Model, want int) {
+// §5.2 is one focused region at a time, and the mark of a region is a
+// rule under its header. Two rules would be two claims on the keys, and a
+// user cannot choose between two regions that both say they have them.
+//
+// A screen with no conversation on it — the composer-only screen of §3.4,
+// which has no header to put a rule under — is the one case where there is
+// no rule at all, and it is said here rather than excused in every test.
+func assertPanelRule(t *testing.T, m Model, want pane) {
 	t.Helper()
 
-	layout := LayoutFor(m.width, m.height)
 	view := m.View()
-	columns := focusColumns(layout)
+	lines := viewLines(view)
+	found := panelRuleLines(lines)
 
-	for index, line := range viewLines(view) {
-		for _, column := range accentColumns(m.widths, line) {
-			for _, pane := range columns {
-				if column != pane {
-					continue
-				}
-
-				if pane != want {
-					t.Fatalf(
-						"line %d draws a focus bar in the column of another pane (%d):\n%s",
-						index,
-						pane,
-						view,
-					)
-				}
-			}
+	layout := LayoutFor(m.width, m.height)
+	if !layout.TwoPane() && layout.ComposerOnly() {
+		if len(found) != 0 {
+			t.Fatalf("a composer-only screen draws a panel rule:\n%s", view)
 		}
+
+		return
 	}
 
-	// And the pane that should have it has to have it somewhere, or
-	// nothing on the screen says where the keys are.
-	found := false
-	for _, line := range viewLines(view) {
-		for _, column := range accentColumns(m.widths, line) {
-			if column == want {
-				found = true
-			}
-		}
+	if len(found) != 1 {
+		t.Fatalf("the screen draws %d panel rules, want 1:\n%s", len(found), view)
 	}
 
-	if !found {
-		t.Fatalf("no focus bar in the column of the focused pane (%d):\n%s", want, view)
+	// The rule belongs to the pane the focus is in, and it sits on the row
+	// directly under that pane's heading, which is the first row of the
+	// screen. The search line is above the list's heading, so the list's
+	// rule is one row further down with it open.
+	wantRow := 1
+	if want == listPane && m.chatSearch.open {
+		wantRow = searchRegionHeight + 1
+	}
+	if found[0] != wantRow {
+		t.Fatalf(
+			"the rule is on row %d, want row %d under the heading of the %v pane:\n%s",
+			found[0],
+			wantRow,
+			want,
+			view,
+		)
 	}
 }
 
@@ -209,7 +173,7 @@ func TestOnlyFocusedRegionHasAccentLine(t *testing.T) {
 
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			assertFocusColumn(t, testCase.model, focusColumnOf(testCase.model, testCase.want))
+			assertPanelRule(t, testCase.model, testCase.want)
 		})
 	}
 }
@@ -230,16 +194,6 @@ func focusedOn(m Model, focus Focus) Model {
 	m.focus = focus
 
 	return m
-}
-
-// focusColumnOf returns the column the given pane draws its focus in.
-func focusColumnOf(m Model, which pane) int {
-	columns := focusColumns(LayoutFor(m.width, m.height))
-	if which == listPane {
-		return columns[0]
-	}
-
-	return columns[len(columns)-1]
 }
 
 // The focus is a bar in the first column of the region, not a border
@@ -293,11 +247,13 @@ func TestSidebarContainsNoRightBorder(t *testing.T) {
 	}
 }
 
-// The composer is marked by its left bar and by nothing else: a box around
-// the place a message is written would put a second line under the
-// messages and a line above the hint bar, both of which the screen does
-// not have room for and neither of which says anything extra.
-func TestComposerUsesOnlyLeftFocusBorder(t *testing.T) {
+// The composer is a band across the width of the conversation and nothing
+// else: a box around the place a message is written would put a second
+// line under the messages and a line above the hint bar, both of which
+// the screen does not have room for and neither of which says anything
+// extra. What says where the keys are is the rule over the header of the
+// pane and the `›` in front of the draft.
+func TestComposerIsABandAndNoFrame(t *testing.T) {
 	m := openedModel(t, 120, 30)
 	m.focus = FocusComposer
 
@@ -307,11 +263,11 @@ func TestComposerUsesOnlyLeftFocusBorder(t *testing.T) {
 		t.Fatalf("view has no composer line:\n%s", view)
 	}
 
-	if barColumnOf(m.widths, composer) < 0 {
-		t.Fatalf("composer has no focus bar: %q", composer)
+	if strings.ContainsRune(composer, firstRune(theme.FocusBar)) {
+		t.Fatalf("the composer carries a focus bar: %q", composer)
 	}
-	if got := strings.Count(composer, theme.FocusBar); got != 1 {
-		t.Fatalf("composer has %d focus bars, want 1: %q", got, composer)
+	if !strings.ContainsRune(composer, firstRune(composerPrompt)) {
+		t.Fatalf("the composer has no prompt: %q", composer)
 	}
 	if m.widths.StringWidth(composer) != m.width {
 		t.Fatalf("composer line is %d columns, want %d", m.widths.StringWidth(composer), m.width)
@@ -330,23 +286,24 @@ func composerLineOf(view string) string {
 }
 
 // A terminal that shows no colour still has to say where the keys go
-// (§2.7). The accent is a bar and not a colour in the first place, so it
-// survives the profile that throws colour away, and the theme loses its
+// (§2.7). The rule is a character and not a colour in the first place, so
+// it survives the profile that throws colour away, and the theme loses its
 // colours on the way there: this is the state a user with `color =
 // "never"`, a NO_COLOR environment variable or a TERM=dumb terminal is in.
 func TestNoColorPreservesFocusIndicator(t *testing.T) {
 	conversation := uncolored(openedModel(t, 120, 30))
-	assertFocusColumn(
-		t,
-		conversation,
-		focusColumnOf(conversation, conversationPane),
-	)
+	assertPanelRule(t, conversation, conversationPane)
 
 	// The chat list is where the selection is, and a selection carried by
 	// a bold attribute alone disappears with the attributes: termenv's
-	// Ascii profile prints none of them.
+	// Ascii profile prints none of them. The `›` in its own column is
+	// what is left.
 	list := uncolored(focusedOn(sizedModel(t, 120, 30), FocusChatList))
-	assertFocusColumn(t, list, focusColumnOf(list, listPane))
+	assertPanelRule(t, list, listPane)
+
+	if _, _, ok := lineWith(plain(list.View()), theme.SelectionMark); !ok {
+		t.Fatalf("the selected chat has no marker without colour:\n%s", plain(list.View()))
+	}
 }
 
 // The smallest supported screen still draws a conversation, because the

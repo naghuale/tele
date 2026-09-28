@@ -728,8 +728,8 @@ func parseLiveMessage(raw json.RawMessage) (Message, error) {
 	}
 
 	// parseLastMessage already extracts the preview text for a message
-	// payload, including the placeholder for unsupported content.
-	_, text := parseLastMessage(raw)
+	// payload, including the word for a file and the caption under it.
+	_, text, _ := parseLastMessage(raw)
 
 	return Message{
 		ID:        MessageID(message.ID),

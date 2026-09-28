@@ -289,6 +289,21 @@
     default when out of range
   - maps telegram.Message → tui.Message; preserves Outgoing, Text,
     and formats Timestamp as HH:MM
+  - names: the sender of a message is resolved when the message is
+    drawn. An outgoing message is "You"; a personal chat and a channel
+    are named by the chat; a group names the person who sent it, read
+    with getUser for a user sender and getChat for a chat sender. A
+    sender that cannot be read is "Unknown" and does not fail the page
+  - the names are read from the local TDLib at authorNameTimeout and
+    kept in a bounded in-memory map (nameCacheLimit = 512, users and
+    chats keyed apart). They are not in LiveState, not in a log, not in
+    a doctor report and not in an error message: the privacy claim of
+    #41 is unchanged, and this file is what keeps it true
+  - ownUserID is passed in by the composition root, and a chat whose
+    private peer is that user is the chat with oneself: it is found by
+    the name the user types ("Избранное") as well as by the title
+    Telegram gives it. An ownUserID of zero means the chat is not
+    recognised, which costs the alias and nothing else
 - TUI ChatSource: internal/tui/chat_source.go
   - ListChats, LoadHistory, SendMessage
   - async tea.Cmd-based loading with loadState
@@ -310,20 +325,27 @@
     right one carries the empty state of §17 ("Select a chat", and the
     reason when the list is loading or has failed), and the list keeps
     the width of §3.3 either way. Narrow has one region
-  - one focus at a time: the focus is a bar in the first column of a
-    region, drawn with BorderLeft and the theme's FocusBar, and an
-    unfocused region reserves the same column with MarginLeft, so
-    moving the focus changes no cell to its right. The bar is a glyph
-    and not a colour, so it is drawn under every profile: the no-
-    colour profile clears the tokens of the theme on the way in and
-    termenv prints neither colour nor attributes there. The selected
-    chat and the selected message carry a chevron of their own
-    (theme.SelectionMark, §4.1/§5.2) and keep it while the focus is
-    elsewhere; it is not the focus bar, because a list that marked both
-    with `▌` read as a double line. The search above the chat list is a
-    region of its own while it is open (FocusSearch, §5/§9) and is
-    stacked above the rows, so the list gives up the column rather than
-    there being two of them. Styles: styles.go
+  - one focus at a time: the focus of a pane is one accent rule
+    (`━`, the focusRuleGlyph) under the heading of that pane, and the
+    unfocused pane has a blank line of the same height in the same
+    place, so moving the focus moves a rule and nothing else. A pane
+    is the unit rather than a region inside it: the timeline and the
+    composer are two regions of one conversation. A rule is a
+    character and not a colour, so it is drawn under every profile;
+    the no-colour profile clears the tokens of the theme on the way
+    in and termenv prints neither colour nor attributes there. No
+    row of the chat list and no row of the timeline carries a focus
+    bar at all (`▌`, `┃`, `│`): a line of focus down the side of a
+    list is a column of the list, and a user reads `▌ Alice` as a
+    name that begins with a block. The selected chat is the
+    Selected background across both of its rows with its name in the
+    accent and no marker; the profile with no colour has no
+    background to show and puts `›` in a column of its own
+    (theme.SelectionMark, §4.1) and asks for bold, which that profile
+    prints as nothing. The search above the chat list is a region of
+    its own while it is open (FocusSearch, §5/§9) and is stacked
+    above the rows, so the list gives up the column rather than there
+    being two of them. Styles: styles.go
   - Esc hierarchy (§8.5): search to composer, composer to timeline,
     timeline to the chat list, and then it stops. On a two-pane screen
     the third step focuses the list beside the conversation instead of
@@ -372,11 +394,30 @@
     a page that adds nothing exhausts the history, one request at a
     time, an error keeps what is loaded and is retried by the next ↑,
     and a stale response is dropped by historyOperation
-  - a message is its author line with the time at the right edge and its
-    text under it, wrapped to the width of the region. An outgoing
-    message is indented two columns and named in the accent, one marker
-    marks the selected message, the header is sticky, and the progress
-    or the failure of an older page sits at the top of the timeline
+  - the feed is bottom-anchored: fewer messages than the feed has rows
+    for means the empty rows are above them, so the newest message sits
+    on the row directly above the composer
+  - a message from the other side is its author and its time on one row
+    ("author · time") and its text under it, wrapped to the width of the
+    region. The author is coloured out of six theme roles picked by the
+    hash of the sender identifier, so the same person is the same colour
+    in every message and a group has two names in two colours; a
+    personal chat has one other person in it and one colour
+  - a message of this user is a block on the right on the composer's
+    own surface, inset one column, at most 70% of the feed, with the
+    time and the state of the send under the text at the block's right
+    edge ("✓ Sent 14:30", "● Queued", "↻ Retrying at 14:35") and no
+    author line: the block being on the right already says whose it is
+  - a blank row separates two messages, and it is the first thing to go
+    on a screen shorter than 20 rows
+  - a run of consecutive messages from one sender that share a
+    media_album_id is one entry: "[3 photos]", with the caption of the
+    first part that has one. A message that carries a file says what it
+    carries in brackets, "[photo]", whether or not it has a caption, and
+    a message with neither a file nor words draws no empty row
+  - one marker marks the selected message, the header is sticky, and the
+    progress or the failure of an older page sits at the top of the
+    timeline
   - opening a chat and sending a message both put the cursor on the
     newest message; a message that arrives while a reader is scrolled
     up does not move them
@@ -856,9 +897,19 @@
     beside each block
   - contrast: PrimaryText and SecondaryText are at or above WCAG AA
     4.5:1 on AppBackground, SidebarBackground, ChatBackground and
-    ComposerBackground in every built-in theme, and the two dimmer tiers
-    get dimmer in order. A colour that is not set has no luminance, so a
-    ratio with one is 0 and a test cannot be flattered by it
+    ComposerBackground in every built-in theme; MutedText, which draws
+    the chat previews and the times, is held to the same bar on
+    SidebarBackground and ChatBackground; and the tiers get dimmer in
+    order. MutedText is computed rather than named: the dim step of the
+    palette lifted towards the text ramp until it clears the bar on
+    every surface it is drawn on, because no single step of any of the
+    three palettes is both dim enough to be the tier below secondary and
+    readable, and a palette written by a user would have the same
+    trouble. A colour that is not set has no luminance, so a ratio with
+    one is 0 and a test cannot be flattered by it
+  - Selected is a background, not a foreground: it is the surface of the
+    selected row of the list, and the name on that row is in Focus, so a
+    selected chat is a row and never a marker
   - colour profiles: True Color, ANSI-256, ANSI-16 and no colour. The
     terminal is measured through Lip Gloss and the decision is a pure
     function of that measurement, the environment, --no-color and
@@ -881,9 +932,9 @@
     palette and a gradient of at most three stops; a 16-colour terminal
     gets basic colours by role, so the terminal renders them with the
     palette the user configured, and its backgrounds stay unset
-  - nothing depends on colour: the focus marker, the reverse-and-bold
-    selection and the symbol-plus-words of every status are theme roles,
-    not view helpers
+  - nothing depends on colour: the rule under a focused heading, the
+    `›` of a selected row where there is no background to show, and the
+    symbol-plus-words of every status are theme roles, not view helpers
   - the views do not read the theme yet (PR-10A.2). It reaches
     tui.Model through tui.Dependencies, and telecli doctor reports the
     theme and the profile that were resolved

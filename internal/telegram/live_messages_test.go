@@ -834,7 +834,7 @@ func TestEventPreviewMatchesTheChatListPreview(t *testing.T) {
 		t.Fatalf("Text = %q, want the placeholder [photo]", added.Message.Text)
 	}
 
-	_, listPreview := parseLastMessage(json.RawMessage(
+	_, listPreview, _ := parseLastMessage(json.RawMessage(
 		`{"@type":"message","id":501,"chat_id":7,"date":1700000000,` +
 			`"content":{"@type":"messagePhoto","photo":{"@type":"photo","sizes":[]}}}`,
 	))

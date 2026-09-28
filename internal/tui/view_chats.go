@@ -4,8 +4,6 @@ import (
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"telecli/internal/tui/theme"
 )
 
 // chatListTitle is the header of the list.
@@ -17,19 +15,23 @@ const chatListTitle = "Chats"
 
 // chatListLines returns the lines of the chat list region.
 //
-// §3.3 says the list is not squeezed into a narrow screen, and it is the
-// one region that has to survive every width: a title line per chat and a
-// second line with the unread marker and the preview. The preview is the
-// first thing to go on a short screen (§3.4), because a name without a
-// preview still says who someone is while a preview without a name says
-// nothing about who said it.
+// The header is a title, the rule that says this panel has the keys, and
+// the second line §4.1 puts under the title. The rule is a blank line of
+// the same height when the focus is elsewhere, so moving the focus moves
+// one line and nothing under it.
+//
+// The rows are two lines each with a blank line between them, and the
+// preview is the first thing to go on a short screen (§3.4), because a
+// name without a preview still says who someone is while a preview without
+// a name says nothing about who said it.
 //
 // A search narrows the rows to the chats that matched and nothing else:
 // the list on the screen is the list there is, so the rows that are drawn
 // are the ones the query left.
 func (m Model) chatListLines(layout Layout, width, height int) []string {
 	lines := []string{
-		m.styles().text(m.tokens().PrimaryText).Render(chatListTitle),
+		m.panelHeading(chatListTitle, width, m.panelFocused(listPane)),
+		m.styles().focusRule(width, m.panelFocused(listPane)),
 		m.chatListHeaderSecondLine(layout, width),
 	}
 
@@ -48,6 +50,23 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 	}
 
 	return lines
+}
+
+// panelHeading draws the title of a panel: the accent of the theme when
+// the panel has the keys, the dim step of the text ramp when it does not.
+//
+// The colour and the rule under it say the same thing, and that is the
+// point: the rule is what a terminal with no colour shows, and the colour
+// is what a terminal with colour shows first.
+func (m Model) panelHeading(title string, width int, focused bool) string {
+	styles := m.styles()
+
+	style := styles.dimmed(m.tokens().MutedText)
+	if focused {
+		style = styles.text(m.tokens().Focus).Bold(true)
+	}
+
+	return style.Render(m.widths.Fit(title, width, ellipsis))
 }
 
 // chatListHeaderSecondLine is the second line of the chat list header.
@@ -98,12 +117,16 @@ func (m Model) chatListSummaryLine(width int) string {
 const chatListSearchHint = "/ Search"
 
 // chatListRowHeight returns how many lines one chat takes.
+//
+// A chat is a name and a preview with a blank line under it, so that two
+// chats are two blocks rather than four lines of one column. On a screen
+// too short for that (§3.4) the row is one line and the blank lines go.
 func (m Model) chatListRowHeight(layout Layout) int {
 	if layout.Short() {
 		return 1
 	}
 
-	return 2
+	return 3
 }
 
 // chatListRows renders every chat the list shows into its lines, and the
@@ -133,7 +156,13 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 	return rows, selected
 }
 
-// chatListRowLines renders one chat as a title line and a detail line.
+// chatListRowLines renders one chat as a name with its time, a preview
+// with its unread badge, and a blank line under it.
+//
+// The two lines of a row are the two things a chat list is: who it is and
+// what it is about. The time and the badge are at the right edge of the
+// rows they belong to, so the eye can run down the times without reading
+// any of the names.
 func (m Model) chatListRowLines(
 	entry chatListEntry,
 	selected bool,
@@ -148,38 +177,96 @@ func (m Model) chatListRowLines(
 		title = untitledChatTitle
 	}
 
-	// The marker sits against the name and the line below is indented by
-	// the same column, which is the shape §4.1 draws: the two lines of a
-	// chat stay aligned, and a row that is not selected has the same
-	// columns as one that is. The glyph is a chevron and not the focus
-	// bar: the two say different things, and a list that marked both with
-	// `▌` read as a double line.
-	lines := []string{
-		styles.selected(selected).Render(
-			styles.selectionMark(selected, m.focus == FocusChatList).
-				Render(theme.SelectionIndicator(selected)) +
-				m.chatTitleLine(
-					styles,
-					title,
-					selected,
-					width-selectionMarkerWidth,
-				),
-		),
+	// The marker sits in a column of its own and every row reserves it, so
+	// a name does not step sideways when the cursor moves to the row above
+	// it. It is a glyph only where the profile cannot show the background
+	// of the selected row; with a background, the background is the
+	// selection and a glyph on top of it says it twice.
+	inset := m.selectionColumn(selected)
+
+	at := m.chatTime(chat)
+	badge := m.chatListUnreadBadge(chat, selected)
+	rowStyle := styles.selected(selected)
+	badgeColumns := m.widths.StringWidth(badge)
+	timeColumns := m.widths.StringWidth(at)
+
+	// §4.2 gives the time up before the name does, on a list too narrow to
+	// carry both: a time at the end of a row is worth less than the first
+	// few letters of the name it belongs to, and a cut name is a name a
+	// user cannot recognise at a glance. The badge and the time are spent
+	// out of the width of the name and not added to it.
+	nameWidth := width - selectionMarkerWidth
+	if nameWidth-timeColumns-timeGapColumns >= minNameBesideTime {
+		nameWidth -= timeColumns + timeGapColumns
+	} else {
+		at = ""
 	}
 
 	if m.chatListRowHeight(layout) == 1 {
-		return lines
+		short := maxInt(nameWidth-badgeColumns-2, 1)
+		line := inset + m.chatTitleLine(styles, title, selected, short)
+		if badge != "" {
+			line += "  " + badge
+		}
+
+		return []string{rowStyle.Render(m.leftAndRight(line, at, width))}
 	}
 
-	detail := m.chatListDetail(chat, layout, width-selectionMarkerWidth)
-	lines = append(
-		lines,
-		styles.dimmed(m.tokens().SecondaryText).
-			Render(spaces(selectionMarkerWidth)+detail),
+	head := m.leftAndRight(
+		inset+m.chatTitleLine(styles, title, selected, nameWidth),
+		at,
+		width,
 	)
 
-	return lines
+	previewWidth := maxInt(
+		width-selectionMarkerWidth-contentInsetWidth-badgeColumns-timeGapColumns,
+		1,
+	)
+	detail := m.leftAndRight(
+		spaces(selectionMarkerWidth+contentInsetWidth)+
+			styles.text(m.tokens().SecondaryText).
+				Render(m.widths.TruncateMarked(
+					m.chatListPreview(chat), previewWidth, ellipsis,
+				)),
+		badge,
+		width,
+	)
+
+	return []string{
+		rowStyle.Render(head),
+		rowStyle.Render(detail),
+		rowStyle.Render(""),
+	}
 }
+
+// selectionColumn returns the column in front of a selected row: the
+// marker of §2.7 where the profile cannot show the selected background,
+// and a blank of the same width everywhere else.
+//
+// It is always exactly one column wide, so a list drawn in colour and a
+// list drawn without it have their names in the same place.
+func (m Model) selectionColumn(selected bool) string {
+	styles := m.styles()
+	glyph := styles.selectionMarker(selected)
+	if glyph == "" {
+		return spaces(selectionMarkerWidth)
+	}
+
+	return styles.selectionMark(selected, m.focus == FocusChatList).Render(glyph)
+}
+
+// timeGapColumns is the space kept between the name of a chat and the
+// time at the other end of its row, and between a preview and its badge.
+//
+// It is spent out of the width of the name and not added to it: a name
+// fitted to the whole row pushes the time off the end of it, and a time
+// that is cut in half says nothing about when the message was.
+const timeGapColumns = 1
+
+// minNameBesideTime is the narrowest name that is still worth putting a
+// time beside. A name of this many columns is a name a user recognises;
+// anything shorter and the time is the first thing the row gives up.
+const minNameBesideTime = 8
 
 // untitledChatTitle is what a chat with no name is drawn as.
 //
@@ -188,38 +275,51 @@ func (m Model) chatListRowLines(
 // messages in it.
 const untitledChatTitle = "(untitled)"
 
-// chatListDetail returns the second line of a chat: how much of it is
-// unread, and what it is about.
+// chatTime returns the time of the last message of a chat, in the dim step
+// of the text ramp.
 //
-// The unread marker is the symbol of a queued message from the theme's
-// status vocabulary followed by a count, because an unread count is a
-// status and §14 says a status is never colour alone.
-func (m Model) chatListDetail(
-	chat Chat,
-	layout Layout,
-	width int,
-) string {
-	unread := chatListUnreadMarker(chat.Unread)
-	if layout.Short() || chat.Preview == "" {
-		return unread
-	}
-
-	available := width - m.widths.StringWidth(unread) - 2
-	if available < 1 {
-		return unread
-	}
-
-	return unread + "  " + m.widths.Fit(chat.Preview, available, ellipsis)
-}
-
-// chatListUnreadMarker returns the unread marker of a chat, or "" when
-// the chat has nothing unread.
-func chatListUnreadMarker(unread int) string {
-	if unread <= 0 {
+// It is the muted tier and not the disabled one, and it is not drawn faint:
+// a timestamp is read rather than glanced at, and §24 holds the tiers a
+// user reads to the same contrast bar as the words above them.
+func (m Model) chatTime(chat Chat) string {
+	if chat.Time == "" {
 		return ""
 	}
 
-	return theme.StatusQueued.Mark().Symbol + " " + unreadBadge(unread)
+	return m.styles().text(m.tokens().MutedText).Render(chat.Time)
+}
+
+// chatListPreview returns the second line of a chat: what it is about.
+func (m Model) chatListPreview(chat Chat) string {
+	if chat.Preview == "" {
+		return ""
+	}
+
+	return chat.Preview
+}
+
+// chatListUnreadBadge returns the unread count of a chat as a pill, or
+// nothing when the chat has nothing unread.
+//
+// The pill is the accent of the theme for a chat with one other person in
+// it, and the muted step for a group or a channel: a hundred unread
+// messages in a channel is background, and a hundred unread messages from
+// one person is not. The text inside is the colour of the surface the pill
+// is on, so the number is cut out of the pill rather than written on it.
+func (m Model) chatListUnreadBadge(chat Chat, selected bool) string {
+	if chat.Unread <= 0 {
+		return ""
+	}
+
+	background := m.tokens().MutedText
+	if !chat.Kind.Grouped() {
+		background = m.tokens().Unread
+	}
+
+	badge := unreadBadge(chat.Unread)
+
+	return m.styles().pill(background, m.tokens().SidebarBackground).
+		Render(" " + badge + " ")
 }
 
 // unreadBadge is the number on an unread badge (§4.2).

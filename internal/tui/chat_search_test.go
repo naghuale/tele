@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -1095,13 +1094,20 @@ func assertSegments(t *testing.T, got, want []chatTitleSegment) {
 // that has to be checked on the screen rather than on the segments: a
 // title that is split correctly and drawn in one colour is a title with
 // the list filtered and nothing marked.
+// The matched fragment is in the second accent and not the first: a
+// selected row is in the first, and a match inside the selected row would
+// be the same colour as the name around it.
 func TestTheMatchedFragmentIsDrawnInTheAccent(t *testing.T) {
 	m := typing(t, searchable(t, 120, 24), "saved")
 	m.theme = theme.DefaultTheme().ForProfile(theme.ProfileTrueColor)
 	m = m.withRenderer(theme.ProfileTrueColor)
 
 	row := rowLineOf(t, m, "Saved Messages")
-	accent := rgbParameters(m.tokens().Focus)
+
+	// The parameters are taken from the style the row is drawn with rather
+	// than from the token, because the colour library rounds a value on
+	// the way to the terminal and the row is what the terminal is given.
+	accent := foregroundParameters(m.styles().matchRun().Render("x"))
 
 	var matched, accented int
 	for _, run := range styleRuns(row) {
@@ -1214,27 +1220,26 @@ func styleRuns(line string) []styleRun {
 
 // rgbParameters returns the SGR parameters a theme colour is printed
 // with, in the form lipgloss writes them into a sequence.
-func rgbParameters(color theme.Color) string {
-	hex := color.Hex()
-	if hex == "" {
+// foregroundSGR starts the true-colour foreground parameters of an SGR
+// sequence. Bold and the other attributes may come before them, so a test
+// that looks for the escape itself rather than for these numbers would
+// miss every run that has an attribute on it.
+const foregroundSGR = "38;2;"
+
+// foregroundParameters is the SGR colour parameters of a rendered run.
+func foregroundParameters(rendered string) string {
+	start := strings.Index(rendered, foregroundSGR)
+	if start < 0 {
 		return ""
 	}
 
-	channels := []string{
-		hex[1:3],
-		hex[3:5],
-		hex[5:7],
-	}
-	for index, channel := range channels {
-		value, err := strconv.ParseUint(channel, 16, 8)
-		if err != nil {
-			return ""
-		}
-
-		channels[index] = strconv.FormatUint(value, 10)
+	rest := rendered[start:]
+	end := strings.Index(rest, "m")
+	if end < 0 {
+		return ""
 	}
 
-	return "38;2;" + strings.Join(channels, ";")
+	return rest[:end]
 }
 
 // The folding of the search is the folding of strings.EqualFold, and

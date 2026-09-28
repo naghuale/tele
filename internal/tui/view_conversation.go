@@ -1,18 +1,24 @@
 package tui
 
 import (
-	"telecli/internal/tui/theme"
+	"strconv"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // This file draws the messages of a conversation.
 //
-// The shape is §4.4: the sender on one line with the time at the right
-// edge, the text under it, an outgoing message indented a little and named
-// in the accent. There is no frame and no bubble, and no line is drawn in
-// front of a message to say that it is selected — §5.2 asks for one marker
-// per selected message and for the accent to stay on the region, so the
-// marker is a glyph in front of the message and the region's own column
-// still says where the keys are.
+// The shape is §4.4 as the interface ended up drawing it: the name of the
+// chat and a rule under it, the status under that, and then the messages —
+// the other side's on the left with the name of whoever sent them above,
+// this user's on the right in a block of their own with the time and the
+// state of the send under the text.
+//
+// The feed is bottom-anchored. A conversation with three messages in it is
+// three messages directly above the composer, and the empty rows are above
+// them, because the messages grow upwards from the field they are written
+// in and a screen that has the newest message in its top row makes a user
+// scroll to read what just arrived.
 //
 // The order is chronological: the oldest message is drawn first, so the
 // newest is on the last row of the screen. A text that does not fit wraps
@@ -21,32 +27,49 @@ import (
 
 // The words of a message line.
 const (
-	// outgoingAuthor is how a message of this user is signed (§4.4).
-	outgoingAuthor = "You"
-
-	// incomingAuthor stands in for the name of the other side until the
-	// projection carries one. It is the word the interface has always
-	// used, and a wrong name is worse than an honest one.
-	incomingAuthor = "Peer"
-
-	// outgoingIndent is how much further right an outgoing message starts.
+	// unknownAuthor is what a message is signed with when the name of its
+	// sender could not be found.
 	//
-	// It is two columns: enough to tell the two sides apart at a glance,
-	// little enough that a narrow pane still has room for the text.
-	outgoingIndent = 2
+	// It is said rather than left blank: a row with nothing in it is a row
+	// a user cannot tell from a row that failed to load, and the sender of
+	// this message is a fact that exists whether or not the program could
+	// read it.
+	unknownAuthor = "Unknown"
 )
 
+// authorTimeSeparator is what holds the sender of a message and the time
+// of it together. It is the middle dot of §3.3, the same one the status
+// line uses, so one screen has one way of saying "and also".
+const authorTimeSeparator = " · "
+
+// outgoingBubbleShare is how much of the feed an outgoing message may
+// take.
+//
+// Seventy per cent is what leaves a column on the left for the other
+// side's messages to start in, so a conversation with messages from both
+// sides has a visible seam and a user can tell at a glance which is which
+// without reading either.
+const outgoingBubbleShare = 0.7
+
+// outgoingBubbleInset is the space inside the block of an outgoing message
+// on each side.
+//
+// A block of text with its background flush against the text reads as a
+// highlight rather than as a message, and a highlight is not something a
+// person can be on the right-hand side of.
+const outgoingBubbleInset = 1
+
 // conversationRegion draws the messages of the open conversation, with
-// the header above them and the delivery state below.
+// the header above them.
 //
 // The header is a line of its own and stays there while the messages move
 // under it, which is what §4.4 means by a sticky header: the name of the
 // chat is not something a user has to scroll back to.
 //
-// The rows the messages get are the rows that are left after the header,
-// the line an older page occupies while it is on its way, and the delivery
-// block. The model asks for the same number, so the two cannot disagree
-// about how far a page of keys moves the cursor.
+// The rows the messages get are the rows that are left after the header
+// and the line an older page occupies while it is on its way. The model
+// asks for the same number, so the two cannot disagree about how far a
+// page of keys moves the cursor.
 func (m Model) conversationRegion(
 	layout Layout,
 	width int,
@@ -54,45 +77,74 @@ func (m Model) conversationRegion(
 ) string {
 	styles := m.styles()
 
-	lines := []string{
-		styles.text(m.tokens().PrimaryText).
-			Render(m.widths.Fit(m.conversationTitle(layout, width), width, ellipsis)),
+	// §5: exactly one pane carries the accent. While a popup is open the
+	// popup is it, so the timeline's rule goes away — two panels marked at
+	// once is a screen where the user cannot tell which one has the keys.
+	focused := m.panelFocused(conversationPane)
+
+	header := []string{
+		m.panelHeading(m.conversationTitle(layout, width), width, focused),
+		styles.focusRule(width, focused),
 	}
 
 	// §4.3 puts the status under the title: a user reads it as part of the
 	// header of the conversation rather than as the last line of it.
-	lines = append(lines, m.statusBlock(layout, width)...)
+	header = append(header, m.statusBlock(layout, width)...)
 
 	// The progress of an older-page request is at the top of the timeline,
 	// where the page it is about will go: a line at the bottom would be
 	// read as the end of the conversation, and the end is the newest
 	// message.
-	history := m.olderPageLines(layout, width)
-	lines = append(lines, history...)
+	header = append(header, m.olderPageLines(layout, width)...)
 
-	// The history takes what the pending messages do not need. They are
-	// below it because they are newer than anything in it, and they are in
-	// the timeline rather than in a block of their own because a message
-	// that is still leaving the program looks like every other message of
-	// the conversation.
-	pending := m.pendingMessageLines(layout, width)
-	if rows := m.historyRows(layout, width); rows > 0 {
-		lines = append(lines, m.timelineLines(layout, width, rows)...)
-	}
+	rows := maxInt(height-len(header), 0)
+	body := anchorTimelineToBottom(m.timelineBody(layout, width, rows), rows)
 
-	lines = append(lines, pending...)
-
-	// §5: exactly one region carries the accent. While a popup is open it
-	// is the popup, so the timeline gives its focus line up - two regions
-	// marked at once is a screen where the user cannot tell which one has
-	// the keys.
 	return m.renderRegion(
 		styles.conversation,
-		m.focus == FocusHistory && !m.popupOpen(),
 		width,
-		lines,
+		append(header, body...),
 		height,
 	)
+}
+
+// anchorTimelineToBottom puts the rows of the feed on the last rows of the
+// area it has.
+//
+// Fewer messages than the area holds means the empty rows are above them:
+// the newest message sits on the row directly above the composer, which is
+// where a user looks after sending something. More rows than the area holds
+// means the view is over budget, and the top goes: the oldest message is
+// the one a reader scrolls back for.
+func anchorTimelineToBottom(body []string, rows int) []string {
+	if rows < 1 {
+		return nil
+	}
+
+	if len(body) < rows {
+		pad := make([]string, rows-len(body))
+
+		return append(pad, body...)
+	}
+
+	return body[len(body)-rows:]
+}
+
+// timelineBody returns the rows the messages take: the part of the history
+// that fits, and the pending messages below it.
+//
+// The history takes what the pending messages do not need. They are below
+// it because they are newer than anything in it, and they are in the
+// timeline rather than in a block of their own because a message that is
+// still leaving the program looks like every other message of the
+// conversation.
+func (m Model) timelineBody(layout Layout, width, rows int) []string {
+	lines := make([]string, 0, rows)
+	if history := m.historyRows(layout, width); history > 0 {
+		lines = append(lines, m.timelineLines(layout, width, history)...)
+	}
+
+	return append(lines, m.pendingMessageLines(layout, width)...)
 }
 
 // popupOpen reports whether a sheet or a question is on the screen.
@@ -112,6 +164,7 @@ func (m Model) olderPageLines(layout Layout, width int) []string {
 
 	case m.historyMoreErr != nil:
 		text := "Failed to load older messages: " + m.historyMoreErr.Error()
+
 		return []string{styles.dimmed(m.tokens().StatusError).
 			Render(m.widths.Fit(text, width, ellipsis))}
 
@@ -142,6 +195,87 @@ func (m Model) conversationTitle(layout Layout, width int) string {
 // way back is.
 const conversationBackMarker = "< Chats"
 
+// ---- the feed ----
+
+// timelineEntry is one thing the timeline draws: a message, or an album of
+// consecutive messages drawn as one entry.
+//
+// Telegram sends an album as a run of consecutive messages that share a
+// media_album_id, and the interface draws one entry for the run rather
+// than one per part: three photographs are one thing somebody did, and a
+// feed that shows them as three messages is a feed of nine lines for one
+// picture.
+type timelineEntry struct {
+	// first is the index in the message list of the first message of the
+	// run, and last the index of the last one.
+	first   int
+	last    int
+	message Message
+}
+
+// count returns how many parts the entry stands for.
+func (e timelineEntry) count() int { return e.last - e.first + 1 }
+
+// timelineEntries collapses the runs of an album into single entries.
+//
+// The order of the messages is not touched: the entry of a run carries the
+// first message of it, and the caption of the first part that has one, so
+// the run reads as what it was. A run is only an album when the parts are
+// consecutive and from the same sender; two photos from two people sent
+// one after another are two messages, and collapsing them would take one
+// person's picture away.
+func timelineEntries(messages []Message) []timelineEntry {
+	entries := make([]timelineEntry, 0, len(messages))
+
+	for index := 0; index < len(messages); {
+		run := index
+		if albumID := messages[index].AlbumID; albumID != 0 {
+			for run+1 < len(messages) &&
+				messages[run+1].AlbumID == albumID &&
+				sameSender(messages[run+1], messages[index]) {
+				run++
+			}
+		}
+
+		entry := timelineEntry{
+			first:   index,
+			last:    run,
+			message: messages[index],
+		}
+		for part := index; part <= run; part++ {
+			if entry.message.Caption == "" {
+				entry.message.Caption = messages[part].Caption
+			}
+		}
+
+		entries = append(entries, entry)
+		index = run + 1
+	}
+
+	return entries
+}
+
+// sameSender reports whether two messages came from the same person.
+//
+// A channel's messages come from the channel and carry its name, so the
+// name alone would merge the messages of two people who share it; the
+// identifier is what says who actually sent them.
+func sameSender(one, other Message) bool {
+	return one.Outgoing == other.Outgoing && one.AuthorID == other.AuthorID
+}
+
+// entryIndexOfMessage returns the entry a message index belongs to, or the
+// last entry when the index is past the end of the list.
+func entryIndexOfMessage(entries []timelineEntry, messageIndex int) int {
+	for index, entry := range entries {
+		if messageIndex <= entry.last {
+			return index
+		}
+	}
+
+	return maxInt(len(entries)-1, 0)
+}
+
 // timelineLines returns the rows the messages take, oldest first.
 //
 // The window starts at the model's scroll anchor and moves only if the
@@ -155,13 +289,16 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 	}
 
 	styles := m.styles()
-	top := minInt(maxInt(m.timelineTop, 0), len(messages)-1)
+	entries := timelineEntries(messages)
+	top := entryIndexOfMessage(entries, clampIndex(m.timelineTop, len(messages)-1))
 
-	lines, drawn := m.timelineRowsFrom(messages, top, layout, width, rows, styles)
-	if m.selectedMsg < top || m.selectedMsg >= top+drawn {
-		lines, _ = m.timelineRowsFrom(
-			messages,
-			m.selectedMsg,
+	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles)
+
+	selected := entryIndexOfMessage(entries, clampIndex(m.selectedMsg, len(messages)-1))
+	if selected < top || selected >= top+drawn {
+		lines, _ = m.entryRowsFrom(
+			entries,
+			selected,
 			layout,
 			width,
 			rows,
@@ -172,10 +309,10 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 	return lines
 }
 
-// timelineRowsFrom draws the messages from index first until the rows run
-// out, and returns how many messages it drew.
-func (m Model) timelineRowsFrom(
-	messages []Message,
+// entryRowsFrom draws the entries from first onwards until the rows run
+// out, and returns how many entries it drew.
+func (m Model) entryRowsFrom(
+	entries []timelineEntry,
 	first int,
 	layout Layout,
 	width int,
@@ -187,14 +324,9 @@ func (m Model) timelineRowsFrom(
 		drawn int
 	)
 
-	for index := first; index < len(messages); index++ {
-		block := m.messageLines(
-			messages[index],
-			index == m.selectedMsg,
-			layout,
-			width,
-			styles,
-		)
+	for index := first; index < len(entries); index++ {
+		entry := entries[index]
+		block := m.entryLines(entry, layout, width, styles)
 
 		// A message taller than the rows that are left is cut at them. The
 		// first one is cut rather than skipped, or a long message would
@@ -219,80 +351,233 @@ func (m Model) timelineRowsFrom(
 	return lines, drawn
 }
 
-// messageLines renders one message as the rows it takes.
-func (m Model) messageLines(
-	message Message,
-	selected bool,
+// entrySelected reports whether the cursor is anywhere in a run, so that
+// an album stays marked while the cursor walks over its parts.
+func (m Model) entrySelected(entry timelineEntry) bool {
+	return m.selectedMsg >= entry.first && m.selectedMsg <= entry.last
+}
+
+// entryLines renders one entry as the rows it takes, with a blank line
+// above it.
+//
+// The blank line is what makes a conversation a column of messages rather
+// than a wall: two messages with no gap between them are a paragraph, and
+// a paragraph of chat messages is not what a chat looks like. It is the
+// first thing to go on a screen too short for it (§3.4), where a message
+// is a line.
+func (m Model) entryLines(
+	entry timelineEntry,
 	layout Layout,
 	width int,
 	styles viewStyles,
 ) []string {
+	var block []string
+
+	switch {
+	case entry.message.Outgoing:
+		block = m.outgoingMessageLines(entry, width, styles)
+	case layout.Short():
+		block = m.shortMessageLines(entry, width, styles)
+	default:
+		block = m.incomingMessageLines(entry, width, styles)
+	}
+
 	if layout.Short() {
-		return m.shortMessageLines(message, selected, layout, width, styles)
+		return block
 	}
 
-	indent := m.messageIndent(message)
-
-	head := styles.selectionMark(selected, m.focus == FocusHistory).
-		Render(theme.SelectionIndicator(selected)) +
-		spaces(contentInsetWidth+indent) +
-		styles.author(message.Outgoing, selected).
-			Render(messageAuthor(message))
-
-	if message.Time != "" {
-		head = m.leftAndRight(
-			head,
-			styles.dimmed(m.tokens().MutedText).Render(message.Time),
-			width,
-		)
-	}
-
-	lines := []string{styles.selected(selected).Render(head)}
-
-	return append(lines, m.messageBodyLines(message, indent, width, styles)...)
+	return append([]string{""}, block...)
 }
 
-// shortMessageLines renders a message on a screen too short for two rows.
+// incomingMessageLines renders a message from the other side: the name of
+// whoever sent it and the time on one line, the text under it.
+func (m Model) incomingMessageLines(
+	entry timelineEntry,
+	width int,
+	styles viewStyles,
+) []string {
+	indent := spaces(selectionMarkerWidth + contentInsetWidth)
+
+	head := m.selectionColumnForTimeline(m.entrySelected(entry)) +
+		styles.authorColor(entry.message.AuthorID).Render(messageAuthor(entry.message))
+	if time := m.messageTime(entry.message); time != "" {
+		head += authorTimeSeparator + time
+	}
+
+	lines := []string{m.selectionRow(m.entrySelected(entry)).Render(head)}
+
+	return append(
+		lines,
+		m.messageBodyLines(entry, indent, width, styles)...,
+	)
+}
+
+// shortMessageLines renders a message on a screen too short for the head
+// line and the text on separate rows.
 //
 // The sender and the time go: what is left is the message itself, which is
 // what a user came to read. The text still wraps, because a screen that is
 // short is not a screen where a message may be cut in half.
 func (m Model) shortMessageLines(
-	message Message,
-	selected bool,
-	layout Layout,
+	entry timelineEntry,
 	width int,
 	styles viewStyles,
 ) []string {
-	indent := m.messageIndent(message)
-	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
-	textWidth := messageTextWidth(indent, width)
+	indent := spaces(selectionMarkerWidth + contentInsetWidth)
+	textWidth := maxInt(width-m.widths.StringWidth(indent), 1)
 
-	wrapped := m.widths.Wrap(messageAuthor(message)+": "+message.Text, textWidth, ellipsis)
+	wrapped := m.widths.Wrap(entryText(entry), textWidth, ellipsis)
 	if len(wrapped) == 0 {
 		wrapped = []string{""}
 	}
 
 	body := make([]string, 0, len(wrapped))
 	for _, line := range wrapped {
-		body = append(body, styles.body(message.Outgoing).Render(inset+line))
+		body = append(body, styles.body(false).Render(indent+line))
 	}
 
-	head := styles.selectionMark(selected, m.focus == FocusHistory).
-		Render(theme.SelectionIndicator(selected)) + body[0]
+	head := m.selectionColumnForTimeline(m.entrySelected(entry)) + body[0]
 
-	return append([]string{styles.selected(selected).Render(head)}, body[1:]...)
+	return append(
+		[]string{m.selectionRow(m.entrySelected(entry)).Render(head)},
+		body[1:]...,
+	)
+}
+
+// outgoingMessageLines renders a message of this user: a block on the
+// right with the composer's own surface behind it, and the time and the
+// state of the send under the text, at its right edge.
+//
+// There is no author line: the block is on the right, which is what says
+// it is from this user, and "You" above a message the reader is looking at
+// is a word they have to read once per message to learn nothing.
+func (m Model) outgoingMessageLines(
+	entry timelineEntry,
+	width int,
+	styles viewStyles,
+) []string {
+	selected := m.entrySelected(entry)
+	column := m.selectionColumnForTimeline(selected)
+	blockWidth := m.outgoingBlockWidth(width)
+	textWidth := maxInt(blockWidth-2*outgoingBubbleInset, 1)
+	offset := maxInt(width-selectionMarkerWidth-blockWidth, 0)
+
+	rows := make([]string, 0, 4)
+	for index, line := range m.widths.Wrap(entryText(entry), textWidth, ellipsis) {
+		// The marker of the message under the cursor goes on the first row
+		// of its block and on no other: a mark down the side of a block is
+		// a mark on the block, and one on the state under the text would
+		// say that the state is the message the keys act on.
+		mark := column
+		if index > 0 {
+			mark = spaces(selectionMarkerWidth)
+		}
+
+		rows = append(rows, m.outgoingRow(
+			styles, mark, offset, blockWidth, line, false,
+		))
+	}
+
+	if footer := m.historyStateLabel(entry.message, textWidth); footer != "" {
+		rows = append(rows, m.outgoingRow(
+			styles, spaces(selectionMarkerWidth), offset, blockWidth,
+			footer, true,
+		))
+	}
+
+	return rows
+}
+
+// outgoingBlockWidth returns how many columns the block of a message of
+// this user takes, marker column included.
+//
+// The share is of the whole feed and the marker column comes off it, so
+// the row is exactly as wide as the feed: a row one column wider is a row
+// the region cuts with an ellipsis at the far edge of the screen, and the
+// first thing that goes is the state under the text.
+func (m Model) outgoingBlockWidth(width int) int {
+	shared := int(float64(width) * outgoingBubbleShare)
+	block := minInt(shared, width-selectionMarkerWidth)
+
+	return maxInt(block, 1)
+}
+
+// outgoingRow draws one row of an outgoing block: the marker column, the
+// columns to the left of the block, and the block itself.
+//
+// The block is exactly blockWidth columns wide whichever way round the
+// text goes, so two messages of the same conversation line up on their
+// right edge and the eye can read down them.
+func (m Model) outgoingRow(
+	styles viewStyles,
+	column string,
+	offset, blockWidth int,
+	content string,
+	footer bool,
+) string {
+	inner := maxInt(blockWidth-2*outgoingBubbleInset, 1)
+	fitted := m.widths.Fit(content, inner, ellipsis)
+
+	style := styles.text(m.tokens().OutgoingMessage)
+	if footer {
+		style = styles.text(m.tokens().MutedText)
+	}
+
+	block := styles.bubble().Render(
+		spaces(outgoingBubbleInset) +
+			style.Render(fitted) +
+			spaces(maxInt(inner-m.widths.StringWidth(fitted), 0)) +
+			spaces(outgoingBubbleInset),
+	)
+
+	return column + spaces(offset) + m.widths.Fit(block, blockWidth, "")
+}
+
+// historyStateLabel returns the words under a message of this user: the
+// state it is in, and the time it happened at.
+//
+// The history is the past, so a message of it is sent, and it is drawn as
+// sent rather than left without a state: a user who sees a state on the
+// messages that are still leaving is entitled to know that the ones that
+// have gone are not in some state they cannot see.
+func (m Model) historyStateLabel(message Message, width int) string {
+	mark, known := deliveryStateOf(deliveryOfHistory(message))
+	if !known {
+		return ""
+	}
+
+	label := mark.Mark().String()
+	if message.Time != "" {
+		label += " " + message.Time
+	}
+
+	return m.widths.TruncateMarked(label, width, ellipsis)
+}
+
+// deliveryOfHistory is the state a message of the history is in.
+//
+// The history is the past: Telegram accepted everything in it, so a message
+// of the history is sent. It is drawn as such rather than left without a
+// state, because a user who sees a state on the messages that are still
+// leaving is entitled to know that the ones that have gone are not in some
+// state they cannot see.
+func deliveryOfHistory(message Message) MessageDeliveryState {
+	if message.Outgoing {
+		return MessageDeliverySent
+	}
+
+	return MessageDeliveryState("")
 }
 
 // messageBodyLines returns the rows of the text of a message, wrapped to
 // the width the message has.
 func (m Model) messageBodyLines(
-	message Message,
-	indent int,
+	entry timelineEntry,
+	indent string,
 	width int,
 	styles viewStyles,
 ) []string {
-	textWidth := messageTextWidth(indent, width)
+	textWidth := maxInt(width-m.widths.StringWidth(indent), 1)
 	if textWidth < 1 {
 		return nil
 	}
@@ -300,39 +585,159 @@ func (m Model) messageBodyLines(
 	// The text starts in the column the author's name starts in (§4.4), so
 	// the marker column is spent on the text rows as well: a message whose
 	// name is one column to the left of its own text reads as two messages.
-	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
-	wrapped := m.widths.Wrap(message.Text, textWidth, ellipsis)
+	wrapped := m.widths.Wrap(entryText(entry), textWidth, ellipsis)
 	lines := make([]string, 0, len(wrapped))
 
 	for _, line := range wrapped {
-		lines = append(lines, styles.body(message.Outgoing).Render(inset+line))
+		lines = append(lines, styles.body(false).Render(indent+line))
 	}
 
 	return lines
 }
 
-// messageTextWidth returns how many columns the text of a message has.
-func messageTextWidth(indent, width int) int {
-	return width - selectionMarkerWidth - contentInsetWidth - indent
-}
-
-// messageIndent returns how much further right a message starts than an
-// incoming one.
-func (m Model) messageIndent(message Message) int {
-	if message.Outgoing {
-		return outgoingIndent
+// selectionColumnForTimeline returns the column in front of a message.
+//
+// It is a blank in every profile that can show the background of a
+// selected row, and a `›` in the profile that cannot: the messages of a
+// timeline are the rows the keys act on, and §5.2 asks for a marker on the
+// one under the cursor, but a marker on every one of them would be a
+// column of chevrons down the middle of a conversation.
+func (m Model) selectionColumnForTimeline(selected bool) string {
+	styles := m.styles()
+	glyph := styles.selectionMarker(selected)
+	if glyph == "" {
+		return spaces(selectionMarkerWidth)
 	}
 
-	return 0
+	return styles.selectionMark(selected, m.focus == FocusHistory).Render(glyph)
+}
+
+// selectionRow is the style of a row of the timeline: the background of the
+// selected message and nothing else.
+func (m Model) selectionRow(selected bool) lipgloss.Style {
+	return m.styles().selected(selected)
+}
+
+// messageTime returns the time of a message in the muted tier.
+func (m Model) messageTime(message Message) string {
+	if message.Time == "" {
+		return ""
+	}
+
+	return m.styles().text(m.tokens().MutedText).Render(message.Time)
+}
+
+// entryText returns what an entry says: the words under a picture when it
+// has some, and the text otherwise.
+//
+// A message with neither is a message whose media word is all there is — a
+// picture, a sticker, a voice note — and a row of empty columns where the
+// text should be says nothing at all.
+func entryText(entry timelineEntry) string {
+	return messageText(entry.message, entry.count())
+}
+
+// messageText returns what a message says, for a run of parts parts long.
+func messageText(message Message, parts int) string {
+	label := mediaLabel(message, parts)
+	if label == "" {
+		return message.Text
+	}
+
+	if message.Text == "" {
+		return label
+	}
+
+	return label + " " + message.Text
+}
+
+// mediaLabel returns what a message carries, in the words §4.4 uses: the
+// kind in brackets, and the caption after it when the picture had one.
+//
+// The caption is part of the label and not part of the text, because
+// Telegram keeps them apart: the words under a picture are the picture's,
+// and a message with a caption and no text is a message that is entirely a
+// picture with something written on it.
+func mediaLabel(message Message, parts int) string {
+	if message.Media == "" {
+		return ""
+	}
+
+	label := "[" + mediaWord(message.Media, parts) + "]"
+	if message.Caption == "" {
+		return label
+	}
+
+	return label + " " + message.Caption
+}
+
+// mediaWord returns the noun for a media message: the singular for one
+// part, and the count with the plural for an album of them.
+//
+// The plural is not the singular with an "s" on it, because a file is not
+// a document in the words the interface uses: an album of documents is an
+// album of files, and a user who reads "[3 documents]" has to stop and
+// work out what a document is.
+func mediaWord(media string, parts int) string {
+	if parts < 2 {
+		return mediaSingular(media)
+	}
+
+	return strconv.Itoa(parts) + " " + mediaPlural(media)
+}
+
+func mediaSingular(media string) string {
+	switch media {
+	case "photo":
+		return "photo"
+	case "video":
+		return "video"
+	case "voice":
+		return "voice note"
+	case "sticker":
+		return "sticker"
+	case "animation":
+		return "animation"
+	case "audio":
+		return "audio"
+	default:
+		return "file"
+	}
+}
+
+func mediaPlural(media string) string {
+	switch media {
+	case "photo":
+		return "photos"
+	case "video":
+		return "videos"
+	case "voice":
+		return "voice notes"
+	case "sticker":
+		return "stickers"
+	case "animation":
+		return "animations"
+	case "audio":
+		return "audio files"
+	default:
+		return "files"
+	}
 }
 
 // messageAuthor returns the word that stands for the sender of a message.
+//
+// An outgoing message is not named at all, and a message from somebody
+// whose name could not be read says so rather than borrowing the name of
+// the chat.
 func messageAuthor(message Message) string {
 	if message.Outgoing {
-		return outgoingAuthor
+		return ""
+	}
+	if message.Author != "" {
+		return message.Author
 	}
 
-	return incomingAuthor
+	return unknownAuthor
 }
 
 // leftAndRight puts left at the start of a row of width columns and right
@@ -348,8 +753,12 @@ func messageAuthor(message Message) string {
 // text on either side of it, and the time of a message is cut off or the
 // row wraps.
 func (m Model) leftAndRight(left, right string, width int) string {
+	if right == "" {
+		return m.widths.Fit(left, width, ellipsis)
+	}
+
 	gap := width - m.widths.StringWidth(left) - m.widths.StringWidth(right)
-	if gap < 1 {
+	if gap < 0 {
 		return m.widths.Fit(left+" "+right, width, ellipsis)
 	}
 

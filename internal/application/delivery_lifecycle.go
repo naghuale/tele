@@ -207,7 +207,7 @@ func prepareDeliveryAuthResult(
 		// direct send would lose messages silently, which is the thing
 		// the outbox exists to prevent, so the TUI starts with a
 		// submitter that refuses and keeps the draft.
-		return sendingPausedAuthResult(session, cfg, err), nil
+		return sendingPausedAuthResult(session, cfg, ownUserID, err), nil
 	}
 	if delivery == nil {
 		return AuthRunResult{}, errors.Join(
@@ -314,7 +314,7 @@ func prepareDeliveryAuthResult(
 	}
 
 	return AuthRunResult{
-		Source:           NewTelegramChatService(session),
+		Source:           NewTelegramChatServiceFor(session, ownUserID),
 		Submitter:        tuiSubmitter,
 		AccountKey:       accountKey,
 		MessageStatuses:  newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
@@ -354,6 +354,7 @@ func prepareDeliveryAuthResult(
 func sendingPausedAuthResult(
 	session deliverySession,
 	cfg config.Config,
+	ownUserID int64,
 	openErr error,
 ) AuthRunResult {
 	reason := classifySendingPaused(openErr)
@@ -376,7 +377,7 @@ func sendingPausedAuthResult(
 	}
 
 	return AuthRunResult{
-		Source:          NewTelegramChatService(session),
+		Source:          NewTelegramChatServiceFor(session, ownUserID),
 		Submitter:       tuiSubmitter,
 		AccountKey:      accountKey,
 		MessageStatuses: nil,

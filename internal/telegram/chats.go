@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // ChatID is a TDLib chat identifier.
@@ -14,12 +15,34 @@ type ChatID int64
 type MessageID int64
 
 // ChatSummary is the minimal chat projection used by the TUI.
+//
+// Kind, IsChannel and PeerUserID are what the interface needs to say who
+// the other side of a message is and how loud a row is: a chat with one
+// person in it has no authors to name, a group does, and a channel's
+// messages are from the channel itself.
 type ChatSummary struct {
 	ID              ChatID
 	Title           string
 	UnreadCount     int
 	LastMessageID   MessageID
 	LastMessageText string
+
+	// LastMessageTime is when the last message of the chat was sent, for
+	// the time at the right edge of a row.
+	LastMessageTime time.Time
+
+	// Kind is the type of the chat.
+	Kind ChatKind
+
+	// IsChannel says whether a supergroup is a channel: a broadcast chat
+	// whose messages are all from the chat itself.
+	IsChannel bool
+
+	// PeerUserID is the other person of a private chat, and is the user
+	// this account is when the chat is with oneself. It is what tells the
+	// own chat from a chat with a contact, since Telegram sends the
+	// current user as an ordinary user.
+	PeerUserID int64
 }
 
 // ChatListSnapshot is an ordered snapshot of the main chat list.
@@ -76,6 +99,14 @@ type chatResponse struct {
 	Title       string          `json:"title"`
 	UnreadCount int             `json:"unread_count"`
 	LastMessage json.RawMessage `json:"last_message"`
+
+	Type_ json.RawMessage `json:"type"`
+}
+
+type chatTypeRaw struct {
+	Type      string `json:"@type"`
+	UserID    int64  `json:"user_id"`
+	IsChannel bool   `json:"is_channel"`
 }
 
 // errChatListLoaded is the TDLib error code loadChats returns once the
@@ -262,7 +293,8 @@ func (s *AuthorizedSession) GetChat(
 		)
 	}
 
-	lastID, lastText := parseLastMessage(response.LastMessage)
+	lastID, lastText, lastAt := parseLastMessage(response.LastMessage)
+	kind, isChannel, peerUser := parseChatType(response.Type_)
 
 	return ChatSummary{
 		ID:              ChatID(response.ID),
@@ -270,6 +302,10 @@ func (s *AuthorizedSession) GetChat(
 		UnreadCount:     response.UnreadCount,
 		LastMessageID:   lastID,
 		LastMessageText: lastText,
+		LastMessageTime: lastAt,
+		Kind:            kind,
+		IsChannel:       isChannel,
+		PeerUserID:      peerUser,
 	}, nil
 }
 
@@ -278,8 +314,12 @@ type messageEnvelope struct {
 }
 
 type messageRaw struct {
-	Type    string          `json:"@type"`
-	ID      int64           `json:"id"`
+	Type string `json:"@type"`
+	ID   int64  `json:"id"`
+	Date int64  `json:"date"`
+	// Content carries the file and its caption, so that a row's preview
+	// can say what the last message of a chat was even when it was a
+	// picture rather than words.
 	Content json.RawMessage `json:"content"`
 }
 
@@ -290,43 +330,90 @@ type messageTextContentRaw struct {
 	} `json:"text"`
 }
 
-// parseLastMessage extracts the message ID and a short preview text
-// from a chat's last_message field.
+// parseChatType reads the type of a chat: which kind it is, whether a
+// supergroup is a channel, and who the other person of a private chat is.
 //
-// Unsupported content types keep their message ID and receive a short
-// placeholder such as "[photo]". An empty or null last_message returns
-// (0, "").
-func parseLastMessage(raw json.RawMessage) (MessageID, string) {
+// A chat whose type this build does not know is reported as private, which
+// is the smallest of the three claims the interface makes from it: a chat
+// drawn as a private one has no author names, and an unknown kind is
+// almost never a group the user recognises by its members.
+func parseChatType(raw json.RawMessage) (ChatKind, bool, int64) {
 	if len(raw) == 0 || string(raw) == "null" {
-		return 0, ""
+		return ChatKindPrivate, false, 0
+	}
+
+	var parsed chatTypeRaw
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return ChatKindPrivate, false, 0
+	}
+
+	kind := ChatKind(parsed.Type)
+	switch kind {
+	case ChatKindGroup, ChatKindSupergroup:
+		return kind, parsed.IsChannel, 0
+	case ChatKindPrivate:
+		return kind, false, parsed.UserID
+	default:
+		return ChatKindPrivate, false, parsed.UserID
+	}
+}
+
+// parseLastMessage extracts the message ID, a short preview and the moment
+// it was sent from a chat's last_message field.
+//
+// A message that carries a file gets the word for the file and its caption,
+// because "a picture" in a chat list is what the user needs to know and a
+// row of nothing is not. An empty or null last_message returns
+// (0, "", time.Time{}).
+func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0, "", time.Time{}
 	}
 
 	var msg messageRaw
 	if err := json.Unmarshal(raw, &msg); err != nil {
-		return 0, ""
+		return 0, "", time.Time{}
 	}
 	if msg.Type != "message" {
-		return 0, ""
+		return 0, "", time.Time{}
 	}
 
 	id := MessageID(msg.ID)
+	sent := time.Unix(msg.Date, 0).UTC()
+
 	if len(msg.Content) == 0 || string(msg.Content) == "null" {
-		return id, ""
+		return id, "", sent
 	}
 
 	var envelope messageEnvelope
 	if err := json.Unmarshal(msg.Content, &envelope); err != nil {
-		return id, ""
+		return id, "", sent
 	}
 
 	if envelope.Type == "messageText" {
 		var content messageTextContentRaw
 		if err := json.Unmarshal(msg.Content, &content); err == nil {
-			return id, content.Text.Text
+			return id, content.Text.Text, sent
 		}
 	}
 
-	return id, placeholderForContent(envelope.Type)
+	if word, caption := extractMedia(msg.Content); word != "" {
+		return id, mediaPreview(word, caption), sent
+	}
+
+	return id, placeholderForContent(envelope.Type), sent
+}
+
+// mediaPreview is what a chat list says about a message that carries a
+// file: the word for the file, the caption if there is one, and the words
+// if the message has any as well.
+func mediaPreview(word, caption string) string {
+	preview := "[" + word + "]"
+	if caption != "" {
+		preview += " " + caption
+	}
+
+	return preview
 }
 
 // placeholderForContent maps a TDLib messageContent @type to a short

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,10 +112,10 @@ const (
 // long title and a Cyrillic one look like.
 func snapshotChats() []Chat {
 	return []Chat{
-		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green again"},
-		{ID: 2, Title: "Release Room", Preview: "the tag is pushed"},
-		{ID: 3, Title: "Notes", Unread: 1, Preview: "milk, bread, coffee"},
-		{ID: 4, Title: "Команда Разработки", Preview: "созвон в 15:00"},
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green again", Time: "12:07"},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05", Kind: ChatKindGroup},
+		{ID: 3, Title: "Notes", Unread: 1, Preview: "milk, bread, coffee", Time: "11:58"},
+		{ID: 4, Title: "Команда Разработки", Preview: "созвон в 15:00", Time: "11:40", Kind: ChatKindChannel},
 	}
 }
 
@@ -150,9 +149,15 @@ func snapshotWidthChats() []Chat {
 // than a moment, so a snapshot never depends on when it was drawn.
 func snapshotMessages() []Message {
 	return []Message{
-		{ID: 1, Outgoing: false, Text: "The build is green again", Time: "12:02"},
+		{
+			ID: 1, Text: "The build is green again", Time: "12:02",
+			Author: "Anna Example", AuthorID: 5,
+		},
 		{ID: 2, Outgoing: true, Text: "Shipped the release notes", Time: "12:05"},
-		{ID: 3, Outgoing: false, Text: "Спасибо, посмотрю после обеда", Time: "12:07"},
+		{
+			ID: 3, Text: "Спасибо, посмотрю после обеда", Time: "12:07",
+			Author: "Anna Example", AuthorID: 5,
+		},
 	}
 }
 
@@ -527,7 +532,114 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotWidthCodepoint", func(t *testing.T) Model {
 			return snapshotDifficultNames(t, termwidth.ModeCodepoint)
 		}},
+		{"TestSnapshotGroupWithAuthors", func(t *testing.T) Model {
+			return snapshotGroup(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotChannelAlbum", func(t *testing.T) Model {
+			return snapshotChannel(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotShortFeedAboveComposer", func(t *testing.T) Model {
+			return snapshotShortFeed(t, wide(theme.ProfileTrueColor))
+		}},
 	}
+}
+
+// snapshotGroup is a conversation with several people in it: every message
+// names whoever sent it, and two of them are in different colours. It is a
+// screen the other snapshots cannot stand in for, because a private chat
+// has one author colour and says nothing about the others.
+func snapshotGroup(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = []Chat{{
+		ID:      snapshotChatID,
+		Title:   "Release Room",
+		Kind:    ChatKindGroup,
+		Preview: "the tag is pushed",
+		Time:    "12:09",
+		Messages: []Message{
+			{
+				ID: 1, Text: "the build is green again", Time: "12:02",
+				Author: "Marta", AuthorID: 21,
+			},
+			{
+				ID: 2, Text: "I will take the release notes",
+				Time: "12:04", Author: "Boris", AuthorID: 34,
+			},
+			{
+				ID: 3, Outgoing: true, Text: "Thank you both",
+				Time: "12:06",
+			},
+		},
+	}}
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: f.chats[0].Messages},
+	})
+
+	return m.scrollToNewest()
+}
+
+// snapshotChannel is a channel: the author of every message is the channel
+// itself, and the unread badge of the row is the muted one rather than the
+// accent, because a hundred unread messages in a channel is background.
+func snapshotChannel(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = []Chat{{
+		ID:      snapshotChatID,
+		Title:   "Xiaomi News",
+		Kind:    ChatKindChannel,
+		Unread:  12,
+		Preview: "[2 photos] the new wallpaper",
+		Time:    "12:07",
+		Messages: []Message{
+			{
+				ID: 1, Media: "photo", AlbumID: 9, Time: "12:05",
+				Author: "Xiaomi News", AuthorID: 900,
+			},
+			{
+				ID: 2, Media: "photo", AlbumID: 9, Time: "12:05",
+				Author: "Xiaomi News", AuthorID: 900,
+			},
+		},
+	}}
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: f.chats[0].Messages},
+	})
+
+	return m.scrollToNewest()
+}
+
+// snapshotShortFeed is a conversation with fewer messages than the feed has
+// rows for: they are on the rows directly above the composer and the empty
+// rows are above them.
+func snapshotShortFeed(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page: HistoryPage{Messages: []Message{{
+			ID: 1, Text: "the build is green again", Time: "12:02",
+			Author: "Anna", AuthorID: 5,
+		}}},
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	return m
 }
 
 // snapshotDifficultNames is the same screen drawn in each of the two rules.
@@ -553,14 +665,23 @@ func snapshotDifficultNames(t *testing.T, mode termwidth.Mode) Model {
 
 // snapshotThemed is the wide conversation in a named theme, which is the
 // only thing that differs between the theme snapshots.
+//
+// An empty name is the screen without colour rather than a theme called
+// nothing: that is the golden this file has always been named for, and it
+// was being drawn in full colour and labelled as if it were not.
 func snapshotThemed(t *testing.T, name string) Model {
 	t.Helper()
+
+	profile := theme.ProfileTrueColor
+	if name == "" {
+		profile = theme.ProfileNoColor
+	}
 
 	return snapshotConversation(t, snapshotFixture{
 		width:   snapshotWideWidth,
 		height:  snapshotWideHeight,
 		theme:   name,
-		profile: theme.ProfileTrueColor,
+		profile: profile,
 	})
 }
 
@@ -721,6 +842,26 @@ func TestSnapshotWidthCodepoint(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotWidthCodepoint"))
 }
 
+// A group names every message by whoever sent it, and two senders are in
+// two colours. A screen that cannot show that is a screen where a reader
+// has to guess who said what.
+func TestSnapshotGroupWithAuthors(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotGroupWithAuthors"))
+}
+
+// A channel, with an album of two photographs drawn as one entry and its
+// unread badge in the muted step rather than the accent.
+func TestSnapshotChannelAlbum(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChannelAlbum"))
+}
+
+// A conversation with fewer messages than the feed has rows for: the
+// messages sit on the rows above the composer and the empty rows are above
+// them.
+func TestSnapshotShortFeedAboveComposer(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotShortFeedAboveComposer"))
+}
+
 // ---- what every snapshot has to satisfy ----
 
 // The invariants of §20, checked over every snapshot at once rather than
@@ -734,7 +875,8 @@ func TestSnapshotInvariants(t *testing.T) {
 			view := snapshotViewOf(t, screen, m)
 
 			assertNoFrame(t, screen.test, view.plain)
-			assertOneFocusColumn(t, screen.test, view.widths, view.plain)
+			assertOnePanelRule(t, screen.test, view.plain)
+			assertNoFocusGlyphsInRows(t, screen.test, view.plain)
 			assertLinesFit(t, screen.test, view.widths, view.width, view.plain)
 		})
 	}
@@ -1098,76 +1240,36 @@ func isFrameLine(line string) bool {
 	return true
 }
 
-// assertOneFocusColumn fails unless the screen marks its focus in exactly
-// one column.
+// assertOnePanelRule fails unless the screen marks its focus in exactly one
+// place, and that place is a rule under a heading.
 //
-// §5.2 is one focused region at a time, and the mark of a region is a bar
-// in the first column of it. A second column of bars is a second claim on
-// the keys, and a user cannot choose between two regions that both say they
-// have them. The column is measured in cells rather than bytes, so a
-// Cyrillic name above the bar does not move it.
-func assertOneFocusColumn(
-	t *testing.T,
-	test string,
-	widths termwidth.WidthModel,
-	lines []string,
-) {
+// §5.2 is one focused region at a time, and the mark of a region is a
+// rule under its header. A line of focus down the side of a list and a
+// line of focus down the side of a timeline are two columns of the screen
+// that a user reads as text, and a screen with both is a screen where
+// nothing says where the keys are.
+func assertOnePanelRule(t *testing.T, test string, lines []string) {
 	t.Helper()
 
-	columns := map[int]bool{}
+	rules := 0
 	for _, line := range lines {
-		for _, column := range focusBarColumns(widths, line) {
-			columns[column] = true
-		}
-
-		if len(columns) > 1 {
-			break
+		if strings.Contains(line, focusRuleGlyph) {
+			rules++
 		}
 	}
 
-	switch len(columns) {
-	case 1:
-		return
-	case 0:
-		t.Errorf("%s: no focus bar anywhere on the screen", test)
-
-		return
-	default:
-		t.Errorf("%s: focus bars in columns %v, want one", test, sortedColumns(columns))
-	}
-}
-
-// focusBarColumns returns the columns of a line the focus bar is drawn in,
-// measured in cells from the start of the line.
-func focusBarColumns(widths termwidth.WidthModel, line string) []int {
-	var (
-		columns []int
-		rest    = line
-		cells   int
-	)
-
-	for {
-		index := strings.Index(rest, theme.FocusBar)
-		if index < 0 {
-			return columns
+	switch {
+	case rules > 1:
+		t.Errorf("%s: %d panel rules, want at most one", test, rules)
+	case rules == 0:
+		// A composer-only screen has no header to put a rule under, and a
+		// screen with a popup over it has given the mark to the popup.
+		if strings.Contains(strings.Join(lines, "\n"), composerPlaceholder) {
+			return
 		}
 
-		columns = append(columns, cells+widths.StringWidth(rest[:index]))
-		cells += widths.StringWidth(rest[:index+len(theme.FocusBar)])
-		rest = rest[index+len(theme.FocusBar):]
+		t.Errorf("%s: no rule under any heading", test)
 	}
-}
-
-// sortedColumns returns the columns of a set in a stable order, so that a
-// failure says the same thing on every machine.
-func sortedColumns(columns map[int]bool) []int {
-	out := make([]int, 0, len(columns))
-	for column := range columns {
-		out = append(out, column)
-	}
-	slices.Sort(out)
-
-	return out
 }
 
 // assertLinesFit fails if any line of the screen is wider than the terminal

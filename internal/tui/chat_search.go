@@ -63,13 +63,34 @@ func (s chatSearch) filtering() bool {
 	return s.open && len(s.query) > 0
 }
 
-// matches reports whether a chat title contains the query.
-func (s chatSearch) matches(title string) bool {
+// matchesTitle reports whether the query is in a title.
+func (s chatSearch) matchesTitle(title string) bool {
+	return foldIndexOf([]rune(title), s.query) >= 0
+}
+
+// matchesChat reports whether a query finds a chat by its title or by one
+// of its other names.
+//
+// Telegram calls the chat with oneself "Saved Messages" and the person
+// using it calls it "Избранное", and a user who is looking for it types
+// the word they know. §9 is a search over what is on the screen, and the
+// other names of a chat are as much a part of it as its title is.
+func (s chatSearch) matchesChat(chat Chat) bool {
 	if !s.filtering() {
 		return true
 	}
 
-	return foldIndexOf([]rune(title), s.query) >= 0
+	if s.matchesTitle(chat.Title) {
+		return true
+	}
+
+	for _, alias := range chat.Aliases {
+		if s.matchesTitle(alias) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // openChatSearch puts the keys into the line above the list (§9).
@@ -230,7 +251,7 @@ func (m Model) chatListEntries() []chatListEntry {
 	entries := make([]chatListEntry, 0, len(m.chats))
 
 	for index, chat := range m.chats {
-		if !m.chatSearch.matches(chat.Title) {
+		if !m.chatSearch.matchesChat(chat) {
 			continue
 		}
 

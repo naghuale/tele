@@ -1,17 +1,16 @@
 # golden screen snapshot
 #
-# test:    TestSnapshotSearchMatches
+# test:    TestSnapshotGroupWithAuthors
 # size:    120x30
 # theme:   catppuccin-mocha
 # profile: true-color
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-   release▏                Release Room                                                                                 
-  Chats                                                                                                                 
-  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                
-  / Search · 3 unread                                                                                                   
-   Release Room    12:05                                                                                                
+  Chats                    Release Room                                                                                 
+                           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  / Search · no unread                                                                                                  
+   Release Room    12:09                                                                                                
     the tag is pushed                                                                                                   
                                                                                                                         
                                                                                                                         
@@ -27,23 +26,23 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
+                                                        Thank you both                                                  
+                                                        ✓ Sent 12:06                                                    
                                                                                                                         
+                            Boris · 12:04                                                                               
+                             I will take the release notes                                                              
                                                                                                                         
+                            Marta · 12:02                                                                               
+                             the build is green again                                                                   
                                                                                                                         
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                           No messages yet                                                                              
-                                                                                                                        
-                           ›Write a message…                                                                            
-                           Enter open · Esc cancel                                                                      
+                           ›Write a message…▏                                                                           
+                           Enter send · Alt+Enter newline · Tab focus · Esc timeline                                    
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m \x1b[38;2;205;214;243mrelease\x1b[0m\x1b[7;38;2;203;166;247m▏\x1b[0m             \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;126;131;155mRelease Room                                                                                 \x1b[0m\x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[1;38;2;203;166;247mChats                 \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[38;2;203;166;247m━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;126;131;155m/ Search · 3 unread   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[48;2;69;71;89m\x1b[1;2;38;2;166;173;200m \x1b[0m\x1b[1;38;2;137;179;250mRelease\x1b[0m\x1b[1;38;2;203;166;247m Room\x1b[0m    \x1b[38;2;126;131;155m12:05\x1b[0m\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;126;131;155mChats                 \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[1;38;2;203;166;247mRelease Room                                                                                 \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;203;166;247m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[2;38;2;126;131;155m/ Search · no unread  \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[48;2;69;71;89m\x1b[1;2;38;2;166;173;200m \x1b[0m\x1b[1;38;2;203;166;247mRelease Room\x1b[0m    \x1b[38;2;126;131;155m12:09\x1b[0m\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[48;2;69;71;89m  \x1b[38;2;166;173;200mthe tag is pushed\x1b[0m   \x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[48;2;69;71;89m\x1b[0m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
@@ -59,13 +58,14 @@
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;166;173;200m \x1b[0m                           \x1b[48;2;48;50;68m \x1b[38;2;203;166;247mThank you both                                                 \x1b[0m \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                            \x1b[48;2;48;50;68m \x1b[38;2;126;131;155m✓ Sent 12:06                                                   \x1b[0m \x1b[0m\x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;166;173;200m \x1b[0m\x1b[38;2;137;179;250mBoris\x1b[0m · \x1b[38;2;126;131;155m12:04\x1b[0m                                                                               \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243m  I will take the release notes\x1b[0m                                                              \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[2;38;2;126;131;155mNo messages yet                                                                              \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[48;2;69;71;89m\x1b[1;2;38;2;166;173;200m \x1b[0m\x1b[38;2;166;227;161mMarta\x1b[0m · \x1b[38;2;126;131;155m12:02\x1b[0m\x1b[0m                                                                               \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;205;214;243m  the build is green again\x1b[0m                                                                   \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m                                                                                             \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;126;131;155m›\x1b[0m\x1b[2;38;2;126;131;155mWrite a message…\x1b[0m                                                                            \x1b[0m"
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;166;173;200mEnter open · Esc cancel                                                                      \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;203;166;247m›\x1b[0m\x1b[2;38;2;126;131;155mWrite a message…\x1b[0m\x1b[7;38;2;203;166;247m▏\x1b[0m                                                                           \x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                      \x1b[0m  \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[2;38;2;166;173;200mEnter send · Alt+Enter newline · Tab focus · Esc timeline                                    \x1b[0m\x1b[0m"

@@ -9,12 +9,33 @@ import (
 )
 
 // Message is the minimal message projection used by the TUI.
+//
+// It carries who sent it and what it holds, because the interface draws
+// both: a group has to name the person above every message, and a
+// photograph has to say that it is a photograph and show the words under
+// it. Neither is in the text, and neither is anybody else's business once
+// the projection is dropped.
 type Message struct {
 	ID        MessageID
 	ChatID    ChatID
 	Outgoing  bool
 	Timestamp time.Time
 	Text      string
+
+	// Sender is who sent it, as TDLib reports it: an identifier and a
+	// kind. The name of that person is not here — see GetUserName and the
+	// privacy claim of #41.
+	Sender MessageSender
+
+	// Media is the word the interface writes for what the message carries,
+	// and Caption the words under it. Both are empty for a message that is
+	// only text.
+	Media   string
+	Caption string
+
+	// MediaAlbumID groups the parts of one album. Telegram sends an album
+	// as consecutive messages that share it.
+	MediaAlbumID int
 }
 
 // HistoryPage is one page of a chat's message history.
@@ -71,12 +92,14 @@ type getChatHistoryResponse struct {
 }
 
 type historyMessageRaw struct {
-	Type       string          `json:"@type"`
-	ID         int64           `json:"id"`
-	ChatID     int64           `json:"chat_id"`
-	IsOutgoing bool            `json:"is_outgoing"`
-	Date       int64           `json:"date"`
-	Content    json.RawMessage `json:"content"`
+	Type         string          `json:"@type"`
+	ID           int64           `json:"id"`
+	ChatID       int64           `json:"chat_id"`
+	IsOutgoing   bool            `json:"is_outgoing"`
+	Date         int64           `json:"date"`
+	Content      json.RawMessage `json:"content"`
+	SenderID     json.RawMessage `json:"sender_id"`
+	MediaAlbumID int             `json:"media_album_id"`
 }
 
 // GetChatHistory fetches one page of a chat's message history.
@@ -153,12 +176,18 @@ func (s *AuthorizedSession) GetChatHistory(
 				ErrUnexpectedHistoryResponse, chatID, m.ChatID,
 			)
 		}
+		media, caption := extractMedia(m.Content)
+
 		messages = append(messages, Message{
-			ID:        MessageID(m.ID),
-			ChatID:    ChatID(m.ChatID),
-			Outgoing:  m.IsOutgoing,
-			Timestamp: time.Unix(m.Date, 0).UTC(),
-			Text:      extractMessageText(m.Content),
+			ID:           MessageID(m.ID),
+			ChatID:       ChatID(m.ChatID),
+			Outgoing:     m.IsOutgoing,
+			Timestamp:    time.Unix(m.Date, 0).UTC(),
+			Text:         extractMessageText(m.Content),
+			Sender:       parseMessageSender(m.SenderID),
+			Media:        media,
+			Caption:      caption,
+			MediaAlbumID: m.MediaAlbumID,
 		})
 	}
 
@@ -172,11 +201,53 @@ func (s *AuthorizedSession) GetChatHistory(
 	return page, nil
 }
 
-// extractMessageText returns the message text for a supported content
-// type, or a short placeholder such as "[photo]" for the rest.
+// parseMessageSender reads the sender of a message out of the raw object.
 //
-// The message ID is preserved by the caller for every content type;
-// extractMessageText only decides what to display.
+// A sender this build does not know is MessageSenderUnknown and not an
+// error: TDLib adds kinds, and a message whose sender cannot be read is
+// still a message the user wrote or received.
+func parseMessageSender(raw json.RawMessage) MessageSender {
+	if len(raw) == 0 || string(raw) == "null" {
+		return MessageSender{}
+	}
+
+	var envelope messageEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return MessageSender{}
+	}
+
+	switch MessageSenderKind(envelope.Type) {
+	case MessageSenderUser:
+		var user struct {
+			UserID int64 `json:"user_id"`
+		}
+		if err := json.Unmarshal(raw, &user); err != nil {
+			return MessageSender{Kind: MessageSenderUser}
+		}
+
+		return MessageSender{Kind: MessageSenderUser, ID: user.UserID}
+
+	case MessageSenderChat:
+		var chat struct {
+			ChatID int64 `json:"chat_id"`
+		}
+		if err := json.Unmarshal(raw, &chat); err != nil {
+			return MessageSender{Kind: MessageSenderChat}
+		}
+
+		return MessageSender{Kind: MessageSenderChat, ID: chat.ChatID}
+
+	default:
+		return MessageSender{Kind: MessageSenderUnknown}
+	}
+}
+
+// extractMessageText returns the message text for a message that is only
+// text, and nothing at all for a message that carries a file.
+//
+// A placeholder such as "[photo]" used to stand in for the file; the
+// interface now says what the message carries in its own words, through
+// the Media field, and a message that is a picture has no text of its own.
 func extractMessageText(content json.RawMessage) string {
 	if len(content) == 0 || string(content) == "null" {
 		return ""
@@ -187,13 +258,14 @@ func extractMessageText(content json.RawMessage) string {
 		return ""
 	}
 
-	if envelope.Type == "messageText" {
-		var contentText messageTextContentRaw
-		if err := json.Unmarshal(content, &contentText); err == nil {
-			return contentText.Text.Text
-		}
+	if envelope.Type != "messageText" {
 		return ""
 	}
 
-	return placeholderForContent(envelope.Type)
+	var contentText messageTextContentRaw
+	if err := json.Unmarshal(content, &contentText); err == nil {
+		return contentText.Text.Text
+	}
+
+	return ""
 }

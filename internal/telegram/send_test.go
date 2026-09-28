@@ -356,8 +356,12 @@ func TestSendTextMessagePlaceholderContent(t *testing.T) {
 		if r.message.ID != 7 {
 			t.Fatalf("message.ID = %d, want 7", r.message.ID)
 		}
-		if r.message.Text != "[photo]" {
-			t.Fatalf("message.Text = %q, want [photo]", r.message.Text)
+		if r.message.Media != "photo" {
+			t.Fatalf("message.Media = %q, want photo", r.message.Media)
+		}
+		if r.message.Text != "" {
+			t.Fatalf("message.Text = %q, want a message with no text of its own",
+				r.message.Text)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("SendTextMessage did not return")

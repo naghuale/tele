@@ -46,15 +46,20 @@ func (m Model) timelinePageSize() int {
 // timelineRows returns how many rows of the screen the messages may take.
 //
 // The model and the view both ask it, so the two cannot disagree about how
-// far a page of keys moves the cursor. The header is a row of its own, and
-// so is the line an older page occupies while it is on its way; the
-// composer and the hint bar are not the timeline's to spend.
+// far a page of keys moves the cursor. The header is two rows of its own —
+// the name of the chat and the rule that says the timeline has the keys —
+// and so is the line an older page occupies while it is on its way; the
+// composer band and the hints inside it are not the timeline's to spend.
 func (m Model) timelineRows(layout Layout, width int) int {
-	rows := m.conversationRegionHeight(layout, width) - 1
+	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
 	rows -= m.olderPageLineCount()
 
 	return maxInt(rows, 0)
 }
+
+// conversationHeaderRows is how many rows of the conversation the heading
+// takes: the name of the chat and the rule under it.
+const conversationHeaderRows = 2
 
 // historyRows returns the rows the messages of the history get, which is
 // the timeline without what the pending messages below it take.
@@ -66,13 +71,10 @@ func (m Model) historyRows(layout Layout, width int) int {
 }
 
 // conversationRegionHeight returns how many rows the conversation has: the
-// screen without the composer and without the hint bar.
+// screen without the composer's band, which is the draft, the hints and the
+// line of space above them.
 func (m Model) conversationRegionHeight(layout Layout, width int) int {
-	height := layout.Height -
-		m.composerHeight(layout, width) -
-		len(m.hintLines(layout, width))
-
-	return maxInt(height, 0)
+	return maxInt(layout.Height-m.composerHeight(layout, width), 0)
 }
 
 // olderPageLineCount returns the rows the progress of an older-page request

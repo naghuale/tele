@@ -57,7 +57,7 @@ func TestChatListTakesTheWholeWidthWithoutAConversation(t *testing.T) {
 		view := m.View()
 
 		for index, line := range viewLines(view) {
-			if got := cellWidth(line); got != width {
+			if got := m.widths.StringWidth(line); got != width {
 				t.Fatalf(
 					"line %d at %d is %d columns, want %d",
 					index,

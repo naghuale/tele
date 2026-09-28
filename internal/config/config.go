@@ -18,19 +18,27 @@ type TDLib struct {
 
 // TUIConfig holds the interface settings.
 //
-// The two values are plain strings on purpose: the vocabulary of themes
-// and colour modes belongs to internal/tui/theme, and this package is a
-// leaf that must not import it. The values are therefore not validated
-// here but by the theme package, which reports an unknown name as a
-// configuration error with the valid names in it. An absent value is the
-// default, because a configuration written before these settings existed
-// has none.
+// The three values are plain strings on purpose: the vocabulary of themes,
+// colour modes and width rules belongs to internal/tui and
+// internal/tui/termwidth, and this package is a leaf that must not import
+// them. The values are therefore not validated here but by those packages,
+// which report an unknown name as a configuration error with the valid
+// names in it. An absent value is the default, because a configuration
+// written before these settings existed has none.
 type TUIConfig struct {
 	// Theme is the name of a built-in theme.
 	Theme string `toml:"theme"`
 
 	// Color is "auto", "always" or "never".
 	Color string `toml:"color"`
+
+	// Width is "auto", "grapheme" or "codepoint".
+	//
+	// It is how the interface counts the width of text, which the two
+	// rules of internal/tui/termwidth disagree about for a hand, a flag
+	// and a family. Left empty it is "auto", which measures the terminal
+	// before the first frame.
+	Width string `toml:"width"`
 }
 
 // The interface defaults, spelled out here so that Default is a complete
@@ -47,6 +55,17 @@ const (
 
 	// DefaultTUIColorMode follows what the terminal reports.
 	DefaultTUIColorMode = "auto"
+
+	// DefaultTUIWidthMode measures the terminal and counts text the way
+	// it draws it.
+	//
+	// It is spelled out here so that Default is a complete configuration
+	// and `telecli configure` writes a file that says what it decided.
+	// The word belongs to internal/tui/termwidth, which parses it; it is
+	// duplicated for the same reason the theme name is, and
+	// TestInterfaceDefaultsMatchTheWidthPackage in
+	// internal/application fails if the two ever disagree.
+	DefaultTUIWidthMode = "auto"
 )
 
 // MessageDeliveryConfig holds the durable outbox settings.
@@ -119,6 +138,7 @@ func Default() Config {
 		TUI: TUIConfig{
 			Theme: DefaultTUITheme,
 			Color: string(DefaultTUIColorMode),
+			Width: DefaultTUIWidthMode,
 		},
 	}
 }

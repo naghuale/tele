@@ -8,9 +8,10 @@ import (
 )
 
 // The interface settings are stored here but validated by
-// internal/tui/theme, which is a leaf above this one. These tests cover
-// what this package owns: the values are read, and the defaults are
-// written into a configuration file so a user can see what was decided.
+// internal/tui/theme and internal/tui/termwidth, which are leaves above
+// this one. These tests cover what this package owns: the values are read,
+// and the defaults are written into a configuration file so a user can see
+// what was decided.
 
 func TestInterfaceDefaultsAreWrittenIntoTheFile(t *testing.T) {
 	dir := t.TempDir()
@@ -29,6 +30,7 @@ func TestInterfaceDefaultsAreWrittenIntoTheFile(t *testing.T) {
 		"[tui]",
 		`theme = "` + DefaultTUITheme + `"`,
 		`color = "` + DefaultTUIColorMode + `"`,
+		`width = "` + DefaultTUIWidthMode + `"`,
 	} {
 		if !strings.Contains(string(contents), want) {
 			t.Errorf(
@@ -50,6 +52,7 @@ data_dir = "/tmp/telecli-config-test"
 [tui]
 theme = "gruvbox-dark"
 color = "never"
+width = "grapheme"
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -65,6 +68,9 @@ color = "never"
 	}
 	if cfg.TUI.Color != "never" {
 		t.Errorf("color = %q, want never", cfg.TUI.Color)
+	}
+	if cfg.TUI.Width != "grapheme" {
+		t.Errorf("width = %q, want grapheme", cfg.TUI.Width)
 	}
 }
 
@@ -83,6 +89,7 @@ data_dir = "/tmp/telecli-config-test"
 [tui]
 theme = "solarized-latte"
 color = "sometimes"
+width = "columns"
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -98,6 +105,9 @@ color = "sometimes"
 	}
 	if cfg.TUI.Color != "sometimes" {
 		t.Errorf("color = %q, want the value as written", cfg.TUI.Color)
+	}
+	if cfg.TUI.Width != "columns" {
+		t.Errorf("width = %q, want the value as written", cfg.TUI.Width)
 	}
 }
 
@@ -122,5 +132,8 @@ func TestAbsentInterfaceSectionGetsTheDefaults(t *testing.T) {
 	}
 	if cfg.TUI.Color != DefaultTUIColorMode {
 		t.Errorf("color = %q, want the default %q", cfg.TUI.Color, DefaultTUIColorMode)
+	}
+	if cfg.TUI.Width != DefaultTUIWidthMode {
+		t.Errorf("width = %q, want the default %q", cfg.TUI.Width, DefaultTUIWidthMode)
 	}
 }

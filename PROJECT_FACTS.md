@@ -29,10 +29,18 @@
   package itself imports no Lip Gloss style and changes no global state
   (github.com/muesli/termenv is a direct dependency for the same
   reason: Lip Gloss reports its profile as a termenv value)
-- Terminal cell measurement: github.com/charmbracelet/x/ansi v0.10.1
-  (direct since PR-10A.2), for StringWidth and Truncate: every width in
-  the layout is counted in terminal columns, and a rune count overflows
-  the screen on the first non-ASCII chat name
+- Terminal cell measurement: internal/tui/termwidth, over
+  github.com/charmbracelet/x/ansi v0.10.1 (the grapheme rule and the
+  escape sequence decoding) and github.com/mattn/go-runewidth v0.0.16
+  (East Asian Width for the code point rule). Every width in the layout
+  is counted in terminal columns, never in runes: "привет" is six
+  columns wide and an emoji is two, and a rune count overflows the
+  screen on the first non-ASCII chat name. The rule is the one the
+  terminal was measured for, not a fixed one
+- Terminal readiness: golang.org/x/sys/unix v0.48.0 Poll, unix only, so
+  the width measurement waits for the terminal without holding a read
+  on it. A platform without it is not measured and is drawn with the
+  codepoint rule
 - Configuration library: github.com/BurntSushi/toml
 - Configuration format: TOML
 - Logging library: standard library log/slog (outbox dispatcher)
@@ -325,9 +333,25 @@
     Ctrl+C quits everywhere
   - Enter in the list opens the chat and focuses the composer, and the
     conversation follows the selection while it is beside the list
-  - widths are terminal columns (truncateCells, fitCells, wrapCells),
-    never runes, and a line is padded rather than left ragged so a
-    surface covers its whole pane
+  - widths are terminal columns (the model's WidthModel), never runes,
+    and a line is padded rather than left ragged so a surface covers its
+    whole pane. One width model per model, read by every view: the
+    composer, the search, the timeline, the list, the status line and
+    the action sheet, and a test in the package fails if a view reaches
+    a width function of a library on its own
+  - Lip Gloss is told the colours of a region and not its width. It
+    measures with the grapheme rule and pads the lines of a block to the
+    widest of them, and a row of the chat list with a hand in it is a
+    column wider that way than it is on a terminal that counts code
+    points — so the regions are rendered a line at a time and the two
+    panes are joined by hand, with the model's width
+  - the screens of §21 are kept as golden files under
+    internal/tui/testdata/snapshots, one per screen, with the plain text
+    and the escape sequences, and the width rule a screen was drawn in
+    is in the header of its file. Two of them are the same screen with
+    the names the two rules count differently, drawn in each rule, and
+    every line of both is a whole number of columns in the rule that
+    screen was drawn in
 - Timeline: internal/tui/timeline.go, internal/tui/view_conversation.go
   (PR-10A.2b, §4.4, §8.3, divergence 1)
   - Chat.Messages is chronological, oldest first. TDLib answers a page
@@ -538,13 +562,37 @@
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by
   --config or TELECLI_CONFIG
-- Interface configuration: [tui] theme and [tui] color
+- Interface configuration: [tui] theme, [tui] color and [tui] width
   - theme: a built-in theme name, default catppuccin-mocha; an unknown
     name is a configuration error that lists the names there are
   - color: "auto" (default), "always" or "never"; anything else is a
     configuration error with the valid values in it
-  - the vocabulary lives in internal/tui/theme, so the values are stored
-    as plain strings here and validated there
+  - width: "auto" (default), "grapheme" or "codepoint"; anything else
+    is a configuration error with the valid values in it, resolved by
+    the composition root like the theme and reported by telecli doctor
+  - the vocabulary lives in internal/tui/theme and
+    internal/tui/termwidth, so the values are stored as plain strings
+    here and validated there
+- Width rule: internal/tui/termwidth
+  - the two rules disagree about a grapheme cluster made of several code
+    points: "✌️" is two columns to a grapheme counter and one to a
+    terminal that follows wcwidth, which is what the macOS Terminal and
+    iTerm2 do
+  - grapheme: the width of a cluster as the Unicode emoji rules say it
+    is drawn; codepoint: the widths of its code points added up, with
+    U+FE0F, U+FE0E, ZWJ, a skin tone and whatever follows a ZWJ at
+    nothing, and a flag at the width the terminal gave it
+  - auto measures the terminal before the first frame, with the standard
+    cursor position request (ESC[6n) over six probes, inside a total
+    budget of 150 ms, erasing the line it wrote on and restoring the
+    terminal. Answers that agree with the grapheme rule everywhere give
+    grapheme; anything else gives codepoint; no answer gives codepoint
+  - bytes read that were not an answer are handed back to the program as
+    input rather than dropped, so a key pressed during the measurement
+    is not eaten
+  - telecli doctor does not measure: it reports the rule and whether it
+    was measured, configured or the default, and says that auto is
+    measured when the TUI starts
 - Cache directory: TBD
 
 ## Secrets
@@ -781,6 +829,12 @@
   TestArchImports over every Go file regardless of build tags
 - Recorder contract: internal/telemetry/recorder
 - Recorder dependency rule: standard library only
+- Text width: internal/tui/termwidth, a leaf package beside
+  internal/tui/theme: WidthModel counts columns, Truncate and
+  TruncateLeft cut at cluster boundaries in either rule, Wrap breaks
+  prose on words, and Measure asks the terminal how it draws. It is the
+  only place that answers "how wide is this", and internal/tui reaches
+  it through Model.widths
 - TDLib binding: internal/telegram/tdjson
   (dynamic cgo loader over modern JSON C API; no third-party Go
   binding)

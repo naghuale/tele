@@ -166,7 +166,7 @@ func (m Model) pendingMessageRows(
 
 	head := inset + styles.author(true, false).Render(outgoingAuthor)
 	if time := formatMessageTime(message.CreatedAt); time != "" {
-		head = leftAndRight(
+		head = m.leftAndRight(
 			head,
 			styles.dimmed(m.tokens().MutedText).Render(time),
 			width,
@@ -175,7 +175,9 @@ func (m Model) pendingMessageRows(
 
 	lines := []string{styles.text(m.tokens().PrimaryText).Render(head)}
 
-	for _, line := range wrapCells(message.Text, maxInt(width-selectionMarkerWidth-contentInsetWidth-indent, 1)) {
+	textWidth := maxInt(width-selectionMarkerWidth-contentInsetWidth-indent, 1)
+
+	for _, line := range m.widths.Wrap(message.Text, textWidth, ellipsis) {
 		lines = append(
 			lines,
 			styles.text(m.tokens().OutgoingMessage).Render(inset+line),
@@ -220,16 +222,16 @@ func (m Model) pendingStateLines(
 	// The inset is spent out of the width and not added to it: a line
 	// padded to the width and then indented is wider than the pane, and the
 	// region cuts it with an ellipsis at the far edge of the screen.
-	room := maxInt(width-cellWidth(inset), 1)
+	room := maxInt(width-m.widths.StringWidth(inset), 1)
 
 	lines := []string{
 		styles.text(state.Color(m.tokens())).
-			Render(inset + fitCells(label, room)),
+			Render(inset + m.widths.Fit(label, room, ellipsis)),
 	}
 
 	if message.State == MessageDeliveryUncertain {
 		lines = append(lines, styles.dimmed(m.tokens().StatusUncertain).
-			Render(inset+fitCells(uncertainWarning, room)))
+			Render(inset+m.widths.Fit(uncertainWarning, room, ellipsis)))
 	}
 
 	return lines

@@ -4,6 +4,7 @@
 # size:    80x24
 # theme:   catppuccin-mocha
 # profile: true-color
+# width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
 ▌ Chats            Anna Example                                                 

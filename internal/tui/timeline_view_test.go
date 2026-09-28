@@ -96,8 +96,8 @@ func TestTimeIsRightAlignedInTheAuthorLine(t *testing.T) {
 	if !strings.HasSuffix(trimmed, "10:00") {
 		t.Fatalf("the time is not at the end of the line: %q", trimmed)
 	}
-	if cellWidth(trimmed) != m.width {
-		t.Fatalf("the time ends at column %d, want %d", cellWidth(trimmed), m.width)
+	if m.widths.StringWidth(trimmed) != m.width {
+		t.Fatalf("the time ends at column %d, want %d", m.widths.StringWidth(trimmed), m.width)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestLongMessageWrapsToTheWidthOfTheRegion(t *testing.T) {
 
 	view := m.View()
 	for index, line := range viewLines(view) {
-		if got := cellWidth(line); got > m.width {
+		if got := m.widths.StringWidth(line); got > m.width {
 			t.Fatalf("row %d is %d columns, want at most %d: %q", index, got, m.width, line)
 		}
 	}
@@ -296,7 +296,7 @@ func TestAMessageTallerThanTheTimelineKeepsTheComposer(t *testing.T) {
 		t.Fatalf("a long message pushed the composer off the screen:\n%s", view)
 	}
 	for index, line := range viewLines(view) {
-		if got := cellWidth(line); got > m.width {
+		if got := m.widths.StringWidth(line); got > m.width {
 			t.Fatalf("row %d is %d columns, want at most %d", index, got, m.width)
 		}
 	}

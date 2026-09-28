@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"telecli/internal/tui/termwidth"
 )
 
 func TestVisibleRangeEmpty(t *testing.T) {
@@ -39,7 +41,11 @@ func TestVisibleRangeWindowKeepsSelection(t *testing.T) {
 // Truncation is measured in terminal columns, not in runes: "привет" is
 // six columns wide and an emoji is two, so a layout counted in runes
 // overflows as soon as the content is not ASCII.
-func TestTruncateCellsCountsColumns(t *testing.T) {
+//
+// The rule a screen is drawn in is the model's, so these cases hold in both
+// of them: they are the cases where the two rules agree, and the ones where
+// they do not are the cases of internal/tui/termwidth.
+func TestTruncationCountsColumns(t *testing.T) {
 	cases := map[string]struct {
 		value string
 		width int
@@ -57,31 +63,38 @@ func TestTruncateCellsCountsColumns(t *testing.T) {
 		"negative":       {value: "abc", width: -1, want: ""},
 	}
 
-	for name, testCase := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := truncateCells(testCase.value, testCase.width)
-			if got != testCase.want {
-				t.Fatalf(
-					"truncateCells(%q, %d) = %q, want %q",
-					testCase.value,
-					testCase.width,
-					got,
-					testCase.want,
-				)
-			}
-			if width := cellWidth(got); width > testCase.width && testCase.width > 0 {
-				t.Fatalf(
-					"truncateCells(%q, %d) is %d columns wide",
-					testCase.value,
-					testCase.width,
-					width,
-				)
-			}
-		})
+	for _, mode := range []termwidth.Mode{termwidth.ModeGrapheme, termwidth.ModeCodepoint} {
+		m := NewModel()
+		m.widths = termwidth.Unmeasured(mode)
+
+		for name, testCase := range cases {
+			t.Run(name, func(t *testing.T) {
+				got := m.widths.TruncateMarked(testCase.value, testCase.width, ellipsis)
+				if got != testCase.want {
+					t.Fatalf(
+						"TruncateMarked(%q, %d, %q) = %q, want %q",
+						testCase.value,
+						testCase.width,
+						ellipsis,
+						got,
+						testCase.want,
+					)
+				}
+				if width := m.widths.StringWidth(got); width > testCase.width && testCase.width > 0 {
+					t.Fatalf(
+						"TruncateMarked(%q, %d, %q) is %d columns wide",
+						testCase.value,
+						testCase.width,
+						ellipsis,
+						width,
+					)
+				}
+			})
+		}
 	}
 }
 
-func TestCellWidthCountsColumns(t *testing.T) {
+func TestWidthCountsColumns(t *testing.T) {
 	cases := map[string]struct {
 		value string
 		want  int
@@ -93,11 +106,13 @@ func TestCellWidthCountsColumns(t *testing.T) {
 		"accent":   {value: "café", want: 4},
 	}
 
+	m := NewModel()
+
 	for name, testCase := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := cellWidth(testCase.value); got != testCase.want {
+			if got := m.widths.StringWidth(testCase.value); got != testCase.want {
 				t.Fatalf(
-					"cellWidth(%q) = %d, want %d",
+					"StringWidth(%q) = %d, want %d",
 					testCase.value,
 					got,
 					testCase.want,
@@ -109,15 +124,17 @@ func TestCellWidthCountsColumns(t *testing.T) {
 
 // Every line of a region is padded to the same number of columns, which
 // is what keeps a pane rectangular and its background continuous.
-func TestFitCellsPadsToWidth(t *testing.T) {
-	if got := fitCells("abc", 6); cellWidth(got) != 6 {
-		t.Fatalf("fitCells(\"abc\", 6) = %q, %d columns", got, cellWidth(got))
+func TestFitPadsToWidth(t *testing.T) {
+	m := NewModel()
+
+	if got := m.widths.Fit("abc", 6, ellipsis); m.widths.StringWidth(got) != 6 {
+		t.Fatalf("Fit(\"abc\", 6) = %q, %d columns", got, m.widths.StringWidth(got))
 	}
-	if got := fitCells("привет", 4); cellWidth(got) != 4 {
-		t.Fatalf("fitCells(\"привет\", 4) = %q, %d columns", got, cellWidth(got))
+	if got := m.widths.Fit("привет", 4, ellipsis); m.widths.StringWidth(got) != 4 {
+		t.Fatalf("Fit(\"привет\", 4) = %q, %d columns", got, m.widths.StringWidth(got))
 	}
-	if got := fitCells("abcdefgh", 3); cellWidth(got) != 3 {
-		t.Fatalf("fitCells(\"abcdefgh\", 3) = %q, %d columns", got, cellWidth(got))
+	if got := m.widths.Fit("abcdefgh", 3, ellipsis); m.widths.StringWidth(got) != 3 {
+		t.Fatalf("Fit(\"abcdefgh\", 3) = %q, %d columns", got, m.widths.StringWidth(got))
 	}
 }
 

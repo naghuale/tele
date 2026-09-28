@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -45,13 +46,13 @@ func uncolored(m Model) Model {
 // a title with a dash in it is more bytes than columns, so an offset read
 // as a column would put the two panes' markers in different places on
 // different lines.
-func barColumnOf(line string) int {
+func barColumnOf(widths termwidth.WidthModel, line string) int {
 	index := strings.Index(line, theme.FocusBar)
 	if index < 0 {
 		return -1
 	}
 
-	return cellWidth(line[:index])
+	return widths.StringWidth(line[:index])
 }
 
 // sizedModel returns a model on the chat list of a given size.
@@ -84,14 +85,14 @@ func viewLines(view string) []string {
 // A bar in a pane's own column is the focus of that region; a bar one
 // column further in is the marker of a selected row, which is a different
 // thing and is not counted as a focus.
-func accentColumns(line string) []int {
+func accentColumns(widths termwidth.WidthModel, line string) []int {
 	var (
 		columns []int
 		rest    = line
 	)
 
 	for {
-		index := barColumnOf(rest)
+		index := barColumnOf(widths, rest)
 		if index < 0 {
 			return columns
 		}
@@ -130,7 +131,7 @@ func assertFocusColumn(t *testing.T, m Model, want int) {
 	columns := focusColumns(layout)
 
 	for index, line := range viewLines(view) {
-		for _, column := range accentColumns(line) {
+		for _, column := range accentColumns(m.widths, line) {
 			for _, pane := range columns {
 				if column != pane {
 					continue
@@ -152,7 +153,7 @@ func assertFocusColumn(t *testing.T, m Model, want int) {
 	// nothing on the screen says where the keys are.
 	found := false
 	for _, line := range viewLines(view) {
-		for _, column := range accentColumns(line) {
+		for _, column := range accentColumns(m.widths, line) {
 			if column == want {
 				found = true
 			}
@@ -273,7 +274,7 @@ func TestSidebarContainsNoRightBorder(t *testing.T) {
 
 	view := m.View()
 	for index, line := range viewLines(view) {
-		if cellWidth(line) < layout.SidebarWidth() {
+		if m.widths.StringWidth(line) < layout.SidebarWidth() {
 			continue
 		}
 
@@ -285,7 +286,7 @@ func TestSidebarContainsNoRightBorder(t *testing.T) {
 			t.Fatalf(
 				"line %d has %q after the sidebar, want a space:\n%s",
 				index,
-				gap[:minInt(2, cellWidth(gap))],
+				gap[:minInt(2, m.widths.StringWidth(gap))],
 				view,
 			)
 		}
@@ -306,14 +307,14 @@ func TestComposerUsesOnlyLeftFocusBorder(t *testing.T) {
 		t.Fatalf("view has no composer line:\n%s", view)
 	}
 
-	if barColumnOf(composer) < 0 {
+	if barColumnOf(m.widths, composer) < 0 {
 		t.Fatalf("composer has no focus bar: %q", composer)
 	}
 	if got := strings.Count(composer, theme.FocusBar); got != 1 {
 		t.Fatalf("composer has %d focus bars, want 1: %q", got, composer)
 	}
-	if cellWidth(composer) != m.width {
-		t.Fatalf("composer line is %d columns, want %d", cellWidth(composer), m.width)
+	if m.widths.StringWidth(composer) != m.width {
+		t.Fatalf("composer line is %d columns, want %d", m.widths.StringWidth(composer), m.width)
 	}
 }
 
@@ -359,7 +360,7 @@ func TestLayoutAtMinimumSupportedWidth(t *testing.T) {
 	}
 
 	for index, line := range lines {
-		if got := cellWidth(line); got != minWidth {
+		if got := m.widths.StringWidth(line); got != minWidth {
 			t.Fatalf("line %d is %d columns, want %d: %q", index, got, minWidth, line)
 		}
 	}
@@ -398,7 +399,7 @@ func TestLayoutAtWideWidth(t *testing.T) {
 	}
 
 	for index, line := range lines {
-		if got := cellWidth(line); got != width {
+		if got := m.widths.StringWidth(line); got != width {
 			t.Fatalf("line %d is %d columns, want %d: %q", index, got, width, line)
 		}
 	}
@@ -448,7 +449,7 @@ func assertRectangularView(t *testing.T, m Model) {
 
 	view := m.View()
 	for index, line := range viewLines(view) {
-		if got, want := cellWidth(line), m.width; got != want {
+		if got, want := m.widths.StringWidth(line), m.width; got != want {
 			t.Fatalf(
 				"line %d is %d columns, want %d: %q",
 				index,
@@ -477,7 +478,7 @@ func TestResizeDoesNotLeaveBorderFragments(t *testing.T) {
 		}
 
 		for index, line := range viewLines(view) {
-			if got := cellWidth(line); got != size[0] {
+			if got := m.widths.StringWidth(line); got != size[0] {
 				t.Fatalf(
 					"line %d at %dx%d is %d columns: %q",
 					index,
@@ -497,11 +498,11 @@ func TestResizeDoesNotLeaveBorderFragments(t *testing.T) {
 // in it is a composer they have to look at again.
 func TestLongChatTitleDoesNotShiftComposer(t *testing.T) {
 	short := openedModel(t, 120, 30)
-	before := composerColumnOf(short.View())
+	before := composerColumnOf(short.widths, short.View())
 
 	long := openedModel(t, 120, 30)
 	long.chats[long.selectedChat].Title = strings.Repeat("очень длинное название чата ", 6)
-	after := composerColumnOf(long.View())
+	after := composerColumnOf(long.widths, long.View())
 
 	if before != after {
 		t.Fatalf("composer moved from column %d to %d", before, after)
@@ -509,13 +510,13 @@ func TestLongChatTitleDoesNotShiftComposer(t *testing.T) {
 }
 
 // composerColumnOf returns the column the composer starts in.
-func composerColumnOf(view string) int {
+func composerColumnOf(widths termwidth.WidthModel, view string) int {
 	composer := composerLineOf(view)
 	if composer == "" {
 		return -1
 	}
 
-	return cellWidth(
+	return widths.StringWidth(
 		composer[:strings.Index(composer, composerPlaceholder)],
 	)
 }

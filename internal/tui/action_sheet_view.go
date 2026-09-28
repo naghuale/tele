@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"telecli/internal/tui/theme"
 )
 
@@ -116,7 +114,7 @@ func (m Model) popupRows(rows []string) []string {
 	width := 0
 
 	for _, row := range rows {
-		width = maxInt(width, cellWidth(row))
+		width = maxInt(width, m.widths.StringWidth(row))
 	}
 
 	bar := styles.popupFocusBar(m.tokens())
@@ -126,7 +124,7 @@ func (m Model) popupRows(rows []string) []string {
 		out = append(
 			out,
 			spaces(popupInsetColumns)+bar+row+
-				spaces(maxInt(width-cellWidth(row), 0))+shadow,
+				spaces(maxInt(width-m.widths.StringWidth(row), 0))+shadow,
 		)
 	}
 
@@ -173,15 +171,20 @@ func (m Model) overlayPopup(
 // The cut is by column and not by byte. A row behind the popup is a styled
 // row, and a byte cut through it would print half an escape sequence as
 // text: the user would see `;24;36m` in the middle of a conversation.
+//
+// It is a method of the model for the same reason the rest of the drawing
+// is: the column the popup starts at and the width of the row behind it
+// are columns of one terminal, and a menu placed with the measurements of
+// another one covers the wrong words.
 func (m Model) overlayRow(behind, popup string, firstColumn int) string {
-	behindWidth := cellWidth(behind)
-	head := ansi.Truncate(behind, maxInt(firstColumn, 0), "")
+	behindWidth := m.widths.StringWidth(behind)
+	head := m.widths.Truncate(behind, maxInt(firstColumn, 0), "")
 	head += spaces(maxInt(firstColumn-behindWidth, 0))
 
-	popupEnd := maxInt(firstColumn, 0) + cellWidth(popup)
+	popupEnd := maxInt(firstColumn, 0) + m.widths.StringWidth(popup)
 	if behindWidth <= popupEnd {
 		return head + popup + spaces(behindWidth-popupEnd)
 	}
 
-	return head + popup + ansi.TruncateLeft(behind, behindWidth-popupEnd, "")
+	return head + popup + m.widths.TruncateLeft(behind, behindWidth-popupEnd, "")
 }

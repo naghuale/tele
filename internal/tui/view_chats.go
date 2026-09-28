@@ -88,8 +88,10 @@ func (m Model) chatListSummaryLine(width int) string {
 		text = "no unread"
 	}
 
+	summary := chatListSearchHint + statusSeparator + text
+
 	return m.styles().dimmed(m.tokens().MutedText).
-		Render(fitCells(chatListSearchHint+statusSeparator+text, width))
+		Render(m.widths.Fit(summary, width, ellipsis))
 }
 
 // chatListSearchHint is how the list says that it can be searched.
@@ -202,12 +204,12 @@ func (m Model) chatListDetail(
 		return unread
 	}
 
-	available := width - cellWidth(unread) - 2
+	available := width - m.widths.StringWidth(unread) - 2
 	if available < 1 {
 		return unread
 	}
 
-	return unread + "  " + fitCells(chat.Preview, available)
+	return unread + "  " + m.widths.Fit(chat.Preview, available, ellipsis)
 }
 
 // chatListUnreadMarker returns the unread marker of a chat, or "" when
@@ -244,12 +246,14 @@ func (m Model) chatListEmptyLines(layout Layout, width int) []string {
 	texts, style := m.chatListEmptyState()
 
 	if layout.TwoPane() {
-		return []string{style.Render(fitCells(m.chatListEmptyShort(), width))}
+		short := m.widths.Fit(m.chatListEmptyShort(), width, ellipsis)
+
+		return []string{style.Render(short)}
 	}
 
 	lines := make([]string, 0, len(texts))
 	for _, text := range texts {
-		for _, line := range wrapCells(text, width) {
+		for _, line := range m.widths.Wrap(text, width, ellipsis) {
 			lines = append(lines, style.Render(line))
 		}
 	}

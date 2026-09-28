@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -250,6 +251,15 @@ type Model struct {
 	colorProfile       theme.Profile
 	rendererForProfile *lipgloss.Renderer
 
+	// widths is how every column of the screen is counted.
+	//
+	// It is a field of the model rather than a call because the terminal
+	// is measured once, before the first frame, and a view that counted
+	// columns for itself would be a view deciding what the terminal can
+	// show. The zero value counts by code points, which is the rule of a
+	// terminal nobody could ask.
+	widths termwidth.WidthModel
+
 	width  int
 	height int
 
@@ -296,8 +306,11 @@ func NewModel() Model {
 		sendState:    sendStateIdle,
 		theme:        theme.DefaultTheme(),
 		colorProfile: theme.ProfileNoColor,
-		now:          time.Now,
-		location:     time.Local,
+		// A model built without a measurement counts by code points, which
+		// is what a terminal nobody could ask is drawn with.
+		widths:   termwidth.Unmeasured(termwidth.ModeAuto),
+		now:      time.Now,
+		location: time.Local,
 	}.withRenderer(theme.ProfileNoColor)
 }
 
@@ -316,6 +329,7 @@ func NewModelWithSource(source ChatSource) Model {
 		historyState: loadStateIdle,
 		sendState:    sendStateIdle,
 		colorProfile: theme.ProfileNoColor,
+		widths:       termwidth.Unmeasured(termwidth.ModeAuto),
 		now:          time.Now,
 		location:     time.Local,
 	}.withRenderer(theme.ProfileNoColor)
@@ -1471,7 +1485,7 @@ func (m *Model) forgetSendError() {
 // where the row it lands on is long enough and putting it at the end of it
 // where it is not.
 func (m *Model) moveComposerRow(delta int) {
-	layout := layoutComposer(m.composer, m.composerCursor, m.composerWidth())
+	layout := m.layoutComposer(m.composer, m.composerCursor, m.composerWidth())
 	row, column := layout.cursorRow, layout.cursorColumn
 
 	row += delta

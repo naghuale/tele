@@ -65,7 +65,7 @@ func (m Model) composerRowCount(layout Layout, width int) int {
 		maxInt(int(float64(layout.Height)*composerMaxShare), 1),
 	)
 
-	layout_ := layoutComposer(m.composer, m.composerCursor, m.composerTextWidth(width))
+	layout_ := m.layoutComposer(m.composer, m.composerCursor, m.composerTextWidth(width))
 
 	return minInt(maxInt(len(layout_.rows), 1), limit)
 }
@@ -86,7 +86,7 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 	textWidth := m.composerTextWidth(width)
 	inset := spaces(contentInsetWidth)
 
-	laid := layoutComposer(m.composer, m.composerCursor, textWidth)
+	laid := m.layoutComposer(m.composer, m.composerCursor, textWidth)
 	visible := laid.visibleRows(rows)
 
 	if len(m.composer) == 0 {
@@ -138,7 +138,7 @@ func (m Model) composerRowLine(
 ) string {
 	if !onCursorRow {
 		return styles.text(m.tokens().PrimaryText).
-			Render(inset + fitCells(row.text, textWidth))
+			Render(inset + m.widths.Fit(row.text, textWidth, ellipsis))
 	}
 
 	before, under, after := splitAtCluster([]rune(row.text), offset)
@@ -169,7 +169,7 @@ func (m Model) composerRowLine(
 			styles.text(m.tokens().PrimaryText).Render(under+after)
 	}
 
-	return inset + fitCells(line, budget)
+	return inset + m.widths.Fit(line, budget, ellipsis)
 }
 
 // splitAtCluster cuts the text of a row at a rune offset that is on a
@@ -252,14 +252,14 @@ func (m Model) sendStateLines(width int) []string {
 	switch m.sendState {
 	case sendStateSending:
 		return []string{styles.dimmed(m.tokens().StatusActive).
-			Render(fitCells("Sending...", width))}
+			Render(m.widths.Fit("Sending...", width, ellipsis))}
 
 	case sendStateError:
 		// A paused composer is not a failed send: nothing was ever
 		// attempted, so the wording of a failure would be a lie the user
 		// has to interpret.
 		if m.pausedErr != nil {
-			notice := wrapCells(m.pausedErr.Error(), width)
+			notice := m.widths.Wrap(m.pausedErr.Error(), width, ellipsis)
 			rendered := make([]string, 0, len(notice))
 			for _, line := range notice {
 				rendered = append(
@@ -281,7 +281,7 @@ func (m Model) sendStateLines(width int) []string {
 		raised := styles.raised(m.tokens().StatusError, m.tokens().PopupBackground)
 		lines := make([]string, 0, 2)
 		for _, text := range []string{notQueuedText, draftKeptText} {
-			for _, line := range wrapCells(text, width) {
+			for _, line := range m.widths.Wrap(text, width, ellipsis) {
 				lines = append(lines, raised.Render(line))
 			}
 		}

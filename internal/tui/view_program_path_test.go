@@ -182,7 +182,7 @@ func TestProgramPathShowsBothPanesBeforeAChatIsOpened(t *testing.T) {
 		// The list keeps the width of §3.3 even with an empty pane beside
 		// it, and every line is still exactly the width of the screen.
 		for index, line := range viewLines(model.View()) {
-			if got := cellWidth(line); got != width {
+			if got := model.widths.StringWidth(line); got != width {
 				t.Fatalf("line %d is %d columns, want %d", index, got, width)
 			}
 		}

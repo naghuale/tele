@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -115,12 +116,24 @@ type Dependencies struct {
 	// be the same one for every command. An empty name selects the
 	// default theme, so a caller that does not care about the interface
 	// can leave both out.
-	//
-	// The views do not read them yet: the screens are rewritten in
-	// PR-10A.2, and until then the theme travels with the model so that
-	// step has one place to read it from.
 	Theme        theme.Theme
 	ColorProfile theme.Profile
+
+	// WidthMode is how the interface counts the width of text.
+	//
+	// The zero value is ModeAuto, which measures the terminal before the
+	// first frame; a configured rule is used as it is, and a width
+	// measured in another terminal is not asked for again.
+	WidthMode termwidth.Mode
+
+	// WidthMeasured, when non-nil, is a measurement of the terminal that
+	// was taken somewhere else, and it stands in for measuring it here.
+	//
+	// It is what lets a program that measured the terminal before it built
+	// the model — and a test that states the answers of a terminal instead
+	// of owning one — draw with a width model that says where it came
+	// from.
+	WidthMeasured *termwidth.Measurement
 }
 
 type composerSubmissionMsg struct {
@@ -164,6 +177,9 @@ func NewModelWithDependencies(
 	// printed, and a view that built its own would be a view deciding
 	// what the terminal can show.
 	model.rendererForProfile = newRenderer(deps.ColorProfile)
+	model.widths, _ = termwidth.Select(
+		deps.WidthMode, measurementOf(deps.WidthMeasured),
+	)
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now
 		// means the user is not invited to press Enter to find out, and
@@ -185,6 +201,22 @@ func NewModelWithSourceAndSubmitter(
 		Source:           source,
 		MessageSubmitter: submitter,
 	})
+}
+
+// measurementOf returns the measurement the dependencies carry, or an empty
+// one when they carry none.
+//
+// A caller that measured nothing gets the rule it would have been measured
+// into, and a model built by a test gets the same one: a screen drawn
+// without a terminal behind it has to be a screen whose columns mean
+// something, and the codepoint rule is what the terminals this program is
+// written for draw.
+func measurementOf(measured *termwidth.Measurement) termwidth.Measurement {
+	if measured == nil {
+		return termwidth.Measurement{}
+	}
+
+	return *measured
 }
 
 func submitComposerCmd(

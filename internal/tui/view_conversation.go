@@ -56,7 +56,7 @@ func (m Model) conversationRegion(
 
 	lines := []string{
 		styles.text(m.tokens().PrimaryText).
-			Render(fitCells(m.conversationTitle(layout, width), width)),
+			Render(m.widths.Fit(m.conversationTitle(layout, width), width, ellipsis)),
 	}
 
 	// §4.3 puts the status under the title: a user reads it as part of the
@@ -108,12 +108,12 @@ func (m Model) olderPageLines(layout Layout, width int) []string {
 	switch {
 	case m.historyMoreLoading:
 		return []string{styles.dimmed(m.tokens().SecondaryText).
-			Render(fitCells("Loading older messages...", width))}
+			Render(m.widths.Fit("Loading older messages...", width, ellipsis))}
 
 	case m.historyMoreErr != nil:
 		text := "Failed to load older messages: " + m.historyMoreErr.Error()
 		return []string{styles.dimmed(m.tokens().StatusError).
-			Render(fitCells(text, width))}
+			Render(m.widths.Fit(text, width, ellipsis))}
 
 	default:
 		return nil
@@ -240,7 +240,7 @@ func (m Model) messageLines(
 			Render(messageAuthor(message))
 
 	if message.Time != "" {
-		head = leftAndRight(
+		head = m.leftAndRight(
 			head,
 			styles.dimmed(m.tokens().MutedText).Render(message.Time),
 			width,
@@ -268,7 +268,7 @@ func (m Model) shortMessageLines(
 	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
 	textWidth := messageTextWidth(indent, width)
 
-	wrapped := wrapCells(messageAuthor(message)+": "+message.Text, textWidth)
+	wrapped := m.widths.Wrap(messageAuthor(message)+": "+message.Text, textWidth, ellipsis)
 	if len(wrapped) == 0 {
 		wrapped = []string{""}
 	}
@@ -301,7 +301,7 @@ func (m Model) messageBodyLines(
 	// the marker column is spent on the text rows as well: a message whose
 	// name is one column to the left of its own text reads as two messages.
 	inset := spaces(selectionMarkerWidth + contentInsetWidth + indent)
-	wrapped := wrapCells(message.Text, textWidth)
+	wrapped := m.widths.Wrap(message.Text, textWidth, ellipsis)
 	lines := make([]string, 0, len(wrapped))
 
 	for _, line := range wrapped {
@@ -341,10 +341,16 @@ func messageAuthor(message Message) string {
 // The gap between them is filled with spaces, so two messages keep their
 // times in the same column and the eye can run down them. Both sides may
 // carry escape sequences: the gap is measured in columns, not in bytes.
-func leftAndRight(left, right string, width int) string {
-	gap := width - cellWidth(left) - cellWidth(right)
+//
+// It is a method of the model because a gap of columns is only right in the
+// columns of the terminal the row is drawn in: measured in the columns of
+// another one it is off by however much that terminal disagrees about the
+// text on either side of it, and the time of a message is cut off or the
+// row wraps.
+func (m Model) leftAndRight(left, right string, width int) string {
+	gap := width - m.widths.StringWidth(left) - m.widths.StringWidth(right)
 	if gap < 1 {
-		return fitCells(left+" "+right, width)
+		return m.widths.Fit(left+" "+right, width, ellipsis)
 	}
 
 	return left + spaces(gap) + right
@@ -358,11 +364,11 @@ func (m Model) timelineEmptyLines(layout Layout, width int) []string {
 	switch m.historyState {
 	case loadStateLoading:
 		return []string{styles.dimmed(m.tokens().SecondaryText).
-			Render(fitCells("Loading history...", width))}
+			Render(m.widths.Fit("Loading history...", width, ellipsis))}
 
 	case loadStateError:
 		return []string{styles.dimmed(m.tokens().StatusError).
-			Render(fitCells("Failed to load history", width))}
+			Render(m.widths.Fit("Failed to load history", width, ellipsis))}
 
 	case loadStateEmpty:
 		// §17: a chat with nothing in it says so, and says where to
@@ -370,13 +376,13 @@ func (m Model) timelineEmptyLines(layout Layout, width int) []string {
 		// answer removed.
 		return []string{
 			styles.dimmed(m.tokens().MutedText).
-				Render(fitCells("No messages yet", width)),
+				Render(m.widths.Fit("No messages yet", width, ellipsis)),
 			styles.dimmed(m.tokens().SecondaryText).
-				Render(fitCells(noMessagesHint, width)),
+				Render(m.widths.Fit(noMessagesHint, width, ellipsis)),
 		}
 
 	default:
 		return []string{styles.dimmed(m.tokens().MutedText).
-			Render(fitCells("No messages yet", width))}
+			Render(m.widths.Fit("No messages yet", width, ellipsis))}
 	}
 }

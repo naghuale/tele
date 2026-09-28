@@ -23,7 +23,7 @@ var standardLibraryOnly = map[string]bool{
 // Layering, bottom to top:
 //
 //	recorder, tdjson, buildinfo, config, authstore, secretinput,
-//	outbox, tui/theme              leaf packages
+//	outbox, tui/theme, tui/termwidth    leaf packages
 //	tui                             interface components
 //	telegram                          TDLib binding and session
 //	application                       composition root
@@ -42,6 +42,7 @@ var allowedInternalImports = map[string][]string{
 		"internal/telegram",
 		"internal/telemetry/recorder",
 		"internal/tui",
+		"internal/tui/termwidth",
 		"internal/tui/theme",
 	},
 	"internal/archdeps":           {},
@@ -53,6 +54,7 @@ var allowedInternalImports = map[string][]string{
 	"internal/telegram":           {"internal/telegram/tdjson", "internal/telemetry/recorder"},
 	"internal/telegram/tdjson":    {},
 	"internal/telemetry/recorder": {},
-	"internal/tui":                {"internal/tui/theme"},
+	"internal/tui":                {"internal/tui/termwidth", "internal/tui/theme"},
+	"internal/tui/termwidth":      {},
 	"internal/tui/theme":          {},
 }

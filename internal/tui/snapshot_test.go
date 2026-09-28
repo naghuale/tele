@@ -14,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -119,6 +120,30 @@ func snapshotChats() []Chat {
 	}
 }
 
+// snapshotWidthChats is the list a screen drawn in either width rule is
+// made of.
+//
+// Every name here carries a character the two rules of
+// internal/tui/termwidth count differently: a hand with the emoji selector
+// behind it is two columns to one of them and one to the other, and a name
+// that lands on the width of the pane in one rule and over it in the other
+// is cut in one screen and whole in the other. That difference is the whole
+// reason the rules exist, and a snapshot that did not have it would be a
+// snapshot of two screens that happen to look alike.
+//
+// The names are long enough to be cut, because a chat title is the one
+// piece of text on this screen that nobody controls.
+func snapshotWidthChats() []Chat {
+	return []Chat{
+		{ID: 1, Title: "Xiaomi News Channel ✌️", Unread: 3, Preview: "прошивка вышла ✌️"},
+		{ID: 2, Title: "ТФУЮАНЬ 🇨🇳 САХ ЦЕНЫ ✌️", Preview: "сахар подорожал 🇨🇳"},
+		{ID: 3, Title: "🏃 Секция новостей 🏃‍♂️", Preview: "пробег в семь утра 🏃‍♂️"},
+		{ID: 4, Title: "Команда 👍🏽 СПАСИБО", Unread: 1, Preview: "за помощь с переводом"},
+		{ID: 5, Title: "Китай 中文 club", Preview: "новый канал про 中文"},
+		{ID: 6, Title: "Café Déjâ Vu ✌️", Preview: "кофе в девять"},
+	}
+}
+
 // snapshotMessages is the history of the open chat, oldest first.
 //
 // The times are strings on purpose: they are part of the fixture rather
@@ -141,6 +166,15 @@ type snapshotFixture struct {
 	height  int
 	theme   string
 	profile theme.Profile
+
+	// widthMode is the rule the screen is drawn in. It is the zero value
+	// on every screen that is not about widths, which is the rule a
+	// terminal nobody could ask is drawn with.
+	widthMode termwidth.Mode
+
+	// chats is the list the screen is drawn over, and nil for the list
+	// every other snapshot is drawn over.
+	chats []Chat
 }
 
 // wide is the two-pane layout of §10.2 at the size the snapshots use.
@@ -208,6 +242,10 @@ func snapshotModel(
 	}
 	deps.Theme = built.ForProfile(f.profile)
 	deps.ColorProfile = f.profile
+	// The rule is given rather than measured: a snapshot of a screen drawn
+	// with whatever the terminal of the machine that made it happened to
+	// say is a snapshot of that terminal.
+	deps.WidthMode = f.widthMode
 
 	m, err := NewModelWithDependencies(context.Background(), deps)
 	if err != nil {
@@ -221,7 +259,12 @@ func snapshotModel(
 	m.location = snapshotZone
 
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: f.width, Height: f.height})
-	m, _ = updateModel(t, m, chatsLoadedMsg{chats: snapshotChats()})
+
+	chats := f.chats
+	if chats == nil {
+		chats = snapshotChats()
+	}
+	m, _ = updateModel(t, m, chatsLoadedMsg{chats: chats})
 
 	return m
 }
@@ -478,7 +521,34 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotSendingPaused", func(t *testing.T) Model {
 			return snapshotSendingPaused(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotWidthGrapheme", func(t *testing.T) Model {
+			return snapshotDifficultNames(t, termwidth.ModeGrapheme)
+		}},
+		{"TestSnapshotWidthCodepoint", func(t *testing.T) Model {
+			return snapshotDifficultNames(t, termwidth.ModeCodepoint)
+		}},
 	}
+}
+
+// snapshotDifficultNames is the same screen drawn in each of the two rules.
+//
+// They are two screens and not one screen drawn twice: a title that is cut
+// in one of them and whole in the other is the difference the rules make,
+// and a golden file of each is the only way a reviewer can see it without a
+// terminal that behaves like the one it was made on.
+func snapshotDifficultNames(t *testing.T, mode termwidth.Mode) Model {
+	t.Helper()
+
+	f := wide(theme.ProfileTrueColor)
+	f.widthMode = mode
+	f.chats = snapshotWidthChats()
+
+	m := openSnapshotChat(t, snapshotModel(t, f, Dependencies{
+		AccountKey: snapshotAccountKey,
+	}))
+	m.focus = FocusChatList
+
+	return m
 }
 
 // snapshotThemed is the wide conversation in a named theme, which is the
@@ -639,6 +709,18 @@ func TestSnapshotSendingPaused(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotSendingPaused"))
 }
 
+// The same screen with the names the two width rules disagree about, drawn
+// in each of them. Every line of both is a whole number of columns in the
+// rule that screen was drawn in, which is what §20 asks of a screen and
+// what the rules exist to make possible.
+func TestSnapshotWidthGrapheme(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotWidthGrapheme"))
+}
+
+func TestSnapshotWidthCodepoint(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotWidthCodepoint"))
+}
+
 // ---- what every snapshot has to satisfy ----
 
 // The invariants of §20, checked over every snapshot at once rather than
@@ -652,8 +734,8 @@ func TestSnapshotInvariants(t *testing.T) {
 			view := snapshotViewOf(t, screen, m)
 
 			assertNoFrame(t, screen.test, view.plain)
-			assertOneFocusColumn(t, screen.test, view.plain)
-			assertLinesFit(t, screen.test, view.width, view.plain)
+			assertOneFocusColumn(t, screen.test, view.widths, view.plain)
+			assertLinesFit(t, screen.test, view.widths, view.width, view.plain)
 		})
 	}
 }
@@ -731,6 +813,13 @@ type snapshotView struct {
 	height  int
 	theme   string
 	profile string
+
+	// widths is the rule the screen was drawn in. It travels with the
+	// view because the invariants below are about columns: a line that is
+	// too wide in the rule the screen was drawn in is a line the terminal
+	// will wrap, and a line that is too wide in the other one is a line
+	// that looks broken to nobody.
+	widths  termwidth.WidthModel
 	plain   []string
 	escaped []string
 }
@@ -756,6 +845,7 @@ func snapshotViewOf(t *testing.T, screen snapshotScreen, m Model) snapshotView {
 		height:  m.height,
 		theme:   m.theme.Name,
 		profile: m.colorProfile.String(),
+		widths:  m.widths,
 		plain:   text,
 		escaped: escaped,
 	}
@@ -817,6 +907,7 @@ func snapshotFileHeader(view snapshotView) []string {
 		fmt.Sprintf("# size:    %dx%d", view.width, view.height),
 		"# theme:   " + view.theme,
 		"# profile: " + view.profile,
+		"# width:   " + view.widths.Mode().String(),
 		"#",
 		"# Plain text: the screen as a user reads it, without escape sequences.",
 	}
@@ -1015,12 +1106,17 @@ func isFrameLine(line string) bool {
 // the keys, and a user cannot choose between two regions that both say they
 // have them. The column is measured in cells rather than bytes, so a
 // Cyrillic name above the bar does not move it.
-func assertOneFocusColumn(t *testing.T, test string, lines []string) {
+func assertOneFocusColumn(
+	t *testing.T,
+	test string,
+	widths termwidth.WidthModel,
+	lines []string,
+) {
 	t.Helper()
 
 	columns := map[int]bool{}
 	for _, line := range lines {
-		for _, column := range focusBarColumns(line) {
+		for _, column := range focusBarColumns(widths, line) {
 			columns[column] = true
 		}
 
@@ -1043,7 +1139,7 @@ func assertOneFocusColumn(t *testing.T, test string, lines []string) {
 
 // focusBarColumns returns the columns of a line the focus bar is drawn in,
 // measured in cells from the start of the line.
-func focusBarColumns(line string) []int {
+func focusBarColumns(widths termwidth.WidthModel, line string) []int {
 	var (
 		columns []int
 		rest    = line
@@ -1056,8 +1152,8 @@ func focusBarColumns(line string) []int {
 			return columns
 		}
 
-		columns = append(columns, cells+cellWidth(rest[:index]))
-		cells += cellWidth(rest[:index+len(theme.FocusBar)])
+		columns = append(columns, cells+widths.StringWidth(rest[:index]))
+		cells += widths.StringWidth(rest[:index+len(theme.FocusBar)])
 		rest = rest[index+len(theme.FocusBar):]
 	}
 }
@@ -1080,11 +1176,17 @@ func sortedColumns(columns map[int]bool) []int {
 // A line one column over wraps where it should not and pushes the composer
 // off the screen, and on a narrow screen it is the difference between a
 // message a user can read and a message cut in half.
-func assertLinesFit(t *testing.T, test string, width int, lines []string) {
+func assertLinesFit(
+	t *testing.T,
+	test string,
+	widths termwidth.WidthModel,
+	width int,
+	lines []string,
+) {
 	t.Helper()
 
 	for index, line := range lines {
-		if got := cellWidth(line); got > width {
+		if got := widths.StringWidth(line); got > width {
 			t.Errorf("%s: line %d is %d columns, want at most %d: %q", test, index+1, got, width, line)
 		}
 	}

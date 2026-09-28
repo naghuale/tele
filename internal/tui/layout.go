@@ -1,11 +1,5 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/charmbracelet/x/ansi"
-)
-
 // The screen has three width classes and two height rules, and every
 // number that decides a shape lives here so a pane, the hint bar and a
 // test cannot disagree about them (docs/TUI_SPEC.md §10.1).
@@ -252,102 +246,6 @@ func visibleRange(total, selected, available int) (int, int) {
 	return start, end
 }
 
-// cellWidth returns how many terminal columns value occupies.
-//
-// Terminals count columns, not runes: "привет" is six columns wide and an
-// emoji is two, so a layout measured in runes overflows the moment the
-// content is not ASCII. Counting columns is also what keeps a long chat
-// title from pushing the composer off the screen.
-func cellWidth(value string) int {
-	return ansi.StringWidth(value)
-}
-
-// truncateCells cuts value to width terminal columns and marks the cut.
-//
-// The mark is an ellipsis, so a truncated title says that it was cut
-// rather than looking like the whole name. A column too narrow to hold the
-// mark and some text gets the text without the mark, because a lone
-// ellipsis is not a name and something is better than nothing.
-func truncateCells(value string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-
-	truncated := ansi.Truncate(value, width, "…")
-	if cellWidth(truncated) >= width && truncated != ellipsis {
-		return truncated
-	}
-
-	marked := ansi.Truncate(value, width, ellipsis)
-	if marked != ellipsis {
-		return marked
-	}
-
-	return ansi.Truncate(value, width, "")
-}
-
-// ellipsis marks a cut in the interface.
-const ellipsis = "…"
-
-// wrapCells breaks value into lines of at most width terminal columns,
-// keeping the words whole.
-//
-// It is for prose the user has to be able to read in full: a paragraph
-// that is cut with an ellipsis loses the part that says what to do about
-// the problem, and a message body is not a label. A word wider than the
-// line, such as a URL, is cut rather than allowed to push the layout wide.
-func wrapCells(value string, width int) []string {
-	if width <= 0 {
-		return []string{""}
-	}
-
-	var (
-		lines  []string
-		blocks = strings.Split(value, "\n")
-	)
-
-	for _, block := range blocks {
-		words := strings.Fields(block)
-		if len(words) == 0 {
-			lines = append(lines, "")
-			continue
-		}
-
-		line := words[0]
-		for _, word := range words[1:] {
-			if cellWidth(line)+1+cellWidth(word) <= width {
-				line += " " + word
-				continue
-			}
-
-			lines = append(lines, truncateCells(line, width))
-			line = word
-		}
-
-		lines = append(lines, truncateCells(line, width))
-	}
-
-	return lines
-}
-
-// padCells extends value with spaces to exactly width terminal columns.
-//
-// Every line of a region is padded to the same width, so the regions
-// below and beside it stay rectangular and a background covers the whole
-// pane instead of ending where the text happened to end.
-func padCells(value string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-
-	missing := width - cellWidth(value)
-	if missing <= 0 {
-		return truncateCells(value, width)
-	}
-
-	return value + spaces(missing)
-}
-
 // spaces returns n spaces.
 func spaces(n int) string {
 	if n <= 0 {
@@ -360,11 +258,6 @@ func spaces(n int) string {
 	}
 
 	return string(out)
-}
-
-// fitCells truncates or pads value to exactly width terminal columns.
-func fitCells(value string, width int) string {
-	return padCells(truncateCells(value, width), width)
 }
 
 func minInt(a, b int) int {

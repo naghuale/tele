@@ -67,16 +67,16 @@ func (m Model) statusBlockLines(layout Layout, width int) []string {
 	// "Waiting for network · Recovering" is left wondering about the rest
 	// of a word, while one reading "Waiting for network" has everything
 	// the line is for.
-	lines := wrapCells(joinWithSeparator(parts), width)
+	lines := m.widths.Wrap(joinWithSeparator(parts), width, ellipsis)
 	for len(lines) > limit && len(parts) > 1 {
 		parts = parts[:len(parts)-1]
-		lines = wrapCells(joinWithSeparator(parts), width)
+		lines = m.widths.Wrap(joinWithSeparator(parts), width, ellipsis)
 	}
 	if len(lines) > limit {
 		lines = lines[:limit]
 	}
 	for index, line := range lines {
-		lines[index] = fitCells(line, width)
+		lines[index] = m.widths.Fit(line, width, ellipsis)
 	}
 
 	return lines

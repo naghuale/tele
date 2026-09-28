@@ -62,7 +62,7 @@ func (m Model) chatSearchLines(width int) []string {
 			styles.dimmed(m.tokens().MutedText).Render(searchPlaceholder)}
 	}
 
-	window, at := chatSearchWindow(
+	window, at := m.chatSearchWindow(
 		m.chatSearch.query,
 		m.chatSearch.queryCursor(),
 		maxInt(width-contentInsetWidth-searchCursorWidth, 1),
@@ -91,7 +91,10 @@ func (m Model) chatSearchLines(width int) []string {
 // are, and the run never cuts a cluster. A terminal prints the runes of
 // one in sequence, so half a cluster is not a shorter word but a broken
 // one.
-func chatSearchWindow(query []rune, cursor, width int) (string, int) {
+//
+// It is a method because a run of clusters is a run of columns, and the
+// columns are the ones of the terminal this model is drawn in.
+func (m Model) chatSearchWindow(query []rune, cursor, width int) (string, int) {
 	clusters := graphemes(query)
 	if len(clusters) == 0 {
 		return "", 0
@@ -104,14 +107,14 @@ func chatSearchWindow(query []rune, cursor, width int) (string, int) {
 	// too wide for the field shows the end of it rather than the
 	// beginning.
 	for last+1 < len(clusters) &&
-		used+cellWidth(string(clusters[last+1])) <= width {
+		used+m.widths.StringWidth(string(clusters[last+1])) <= width {
 		last++
-		used += cellWidth(string(clusters[last]))
+		used += m.widths.StringWidth(string(clusters[last]))
 	}
 
-	for first > 0 && used+cellWidth(string(clusters[first-1])) <= width {
+	for first > 0 && used+m.widths.StringWidth(string(clusters[first-1])) <= width {
 		first--
-		used += cellWidth(string(clusters[first]))
+		used += m.widths.StringWidth(string(clusters[first]))
 	}
 
 	var (
@@ -166,8 +169,16 @@ type chatTitleSegment struct {
 // one the pane is too narrow for all come out of here as a single
 // unmatched segment: the highlight is an addition to a title that is
 // already drawn, and a title that cannot show it is still a title.
-func chatTitleSegments(title string, query []rune, width int) []chatTitleSegment {
-	visible := truncateCells(title, width)
+//
+// It is a method because what fits in the pane is measured in the columns
+// of one terminal, and a title cut for another one is a title cut in the
+// wrong place.
+func (m Model) chatTitleSegments(
+	title string,
+	query []rune,
+	width int,
+) []chatTitleSegment {
+	visible := m.widths.TruncateMarked(title, width, ellipsis)
 	one := []chatTitleSegment{{text: visible}}
 
 	if len(query) == 0 || visible == "" {
@@ -215,9 +226,9 @@ func (m Model) chatTitleLine(
 	selected bool,
 	width int,
 ) string {
-	segments := chatTitleSegments(title, m.chatSearch.query, width)
+	segments := m.chatTitleSegments(title, m.chatSearch.query, width)
 	if len(segments) == 1 && !segments[0].matched {
-		return styles.rowText(selected).Render(fitCells(segments[0].text, width))
+		return styles.rowText(selected).Render(m.widths.Fit(segments[0].text, width, ellipsis))
 	}
 
 	var line string

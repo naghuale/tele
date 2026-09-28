@@ -18,6 +18,7 @@ import (
 	"telecli/internal/telegram"
 	"telecli/internal/telemetry/recorder"
 	"telecli/internal/tui"
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -166,6 +167,10 @@ type App struct {
 	// composition root and the profile it was built for.
 	theme        theme.Theme
 	colorProfile theme.Profile
+
+	// widthMode is the rule the interface counts the width of text in.
+	// The zero value measures the terminal before the first frame.
+	widthMode termwidth.Mode
 }
 
 // WithInterface returns a copy of the app that draws with the given theme
@@ -186,6 +191,25 @@ func (a *App) WithInterface(
 	copied := *a
 	copied.theme = resolved
 	copied.colorProfile = profile
+
+	return &copied
+}
+
+// WithWidthMode returns a copy of the app that counts the width of text in
+// the given rule.
+//
+// The rule is resolved by the composition root for the same reason the
+// theme is: it is a property of the machine, the program measures the
+// terminal when the rule says auto, and telecli doctor reports the rule
+// the TUI will be drawn with. An app built without it measures the
+// terminal, which is what the zero value of the setting says.
+func (a *App) WithWidthMode(mode termwidth.Mode) *App {
+	if a == nil {
+		return nil
+	}
+
+	copied := *a
+	copied.widthMode = mode
 
 	return &copied
 }
@@ -343,6 +367,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						Diagnostics:  a.diagnosticsWriter(),
 						Theme:        a.interfaceTheme(),
 						ColorProfile: a.colorProfile,
+						WidthMode:    a.widthMode,
 					},
 				)
 			}
@@ -521,6 +546,12 @@ func runDoctor(args []string, env Environment) int {
 		return 1
 	}
 
+	widthMode, err := resolveInterfaceWidth(cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
 	fmt.Fprintln(env.Stdout, "telecli doctor")
 	fmt.Fprintln(env.Stdout, buildinfo.Get().String())
 	fmt.Fprintf(env.Stdout, "Go: %s %s/%s\n",
@@ -529,6 +560,7 @@ func runDoctor(args []string, env Environment) int {
 		cfg.DataDir, cfg.LogLevel)
 	writeConfigWarnings(env.Stdout, cfg.Warnings)
 	writeInterfaceStatus(env.Stdout, interfaceTheme, profile)
+	writeWidthStatus(env.Stdout, widthMode)
 	reportOutboxStatus(
 		env.Stdout,
 		context.Background(),
@@ -581,6 +613,12 @@ func runTUI(args []string, env Environment) int {
 	}
 
 	interfaceTheme, colorProfile, err := resolveInterfaceTheme(cfg, *noColor)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
+	widthMode, err := resolveInterfaceWidth(cfg)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -721,7 +759,7 @@ func runTUI(args []string, env Environment) int {
 		runAuth,
 		env.RunTUI,
 		env.RunTUIWithSubmitter,
-	).WithInterface(interfaceTheme, colorProfile)
+	).WithInterface(interfaceTheme, colorProfile).WithWidthMode(widthMode)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)
 

@@ -116,7 +116,7 @@ func TestTheRowWithTheCursorIsAlwaysOnScreen(t *testing.T) {
 // cursorRowText returns the text of the row the cursor is on.
 func cursorRowText(m Model) string {
 	layout := LayoutFor(m.width, m.height)
-	laid := layoutComposer(
+	laid := m.layoutComposer(
 		m.composer,
 		m.composerCursor,
 		m.composerTextWidth(layout.ChatContentWidth()),
@@ -153,7 +153,7 @@ func TestNoRowOfTheComposerIsWiderThanTheScreen(t *testing.T) {
 		)
 
 		for index, line := range viewLines(m.View()) {
-			if got := cellWidth(line); got > m.width {
+			if got := m.widths.StringWidth(line); got > m.width {
 				t.Fatalf(
 					"at %dx%d row %d is %d columns, want at most %d: %q",
 					size[0],
@@ -316,7 +316,7 @@ func TestTheCursorIsDrawnOnAWholeGrapheme(t *testing.T) {
 			}
 
 			for index, line := range viewLines(m.View()) {
-				if got := cellWidth(line); got > m.width {
+				if got := m.widths.StringWidth(line); got > m.width {
 					t.Fatalf(
 						"row %d is %d columns, want at most %d",
 						index,
@@ -364,7 +364,7 @@ func TestNoColorDrawsTheCursorAsACharacter(t *testing.T) {
 	}
 
 	for index, line := range viewLines(m.View()) {
-		if got := cellWidth(line); got > m.width {
+		if got := m.widths.StringWidth(line); got > m.width {
 			t.Fatalf("row %d is %d columns, want at most %d", index, got, m.width)
 		}
 	}

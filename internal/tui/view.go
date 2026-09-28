@@ -150,12 +150,59 @@ func (m Model) viewTwoPanes(layout Layout) string {
 		)
 	}
 
-	return lipgloss.JoinHorizontal(
-		lipgloss.Top,
+	return m.joinSides(
 		m.chatListRegion(layout, layout.SidebarContentWidth(), layout.Height),
-		spaces(paneGapWidth),
+		layout.SidebarWidth(),
 		right,
+		layout.ChatWidth(),
 	)
+}
+
+// joinSides puts the two panes side by side with a column of space between
+// them, and lines up their rows.
+//
+// It is not Lip Gloss's Join Horizontal, for the same reason the regions
+// are not rendered as one block: Join Horizontal measures the width of a
+// block with the grapheme rule, and a row of the chat list with a hand in
+// it is a column wider that way than it is on a terminal that counts code
+// points. The wider row makes the whole pane a column wider, the gap
+// beside it a column narrower, and the conversation a column off — on
+// every row, not only on the row with the hand in it.
+//
+// Each row of each block is padded to the width that block has, so the two
+// panes are rectangles of the widths §10.1 gives them whatever is in them.
+func (m Model) joinSides(left string, leftWidth int, right string, rightWidth int) string {
+	rows := maxInt(lineCount(left), lineCount(right))
+
+	side := make([]string, 0, rows)
+	for index := range rows {
+		side = append(
+			side,
+			m.rowOf(left, index, leftWidth)+spaces(paneGapWidth)+
+				m.rowOf(right, index, rightWidth),
+		)
+	}
+
+	return strings.Join(side, "\n")
+}
+
+// rowOf returns one row of a rendered block, padded to the width the block
+// has, and a row of spaces where the block has run out of rows.
+//
+// A block that is shorter than the one beside it is a pane with fewer rows
+// in it, and the rows it does not have are the background of the other
+// pane, not the background of the terminal.
+func (m Model) rowOf(block string, index, width int) string {
+	rows := strings.Split(block, "\n")
+	if index >= len(rows) {
+		return spaces(width)
+	}
+
+	// A row that is over the width of its block is cut rather than left to
+	// wrap: the rows of a pane are fitted to its width before they get
+	// here, so this is the last thing between a mistake in a view and a
+	// screen the terminal has wrapped for us.
+	return m.widths.Fit(rows[index], width, "")
 }
 
 // emptyConversationRegion draws the conversation pane before a chat is
@@ -174,14 +221,14 @@ func (m Model) emptyConversationRegion(layout Layout) string {
 
 	lines := []string{
 		"",
-		styles.text(colour).Render(fitCells(title, width)),
+		styles.text(colour).Render(m.widths.Fit(title, width, ellipsis)),
 	}
 
 	if hint != "" {
 		lines = append(
 			lines,
 			"",
-			styles.dimmed(m.tokens().SecondaryText).Render(fitCells(hint, width)),
+			styles.dimmed(m.tokens().SecondaryText).Render(m.widths.Fit(hint, width, ellipsis)),
 		)
 	}
 
@@ -410,6 +457,15 @@ func (m Model) fitHeight(rendered string, layout Layout) string {
 // drawn to its right. A block of less than height lines is padded with
 // empty ones, which is what keeps a surface covering its whole pane and
 // the hint bar on the last row of the screen.
+//
+// Each line is rendered on its own rather than as one block of text, and
+// that is not a style. Lip Gloss pads the lines of a block to the widest
+// of them, and it measures width the way the grapheme rule does: a row with
+// a hand in it comes out a column wider than the model fitted it, every
+// other row of the pane is padded out to match, and the surface bleeds past
+// the edge of the pane into the gap beside it. A line rendered alone has
+// nothing to be aligned with, so the width that reaches the screen is the
+// one the model measured — the one the terminal was measured for.
 func (m Model) renderRegion(
 	region themeRegion,
 	focused bool,
@@ -419,20 +475,24 @@ func (m Model) renderRegion(
 ) string {
 	fitted := make([]string, 0, maxInt(len(lines), height))
 	for _, line := range lines {
-		fitted = append(fitted, fitCells(line, width))
+		fitted = append(fitted, m.widths.Fit(line, width, ellipsis))
 	}
 
 	if len(fitted) == 0 {
-		fitted = append(fitted, fitCells("", width))
+		fitted = append(fitted, m.widths.Fit("", width, ellipsis))
 	}
 
 	for len(fitted) < height {
-		fitted = append(fitted, fitCells("", width))
+		fitted = append(fitted, m.widths.Fit("", width, ellipsis))
 	}
 
-	return m.styles().
-		region(region, focused, width).
-		Render(strings.Join(fitted, "\n"))
+	style := m.styles().region(region, focused)
+	rendered := make([]string, 0, len(fitted))
+	for _, line := range fitted {
+		rendered = append(rendered, style.Render(line))
+	}
+
+	return strings.Join(rendered, "\n")
 }
 
 // lineCount returns how many rows a rendered block takes.

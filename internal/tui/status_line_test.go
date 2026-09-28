@@ -203,8 +203,8 @@ func TestTheStatusBlockIsTwoLinesAtMost(t *testing.T) {
 		t.Fatalf("status lines = %d (%q), want two", len(lines), lines)
 	}
 	for _, line := range lines {
-		if cellWidth(line) > width {
-			t.Fatalf("status line %q is %d columns wide, want at most %d", line, cellWidth(line), width)
+		if model.widths.StringWidth(line) > width {
+			t.Fatalf("status line %q is %d columns wide, want at most %d", line, model.widths.StringWidth(line), width)
 		}
 	}
 }

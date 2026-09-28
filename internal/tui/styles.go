@@ -107,19 +107,18 @@ func newViewStyles(
 // profile, which is the profile of every NO_COLOR, --no-color, TERM=dumb
 // and `color = "never"` run.
 //
-// textWidth is the width of the text, and the rendered block is that plus
-// the focus column and the inset. Lip Gloss is told the width of the
-// content box, padding included, so it wraps a line at exactly the width
-// the lines were fitted to: a line that wrapped inside the style would
-// push the region's own height past what the layout budgeted for it.
-func (s viewStyles) region(
-	region themeRegion,
-	focused bool,
-	textWidth int,
-) lipgloss.Style {
-	style := s.renderer.NewStyle().
-		PaddingLeft(contentInsetWidth).
-		Width(maxInt(textWidth+contentInsetWidth, 1))
+// Lip Gloss is told the colours of a region and not its width. It measures
+// width with the grapheme rule — the rule a terminal following wcwidth
+// disagrees with — and a style with a width wraps what it renders to it: a
+// row the model fitted to the pane in the codepoint rule comes out one
+// column "too wide" to the style, so the style wraps it, and the second
+// line of a chat title appears under the first.
+//
+// Every line is fitted to the width of the region before it gets here, in
+// the rule the terminal was measured for, and the background covers
+// exactly those lines.
+func (s viewStyles) region(region themeRegion, focused bool) lipgloss.Style {
+	style := s.renderer.NewStyle().PaddingLeft(contentInsetWidth)
 
 	if region.background.Kind() == theme.ColorKindRGB {
 		style = style.Background(

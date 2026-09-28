@@ -241,12 +241,12 @@ func TestANarrowScreenKeepsThePresence(t *testing.T) {
 			t.Fatalf("width %d: the presence was dropped: %q", width, lines)
 		}
 		for _, line := range lines {
-			if cellWidth(line) > width {
+			if model.widths.StringWidth(line) > width {
 				t.Fatalf(
 					"width %d: the status line %q is %d columns wide",
 					width,
 					line,
-					cellWidth(line),
+					model.widths.StringWidth(line),
 				)
 			}
 		}

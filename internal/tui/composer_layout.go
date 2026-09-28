@@ -1,5 +1,7 @@
 package tui
 
+import "telecli/internal/tui/termwidth"
+
 // This file is how a draft becomes rows.
 //
 // A draft is one run of runes; a screen is rows of columns. The rows are
@@ -24,8 +26,14 @@ type composerRow struct {
 
 // composerLayout is a draft laid out in rows, with the cursor placed in
 // one of them.
+//
+// It carries the width model it was laid out with, because the rows are a
+// fact about the terminal and the index of a column is a fact about those
+// rows: asking a layout that was made for one terminal which column of
+// another terminal a cursor is at would be asking the wrong question.
 type composerLayout struct {
-	rows []composerRow
+	rows   []composerRow
+	widths termwidth.WidthModel
 
 	// cursorRow and cursorColumn are where the cursor is drawn, in rows and
 	// in terminal columns.
@@ -43,7 +51,11 @@ type composerLayout struct {
 //
 // A draft always has at least one row, so an empty composer is a row with a
 // cursor in it and not an empty region.
-func layoutComposer(text []rune, cursor, width int) composerLayout {
+//
+// It is a method of the model because the rows are measured in the columns
+// of one terminal, and a layout made for another one would put the cursor
+// in the wrong place on this one.
+func (m Model) layoutComposer(text []rune, cursor, width int) composerLayout {
 	if width < 1 {
 		width = 1
 	}
@@ -51,7 +63,7 @@ func layoutComposer(text []rune, cursor, width int) composerLayout {
 	cursor = clampIndex(cursor, len(text))
 
 	var (
-		layout composerLayout
+		layout = composerLayout{widths: m.widths}
 		row    = composerRow{start: 0}
 		column int
 	)
@@ -78,7 +90,7 @@ func layoutComposer(text []rune, cursor, width int) composerLayout {
 		// A cluster wider than the whole field stays on its own row and
 		// overflows it. There is nowhere else to put it, and a row of its
 		// own is closer to the truth than splitting the cluster in half.
-		size := cellWidth(string(cluster))
+		size := m.widths.StringWidth(string(cluster))
 		if column+size > width {
 			appendRow()
 			row = composerRow{start: index}
@@ -130,7 +142,7 @@ func (l composerLayout) indexAt(row, column int) int {
 			break
 		}
 		offset += len(cluster)
-		used += cellWidth(string(cluster))
+		used += l.widths.StringWidth(string(cluster))
 	}
 
 	return offset

@@ -1039,14 +1039,16 @@ func TestTheMatchedFragmentIsExactlyTheMatch(t *testing.T) {
 		},
 	}
 
+	m := NewModel()
+
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			width := testCase.width
 			if width == 0 {
-				width = cellWidth(testCase.title)
+				width = m.widths.StringWidth(testCase.title)
 			}
 
-			got := chatTitleSegments(
+			got := m.chatTitleSegments(
 				testCase.title,
 				[]rune(testCase.query),
 				width,
@@ -1061,7 +1063,9 @@ func TestTheMatchedFragmentIsExactlyTheMatch(t *testing.T) {
 // the fitting cut away leaves the rest of the title alone. A highlight in
 // a title that is not on the screen marks nothing a user can read.
 func TestAMatchThatTheWidthCutIsNotHighlighted(t *testing.T) {
-	got := chatTitleSegments("Dev Team of the company", []rune("company"), 8)
+	got := NewModel().chatTitleSegments(
+		"Dev Team of the company", []rune("company"), 8,
+	)
 
 	if len(got) != 1 || got[0].matched {
 		t.Fatalf("segments = %+v, want one unmatched run of the fitted title", got)
@@ -1171,7 +1175,8 @@ type styleRun struct {
 // It is a test-only reading of what a terminal would do: a reset means
 // "nothing in force", and a run is the text between two sequences. The
 // width of the run in columns is not asked about, and the line is not
-// measured with this — the layout tests measure lines with cellWidth,
+// measured with this — the layout tests measure lines with the model's
+// width model,
 // which is what counts the columns of a rendered line.
 func styleRuns(line string) []styleRun {
 	var (

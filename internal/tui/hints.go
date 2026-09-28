@@ -25,7 +25,7 @@ func (m Model) hintLines(layout Layout, width int) []string {
 	styles := m.styles()
 
 	return []string{styles.dimmed(m.tokens().SecondaryText).
-		Render(fitCells(m.hintText(layout), width))}
+		Render(m.widths.Fit(m.hintText(layout), width, ellipsis))}
 }
 
 // hintText returns the hints of the current focus.

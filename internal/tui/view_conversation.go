@@ -4,6 +4,8 @@ import (
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"telecli/internal/tui/theme"
 )
 
 // This file draws the messages of a conversation.
@@ -396,19 +398,25 @@ func (m Model) incomingMessageLines(
 	width int,
 	styles viewStyles,
 ) []string {
+	selected := m.entrySelected(entry)
+	surface := m.selectedSurface(selected)
 	indent := spaces(selectionMarkerWidth + contentInsetWidth)
 
-	head := m.selectionColumnForTimeline(m.entrySelected(entry)) +
-		styles.authorColor(entry.message.AuthorID).Render(messageAuthor(entry.message))
-	if time := m.messageTime(entry.message); time != "" {
-		head += authorTimeSeparator + time
+	head := m.painter(surface).
+		add(m.selectionMarkStyle(selected), m.selectionMark(selected)).
+		add(
+			styles.authorColor(entry.message.AuthorID),
+			messageAuthor(entry.message),
+		)
+	if entry.message.Time != "" {
+		head = head.
+			add(styles.unstyled(), authorTimeSeparator).
+			add(styles.text(m.tokens().MutedText), entry.message.Time)
 	}
 
-	lines := []string{m.selectionRow(m.entrySelected(entry)).Render(head)}
-
 	return append(
-		lines,
-		m.messageBodyLines(entry, indent, width, styles)...,
+		[]string{head.pad(width - head.width()).String()},
+		m.messageBodyLines(entry, indent, width, surface, styles)...,
 	)
 }
 
@@ -426,22 +434,27 @@ func (m Model) shortMessageLines(
 	indent := spaces(selectionMarkerWidth + contentInsetWidth)
 	textWidth := maxInt(width-m.widths.StringWidth(indent), 1)
 
+	selected := m.entrySelected(entry)
+	surface := m.selectedSurface(selected)
+
 	wrapped := m.widths.Wrap(entryText(entry), textWidth, ellipsis)
 	if len(wrapped) == 0 {
 		wrapped = []string{""}
 	}
 
 	body := make([]string, 0, len(wrapped))
-	for _, line := range wrapped {
-		body = append(body, styles.body(false).Render(indent+line))
+	for index, line := range wrapped {
+		row := m.painter(surface).add(styles.body(false), indent+line)
+		if index == 0 {
+			row = m.painter(surface).
+				add(m.selectionMarkStyle(selected), m.selectionMark(selected)).
+				add(styles.body(false), line)
+		}
+
+		body = append(body, row.pad(width-row.width()).String())
 	}
 
-	head := m.selectionColumnForTimeline(m.entrySelected(entry)) + body[0]
-
-	return append(
-		[]string{m.selectionRow(m.entrySelected(entry)).Render(head)},
-		body[1:]...,
-	)
+	return body
 }
 
 // outgoingMessageLines renders a message of this user: a block on the
@@ -457,7 +470,7 @@ func (m Model) outgoingMessageLines(
 	styles viewStyles,
 ) []string {
 	selected := m.entrySelected(entry)
-	column := m.selectionColumnForTimeline(selected)
+	surface := m.selectedSurface(selected)
 	blockWidth := m.outgoingBlockWidth(width)
 	textWidth := maxInt(blockWidth-2*outgoingBubbleInset, 1)
 	offset := maxInt(width-selectionMarkerWidth-blockWidth, 0)
@@ -468,22 +481,23 @@ func (m Model) outgoingMessageLines(
 		// of its block and on no other: a mark down the side of a block is
 		// a mark on the block, and one on the state under the text would
 		// say that the state is the message the keys act on.
-		mark := column
-		if index > 0 {
-			mark = spaces(selectionMarkerWidth)
+		mark := spaces(selectionMarkerWidth)
+		if index == 0 {
+			mark = m.selectionMark(selected)
 		}
 
 		rows = append(rows, m.outgoingRow(
-			styles, mark, offset, blockWidth, line, false,
+			styles, surface, m.selectionMarkStyle(selected), mark,
+			offset, blockWidth, line, m.tokens().OutgoingMessage,
 		))
 	}
 
-	if footer := m.historyStateLabel(entry.message, textWidth); footer != "" {
-		rows = append(rows, m.outgoingRow(
-			styles, spaces(selectionMarkerWidth), offset, blockWidth,
-			footer, true,
-		))
-	}
+	label, stateStyle := m.historyStateRun(entry.message, textWidth)
+	rows = append(rows, m.outgoingRow(
+		styles, surface, m.selectionMarkStyle(selected),
+		spaces(selectionMarkerWidth), offset, blockWidth,
+		label, stateStyle,
+	))
 
 	return rows
 }
@@ -507,51 +521,60 @@ func (m Model) outgoingBlockWidth(width int) int {
 //
 // The block is exactly blockWidth columns wide whichever way round the
 // text goes, so two messages of the same conversation line up on their
-// right edge and the eye can read down them.
+// right edge and the eye can read down them. The surface of the composer
+// is written on the columns to the left of the text as well, because a
+// block whose first column is on the chat background and the rest on the
+// composer's is a block with a notch in it.
 func (m Model) outgoingRow(
 	styles viewStyles,
-	column string,
+	surface theme.Color,
+	markStyle lipgloss.Style,
+	mark string,
 	offset, blockWidth int,
 	content string,
-	footer bool,
+	colour theme.Color,
 ) string {
 	inner := maxInt(blockWidth-2*outgoingBubbleInset, 1)
 	fitted := m.widths.Fit(content, inner, ellipsis)
 
-	style := styles.text(m.tokens().OutgoingMessage)
-	if footer {
-		style = styles.text(m.tokens().MutedText)
-	}
+	// The columns to the left of the block are the row of the message and
+	// take the surface of the row: the block has the composer's own
+	// surface of its own, and the selection is what is around it.
+	row := m.painter(surface).add(markStyle, mark).pad(offset)
 
-	block := styles.bubble().Render(
-		spaces(outgoingBubbleInset) +
-			style.Render(fitted) +
-			spaces(maxInt(inner-m.widths.StringWidth(fitted), 0)) +
+	return row.add(
+		styles.bubble(),
+		spaces(outgoingBubbleInset)+
+			styles.text(colour).Render(fitted)+
+			spaces(maxInt(inner-m.widths.StringWidth(fitted), 0))+
 			spaces(outgoingBubbleInset),
-	)
-
-	return column + spaces(offset) + m.widths.Fit(block, blockWidth, "")
+	).String()
 }
 
-// historyStateLabel returns the words under a message of this user: the
-// state it is in, and the time it happened at.
+// historyStateRun returns the words under a message of this user and the
+// colour of them: the state it is in, and the time it happened at, on one
+// line.
 //
 // The history is the past, so a message of it is sent, and it is drawn as
 // sent rather than left without a state: a user who sees a state on the
 // messages that are still leaving is entitled to know that the ones that
 // have gone are not in some state they cannot see.
-func (m Model) historyStateLabel(message Message, width int) string {
-	mark, known := deliveryStateOf(deliveryOfHistory(message))
+//
+// The colour is the state's own, so the line under a message repeats what
+// the words under it say rather than being the same grey everywhere: a
+// muted `! Failed` is a warning about nothing in particular.
+func (m Model) historyStateRun(message Message, width int) (string, theme.Color) {
+	state, known := deliveryStateOf(deliveryOfHistory(message))
 	if !known {
-		return ""
+		return "", m.tokens().MutedText
 	}
 
-	label := mark.Mark().String()
+	label := state.Mark().String()
 	if message.Time != "" {
 		label += " " + message.Time
 	}
 
-	return m.widths.TruncateMarked(label, width, ellipsis)
+	return m.widths.TruncateMarked(label, width, ellipsis), state.Color(m.tokens())
 }
 
 // deliveryOfHistory is the state a message of the history is in.
@@ -575,6 +598,7 @@ func (m Model) messageBodyLines(
 	entry timelineEntry,
 	indent string,
 	width int,
+	surface theme.Color,
 	styles viewStyles,
 ) []string {
 	textWidth := maxInt(width-m.widths.StringWidth(indent), 1)
@@ -589,42 +613,33 @@ func (m Model) messageBodyLines(
 	lines := make([]string, 0, len(wrapped))
 
 	for _, line := range wrapped {
-		lines = append(lines, styles.body(false).Render(indent+line))
+		row := m.painter(surface).add(styles.body(false), indent+line)
+		lines = append(lines, row.pad(width-row.width()).String())
 	}
 
 	return lines
 }
 
-// selectionColumnForTimeline returns the column in front of a message.
+// selectionMark returns the column in front of the message under the
+// cursor, as text and not as a rendered run.
 //
 // It is a blank in every profile that can show the background of a
 // selected row, and a `›` in the profile that cannot: the messages of a
 // timeline are the rows the keys act on, and §5.2 asks for a marker on the
 // one under the cursor, but a marker on every one of them would be a
 // column of chevrons down the middle of a conversation.
-func (m Model) selectionColumnForTimeline(selected bool) string {
-	styles := m.styles()
-	glyph := styles.selectionMarker(selected)
+func (m Model) selectionMark(selected bool) string {
+	glyph := m.styles().selectionMarker(selected)
 	if glyph == "" {
 		return spaces(selectionMarkerWidth)
 	}
 
-	return styles.selectionMark(selected, m.focus == FocusHistory).Render(glyph)
+	return glyph
 }
 
-// selectionRow is the style of a row of the timeline: the background of the
-// selected message and nothing else.
-func (m Model) selectionRow(selected bool) lipgloss.Style {
-	return m.styles().selected(selected)
-}
-
-// messageTime returns the time of a message in the muted tier.
-func (m Model) messageTime(message Message) string {
-	if message.Time == "" {
-		return ""
-	}
-
-	return m.styles().text(m.tokens().MutedText).Render(message.Time)
+// selectionMarkStyle returns the style of that column.
+func (m Model) selectionMarkStyle(selected bool) lipgloss.Style {
+	return m.styles().selectionMark(selected, m.focus == FocusHistory)
 }
 
 // entryText returns what an entry says: the words under a picture when it
@@ -738,31 +753,6 @@ func messageAuthor(message Message) string {
 	}
 
 	return unknownAuthor
-}
-
-// leftAndRight puts left at the start of a row of width columns and right
-// at its end.
-//
-// The gap between them is filled with spaces, so two messages keep their
-// times in the same column and the eye can run down them. Both sides may
-// carry escape sequences: the gap is measured in columns, not in bytes.
-//
-// It is a method of the model because a gap of columns is only right in the
-// columns of the terminal the row is drawn in: measured in the columns of
-// another one it is off by however much that terminal disagrees about the
-// text on either side of it, and the time of a message is cut off or the
-// row wraps.
-func (m Model) leftAndRight(left, right string, width int) string {
-	if right == "" {
-		return m.widths.Fit(left, width, ellipsis)
-	}
-
-	gap := width - m.widths.StringWidth(left) - m.widths.StringWidth(right)
-	if gap < 0 {
-		return m.widths.Fit(left+" "+right, width, ellipsis)
-	}
-
-	return left + spaces(gap) + right
 }
 
 // timelineEmptyLines is what the conversation says before it has

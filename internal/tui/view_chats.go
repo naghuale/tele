@@ -171,24 +171,19 @@ func (m Model) chatListRowLines(
 ) []string {
 	styles := m.styles()
 	chat := entry.chat
+	surface := m.selectedSurface(selected)
 
 	title := chat.Title
 	if title == "" {
 		title = untitledChatTitle
 	}
 
-	// The marker sits in a column of its own and every row reserves it, so
-	// a name does not step sideways when the cursor moves to the row above
-	// it. It is a glyph only where the profile cannot show the background
-	// of the selected row; with a background, the background is the
-	// selection and a glyph on top of it says it twice.
-	inset := m.selectionColumn(selected)
-
-	at := m.chatTime(chat)
-	badge := m.chatListUnreadBadge(chat, selected)
-	rowStyle := styles.selected(selected)
-	badgeColumns := m.widths.StringWidth(badge)
+	mark := styles.selectionMarker(selected)
+	at := chat.Time
+	badgeText, badgeStyle := m.chatListUnreadBadge(chat)
+	badgeColumns := m.widths.StringWidth(badgeText)
 	timeColumns := m.widths.StringWidth(at)
+	timeStyle := styles.text(m.tokens().MutedText)
 
 	// §4.2 gives the time up before the name does, on a list too narrow to
 	// carry both: a time at the end of a row is worth less than the first
@@ -202,57 +197,57 @@ func (m Model) chatListRowLines(
 		at = ""
 	}
 
+	// The marker is handed to the painter as text and a style and not as a
+	// rendered run: Lip Gloss re-reads the sequences of what it is given,
+	// and a run that already carries the surface loses it on the way
+	// through.
+	markRun := mark + " "
+	markStyle := styles.selectionMark(selected, m.focus == FocusChatList)
+
 	if m.chatListRowHeight(layout) == 1 {
 		short := maxInt(nameWidth-badgeColumns-2, 1)
-		line := inset + m.chatTitleLine(styles, title, selected, short)
-		if badge != "" {
-			line += "  " + badge
-		}
 
-		return []string{rowStyle.Render(m.leftAndRight(line, at, width))}
+		head := m.chatTitle(
+			m.painter(surface).add(markStyle, markRun),
+			title,
+			selected,
+			short,
+		).
+			right(badgeText, width, badgeStyle).
+			right(at, width, timeStyle).
+			String()
+
+		return []string{head}
 	}
 
-	head := m.leftAndRight(
-		inset+m.chatTitleLine(styles, title, selected, nameWidth),
-		at,
-		width,
-	)
+	head := m.chatTitle(
+		m.painter(surface).add(markStyle, markRun),
+		title,
+		selected,
+		nameWidth,
+	).
+		right(at, width, timeStyle).
+		String()
 
+	// The badge is spent out of the width of the preview and not added to
+	// it: a preview that pushes the badge off the end of the row is a
+	// preview that has taken the only number in it.
 	previewWidth := maxInt(
 		width-selectionMarkerWidth-contentInsetWidth-badgeColumns-timeGapColumns,
 		1,
 	)
-	detail := m.leftAndRight(
-		spaces(selectionMarkerWidth+contentInsetWidth)+
-			styles.text(m.tokens().SecondaryText).
-				Render(m.widths.TruncateMarked(
-					m.chatListPreview(chat), previewWidth, ellipsis,
-				)),
-		badge,
-		width,
-	)
+	detail := m.painter(surface).
+		add(markStyle, markRun+spaces(contentInsetWidth)).
+		add(
+			styles.text(m.tokens().SecondaryText),
+			m.widths.TruncateMarked(
+				m.chatListPreview(chat), previewWidth, ellipsis,
+			),
+		).
+		right(badgeText, width, badgeStyle).
+		String()
 
-	return []string{
-		rowStyle.Render(head),
-		rowStyle.Render(detail),
-		rowStyle.Render(""),
-	}
-}
-
-// selectionColumn returns the column in front of a selected row: the
-// marker of §2.7 where the profile cannot show the selected background,
-// and a blank of the same width everywhere else.
-//
-// It is always exactly one column wide, so a list drawn in colour and a
-// list drawn without it have their names in the same place.
-func (m Model) selectionColumn(selected bool) string {
-	styles := m.styles()
-	glyph := styles.selectionMarker(selected)
-	if glyph == "" {
-		return spaces(selectionMarkerWidth)
-	}
-
-	return styles.selectionMark(selected, m.focus == FocusChatList).Render(glyph)
+	return []string{head, detail, m.painter(surface).pad(width).String()}
 }
 
 // timeGapColumns is the space kept between the name of a chat and the
@@ -275,20 +270,6 @@ const minNameBesideTime = 8
 // messages in it.
 const untitledChatTitle = "(untitled)"
 
-// chatTime returns the time of the last message of a chat, in the dim step
-// of the text ramp.
-//
-// It is the muted tier and not the disabled one, and it is not drawn faint:
-// a timestamp is read rather than glanced at, and §24 holds the tiers a
-// user reads to the same contrast bar as the words above them.
-func (m Model) chatTime(chat Chat) string {
-	if chat.Time == "" {
-		return ""
-	}
-
-	return m.styles().text(m.tokens().MutedText).Render(chat.Time)
-}
-
 // chatListPreview returns the second line of a chat: what it is about.
 func (m Model) chatListPreview(chat Chat) string {
 	if chat.Preview == "" {
@@ -298,17 +279,20 @@ func (m Model) chatListPreview(chat Chat) string {
 	return chat.Preview
 }
 
-// chatListUnreadBadge returns the unread count of a chat as a pill, or
-// nothing when the chat has nothing unread.
+// chatListUnreadBadge returns the unread count of a chat as a pill and
+// the style of it, or nothing when the chat has nothing unread.
 //
 // The pill is the accent of the theme for a chat with one other person in
 // it, and the muted step for a group or a channel: a hundred unread
 // messages in a channel is background, and a hundred unread messages from
 // one person is not. The text inside is the colour of the surface the pill
 // is on, so the number is cut out of the pill rather than written on it.
-func (m Model) chatListUnreadBadge(chat Chat, selected bool) string {
+//
+// It is returned as text and a style and not as a rendered run, because
+// the row writes it and the row is what knows the surface of the row.
+func (m Model) chatListUnreadBadge(chat Chat) (string, lipgloss.Style) {
 	if chat.Unread <= 0 {
-		return ""
+		return "", m.styles().unstyled()
 	}
 
 	background := m.tokens().MutedText
@@ -316,10 +300,8 @@ func (m Model) chatListUnreadBadge(chat Chat, selected bool) string {
 		background = m.tokens().Unread
 	}
 
-	badge := unreadBadge(chat.Unread)
-
-	return m.styles().pill(background, m.tokens().SidebarBackground).
-		Render(" " + badge + " ")
+	return " " + unreadBadge(chat.Unread) + " ", m.styles().
+		pill(background, m.tokens().SidebarBackground)
 }
 
 // unreadBadge is the number on an unread badge (§4.2).

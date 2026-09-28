@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -161,19 +162,22 @@ func (s viewStyles) text(color theme.Color) lipgloss.Style {
 		Foreground(lipgloss.Color(color.Hex()))
 }
 
-// dimmed returns the style for de-emphasized text: faint where the
-// terminal can dim, plain where it cannot.
+// dimmed returns the style for de-emphasized text: the dimmer colour
+// alone, and never the faint attribute on top of it.
 //
-// A dimmer colour is the primary way of de-emphasizing text, and a
-// terminal that shows no colour is the one case where it cannot work, so
-// the faint attribute is the fallback rather than the mechanism.
+// Faint is the terminal multiplying a colour it was given by something of
+// its own, and what it multiplies by is not a number anybody chose: the
+// Apple Terminal takes a muted colour down to about 2:1, which undoes
+// exactly the contrast the theme package measured and the contrast test
+// proved. A tier is dimmer because its colour is dimmer, and the words
+// next to it say what it is for.
+//
+// Under the no-colour profile there is no colour to be dim and termenv
+// prints no attributes either, so the style is empty: the symbols and
+// the words are all that profile has, and the muted tier is one of the
+// words.
 func (s viewStyles) dimmed(color theme.Color) lipgloss.Style {
-	style := s.text(color)
-	if color.Kind() != theme.ColorKindRGB {
-		return style
-	}
-
-	return style.Faint(true)
+	return s.text(color)
 }
 
 // raised returns the style of a block that sits on the surface below it.
@@ -195,6 +199,32 @@ func (s viewStyles) raised(foreground, background theme.Color) lipgloss.Style {
 	return s.renderer.NewStyle().
 		Foreground(lipgloss.Color(foreground.Hex())).
 		Background(lipgloss.Color(background.Hex()))
+}
+
+// on returns a style for a run of a row that has a surface of its own.
+//
+// Every run of a selected row goes through here. A run that does not ends
+// with SGR 0, and that reset takes the surface of the row with it: a
+// selected row whose second cell is not on the selection is a row with a
+// one-column highlight on it, which a user reads as a cursor rather than
+// as a selection, and which is invisible on every row of a list at once.
+//
+// A row with no surface of its own is left alone: the region around it
+// paints it, and giving it a second background would fight the surface it
+// sits on.
+func (s viewStyles) on(surface theme.Color, style lipgloss.Style) lipgloss.Style {
+	if surface.Kind() != theme.ColorKindRGB {
+		return style
+	}
+
+	return style.Background(lipgloss.Color(surface.Hex()))
+}
+
+// unstyled is the style of a run that has no colour of its own: the
+// columns between two runs of a row, which take the surface of the row
+// and nothing else.
+func (s viewStyles) unstyled() lipgloss.Style {
+	return s.renderer.NewStyle()
 }
 
 // selected is the style of the selected row of a list.
@@ -515,3 +545,77 @@ func popupForegroundColor(tokens theme.Tokens, selected bool) string {
 
 	return tokens.PrimaryText.Hex()
 }
+
+// rowPainter writes the runs of one row of a chat list or a timeline.
+//
+// It is a pointer because a row is written in order and every run is
+// written into the same string: returning it by value would copy a
+// builder that has already been written to.
+type rowPainter struct {
+	styles  viewStyles
+	widths  termwidth.WidthModel
+	surface theme.Color
+	written strings.Builder
+}
+
+// painter returns a painter for a row with the given surface, which is the
+// Selected token of a selected row and nothing anywhere else.
+func (m Model) painter(surface theme.Color) *rowPainter {
+	return &rowPainter{
+		styles:  m.styles(),
+		widths:  m.widths,
+		surface: surface,
+	}
+}
+
+// selectedSurface returns the surface the rows of a list or a timeline are
+// drawn on while the row under the cursor is selected, and nothing when it
+// is not.
+func (m Model) selectedSurface(selected bool) theme.Color {
+	if !selected {
+		return theme.Color{}
+	}
+
+	return m.tokens().Selected
+}
+
+// add writes one run of the row in the given style.
+func (p *rowPainter) add(style lipgloss.Style, text string) *rowPainter {
+	p.written.WriteString(p.styles.on(p.surface, style).Render(text))
+
+	return p
+}
+
+// pad writes the columns between two runs of the row.
+//
+// The gap is written rather than left out because a gap that is not
+// written is a gap in the surface of the row: the run before it ends with
+// a reset, and the columns after that are on the pane instead of on the
+// selection.
+func (p *rowPainter) pad(columns int) *rowPainter {
+	if columns <= 0 {
+		return p
+	}
+
+	return p.add(p.styles.unstyled(), spaces(columns))
+}
+
+// right writes right at the end of a row of the given width, with the
+// columns that are missing filled in before it.
+func (p *rowPainter) right(text string, width int, style lipgloss.Style) *rowPainter {
+	if text == "" {
+		return p.pad(width - p.width())
+	}
+
+	return p.pad(width-p.width()-p.widths.StringWidth(text)).
+		add(style, text)
+}
+
+// width returns how many columns have been written so far, escape
+// sequences excluded.
+func (p *rowPainter) width() int {
+	return p.widths.StringWidth(p.written.String())
+}
+
+// String returns the row.
+func (p rowPainter) String() string { return p.written.String() }

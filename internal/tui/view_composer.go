@@ -97,11 +97,11 @@ func (m Model) composerRowCount(layout Layout, width int) int {
 
 // composerTextWidth returns the width a row of the draft is laid out in.
 //
-// The inset between the focus bar and the text comes off the pane: the
-// cursor has to be drawn in the columns the text is in, or it lands next to
-// the text instead of on it.
+// The marker and its space come off the pane: the cursor has to be drawn
+// in the columns the text is in, or it lands next to the text instead of
+// on it.
 func (m Model) composerTextWidth(width int) int {
-	return maxInt(width-contentInsetWidth, 1)
+	return maxInt(width-composerPromptWidth(), 1)
 }
 
 // composerTextLines returns the rows the draft is drawn in, with the cursor
@@ -136,14 +136,28 @@ func (m Model) composerTextLines(layout Layout, width, rows int) []string {
 	return lines
 }
 
-// composerPrompt is the marker in front of the draft.
+// composerPrompt is the marker in front of the draft, and the space after
+// it.
 //
-// It is in the accent of the theme when the composer has the keys and in
-// the dim step when it does not, so the field that takes what is typed
-// looks different from the two fields around it before anything is typed
-// into it. It is a character and not a colour, which is what keeps it
-// visible in a terminal that has no colour at all.
-const composerPrompt = "›"
+// The space is part of the marker and not part of the field: `›Write` is
+// one shape, and a user typing into the field reads the gap between the
+// marker and the first letter as the edge of the field. The two columns
+// are reserved whatever the profile is, so the draft starts in the same
+// column in colour and without colour.
+const composerPrompt = "› "
+
+// composerPromptWidth returns the columns the marker and its space take in
+// front of the draft.
+//
+// Every width the draft is laid out in and every width the field is
+// fitted to spends it, so the cursor is drawn in the columns the text is
+// in and not beside it. It is measured rather than written down, because
+// the marker is two characters of text and a number that could disagree
+// with them is a number that would take a column away from the draft
+// without anybody noticing.
+func composerPromptWidth() int {
+	return len([]rune(composerPrompt))
+}
 
 // composerPromptStyle is the style of the marker in front of the draft.
 func (m Model) composerPromptStyle(focused bool) string {

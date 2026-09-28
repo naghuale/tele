@@ -223,22 +223,21 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 
 	// Dim is the one step of every built-in palette that is too dark to
 	// read comfortably. It stays the shadow, the cancelled status and the
-	// disabled tier; the muted tier is lifted off it, because a chat
-	// preview and a timestamp are read rather than glanced at.
+	// disabled tier.
 	dim := palette.Overlay0
 
-	// Muted text is dim lifted towards the text ramp until it clears the
-	// WCAG AA bar on every surface the timeline and the list are drawn on.
-	//
-	// It is computed rather than named because §24 holds the previews and
-	// the times to 4.5:1 and no single step of any of the three palettes
-	// is both dim enough to be the tier below secondary and that readable:
-	// Mocha's overlay1 clears it, Gruvbox's does not, and a palette
-	// written by a user would have the same trouble. Lifting towards the
-	// text ramp is the one move that answers for all of them and cannot
-	// make a muted tier brighter than the secondary one above it, because
-	// the lift stops at the ramp it walks towards.
-	muted := readableMuted(dim, palette.Text, mutedSurfaces(palette, dark))
+	// The muted tier is the palette's own value and not a step of its
+	// ramp: §24 holds a chat preview and a timestamp to WCAG AA, and
+	// every preset names the step of its own ramp that clears the bar on
+	// the surfaces they are drawn on. A value worked out at run time would
+	// be a value a golden file could not be right about on two machines.
+	muted := palette.Muted
+	if !muted.IsSet() {
+		// A palette written before the role existed — a user palette
+		// (PR-10C) — has none, and dim is the dimmest step it has. The
+		// contrast test says so rather than letting it pass.
+		muted = dim
+	}
 
 	return Tokens{
 		// Surfaces: the ramp in order, so the structure comes from the
@@ -253,7 +252,7 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 		ShadowBackground:   dim,
 
 		// Text: the text ramp for the two roles a user reads, and the
-		// one lifted dim step for the two that are read and dimmed.
+		// palette's own readable dim step for the two below them.
 		PrimaryText:   palette.Text,
 		SecondaryText: palette.Subtext0,
 		MutedText:     muted,

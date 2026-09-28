@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
@@ -199,19 +200,31 @@ func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
 // The badge of an unread count is a pill, not a `● 2` in the text: a
 // number that is part of the sentence is a number a user has to parse, and
 // the pill says the same thing in a shape that is not a word. It is in the
-// accent for a chat with one other person in it and in the muted step for a
-// group, because a hundred unread messages in a channel is background.
+// accent for a chat with one other person in it and in the muted step for
+// a group, because a hundred unread messages in a channel is background.
+//
+// The pill keeps its own colour on the selected row: it is a badge rather
+// than a cell of the row, and a badge that takes the colour of the row it
+// is in has stopped being one.
 func TestTheUnreadBadgeIsAPillAndGroupsAreQuieter(t *testing.T) {
 	m := openedProgramModel(t, theme.ProfileTrueColor, 120, 30)
 	m.chats = []Chat{
 		{ID: 1, Title: "Anna", Unread: 2, Preview: "hello", Time: "10:02"},
 		{ID: 2, Title: "Room", Unread: 2, Preview: "hello", Time: "10:02", Kind: ChatKindGroup},
+		{ID: 3, Title: "Notes", Time: "10:02"},
 	}
 	m.chatsState = loadStateLoaded
+	// The badge keeps its own colour on the row the cursor is on, so the
+	// row under the cursor is one of the two without a count.
+	m.selectedChat = 2
 
 	view := m.View()
-	private := selectedBackgroundEscapeFor(m, m.tokens().Unread, m.tokens().SidebarBackground)
-	grouped := selectedBackgroundEscapeFor(m, m.tokens().MutedText, m.tokens().SidebarBackground)
+	private := selectedBackgroundEscapeFor(
+		m, m.tokens().Unread, m.tokens().SidebarBackground,
+	)
+	grouped := selectedBackgroundEscapeFor(
+		m, m.tokens().MutedText, m.tokens().SidebarBackground,
+	)
 
 	if private == "" || grouped == "" || private == grouped {
 		t.Skipf("the theme has no distinct pill colours: %q and %q", private, grouped)
@@ -236,21 +249,9 @@ func selectedBackgroundEscapeFor(
 		return ""
 	}
 
-	style := m.styles().pill(background, surface)
-	rendered := style.Render("x")
-
-	start := strings.Index(rendered, "48;2;")
-	if start < 0 {
-		return ""
-	}
-
-	rest := rendered[start:]
-	end := strings.Index(rest, "m")
-	if end < 0 {
-		return ""
-	}
-
-	return rest[:end]
+	return backgroundParameters(
+		m.styles().pill(background, surface).Render("x"),
+	)
 }
 
 // The feed is pressed against the composer: a conversation with three
@@ -584,4 +585,179 @@ func TestTabMovesTheRuleBetweenThePanes(t *testing.T) {
 
 	m, _ = updateModel(t, m, press(tea.KeyTab))
 	assertPanelRule(t, m, listPane)
+}
+
+// Every cell of both rows of the selected chat carries the Selected
+// background, and not only the first one.
+//
+// A run that is styled without it ends with SGR 0, and that reset takes
+// the surface of the row with it: what is left is a one-column highlight
+// in the middle of a row, which every reader of a list takes for a cursor
+// rather than for a selection, and which on a list of twenty chats is
+// twenty highlights in twenty places.
+//
+// It is checked on a true-colour and on an indexed profile, because the
+// two print a background in different ways and only one of them was right,
+// and it is checked on the rows of the list rather than on the lines of
+// the screen, because a screen line is two panes and the background in
+// question is the list's.
+func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
+	for _, profile := range []theme.Profile{
+		theme.ProfileTrueColor, theme.ProfileANSI256,
+	} {
+		t.Run(profile.String(), func(t *testing.T) {
+			m := focusedOn(
+				openedProgramModel(t, profile, 120, 30),
+				FocusChatList,
+			)
+			m.chats[0].Title = "Anna Example"
+			m.chats[0].Preview = "the build is green again"
+
+			background := backgroundParameters(
+				m.styles().selected(true).Render("x"),
+			)
+			if background == "" {
+				t.Fatal("the theme has no selected background to draw")
+			}
+
+			layout := LayoutFor(m.width, m.height)
+			rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+
+			if len(rows[0]) != 3 {
+				t.Fatalf(
+					"a chat takes %d rows, want its name, its preview and a gap",
+					len(rows[0]),
+				)
+			}
+
+			for _, row := range rows[0][:2] {
+				assertRowIsOnBackground(t, m, background, row)
+			}
+		})
+	}
+}
+
+// The message under the cursor carries the same thing in the timeline: a
+// row of the conversation that is a highlight in its first column only is
+// a row that is not selected.
+func TestEveryColumnOfTheSelectedMessageIsOnItsBackground(t *testing.T) {
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	m.chats[m.selectedChat].Messages = []Message{{
+		ID: 1, Text: "the build is green again", Time: "10:02",
+		Author: "Anna Example", AuthorID: 5,
+	}}
+	m.historyState = loadStateLoaded
+	m.selectedMsg = 0
+	m.timelineTop = 0
+
+	layout := LayoutFor(m.width, m.height)
+	width := layout.ChatContentWidth()
+	background := backgroundParameters(m.styles().selected(true).Render("x"))
+
+	entries := timelineEntries(m.selected().Messages)
+	rows := m.entryLines(entries[0], layout, width, m.styles())
+
+	// The first row of a block is the blank line between messages.
+	for _, row := range rows[1:] {
+		assertRowIsOnBackground(t, m, background, row)
+	}
+}
+
+// assertRowIsOnBackground fails unless every column of a row carries the
+// background it was drawn on.
+//
+// The row is walked a run at a time rather than read as one string: a
+// reset in the middle of a row is invisible in the plain text and in a
+// substring search, and it is the only thing this is about.
+func assertRowIsOnBackground(t *testing.T, m Model, background, row string) {
+	t.Helper()
+
+	onBackground, columns := 0, 0
+
+	for _, run := range styleRuns(row) {
+		width := m.widths.StringWidth(run.text)
+		columns += width
+
+		if run.sgr == "" {
+			continue
+		}
+		if strings.Contains(run.sgr, background) {
+			onBackground += width
+		}
+	}
+
+	if columns == 0 {
+		t.Fatalf("the row is empty: %q", row)
+	}
+	if onBackground != columns {
+		t.Errorf(
+			"%d of %d columns carry the background %q: %q",
+			onBackground,
+			columns,
+			background,
+			row,
+		)
+	}
+}
+
+// The feed is chronological: the oldest message is on the first row of it
+// and the newest is on the last, and a message of this user that is still
+// in the queue is after both of them because it is newer than both.
+//
+// A page arrives from TDLib newest first and the model reverses it where
+// it lands, so a golden that handed the model an already chronological
+// list would be a golden of a program nobody runs. This is the test that
+// says the reversal is still there.
+func TestTheFeedIsInTheOrderOfTime(t *testing.T) {
+	queued := PendingMessage{
+		EntryID:   "entry-1",
+		ChatID:    1,
+		Text:      "still on its way",
+		State:     MessageDeliveryQueued,
+		CreatedAt: time.Date(2026, 3, 14, 12, 30, 0, 0, snapshotZone),
+	}
+
+	m := focusedOn(
+		openedProgramModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusHistory,
+	)
+	// Chat.Messages is chronological, oldest first: a page arrives newest
+	// first and the model reverses it where it lands.
+	m.chats[m.selectedChat].Messages = []Message{
+		{ID: 1, Text: "the oldest of three", Time: "12:02", Author: "Anna", AuthorID: 5},
+		{ID: 2, Text: "the middle of three", Time: "12:08", Author: "Anna", AuthorID: 5},
+		{ID: 3, Text: "the newest of three", Time: "12:10", Author: "Anna", AuthorID: 5},
+	}
+	m.historyState = loadStateLoaded
+	m.pending = []PendingMessage{queued}
+	m.selectedMsg = 3
+	m.timelineTop = 0
+
+	view := plain(m.View())
+	_, oldest, ok := lineWith(view, "the oldest of three")
+	if !ok {
+		t.Fatalf("the oldest message is not on the screen:\n%s", view)
+	}
+	_, middle, ok := lineWith(view, "the middle of three")
+	if !ok {
+		t.Fatalf("the middle message is not on the screen:\n%s", view)
+	}
+	_, newest, ok := lineWith(view, "the newest of three")
+	if !ok {
+		t.Fatalf("the newest message is not on the screen:\n%s", view)
+	}
+	_, queuedRow, ok := lineWith(view, "still on its way")
+	if !ok {
+		t.Fatalf("the queued message is not on the screen:\n%s", view)
+	}
+
+	if !(oldest < middle && middle < newest && newest < queuedRow) {
+		t.Fatalf(
+			"the feed is in the order %d, %d, %d, %d, want oldest first and the queued message last",
+			oldest, middle, newest, queuedRow,
+		)
+	}
 }

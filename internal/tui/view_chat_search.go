@@ -214,32 +214,29 @@ func (m Model) chatTitleSegments(
 	return segments
 }
 
-// chatTitleLine draws a chat title, with the fragment a search matched in
-// the accent of the theme.
+// chatTitle writes the name of a chat into a row, with the fragment a
+// search matched in the second accent of the theme.
 //
 // The title is fitted to the width of the row before it is split, so the
-// fragments are the words that are actually on the screen.
-func (m Model) chatTitleLine(
-	styles viewStyles,
+// fragments are the words that are actually on the screen. Every fragment
+// goes through the painter, so a selected row carries its background
+// across the name and not only across the first letter of it.
+func (m Model) chatTitle(
+	p *rowPainter,
 	title string,
 	selected bool,
 	width int,
-) string {
-	segments := m.chatTitleSegments(title, m.chatSearch.query, width)
-	if len(segments) == 1 && !segments[0].matched {
-		return styles.rowText(selected).
-			Render(m.widths.TruncateMarked(segments[0].text, width, ellipsis))
-	}
+) *rowPainter {
+	styles := p.styles
 
-	var line string
-	for _, segment := range segments {
+	for _, segment := range m.chatTitleSegments(title, m.chatSearch.query, width) {
 		style := styles.rowText(selected)
 		if segment.matched {
 			style = styles.matchRun()
 		}
 
-		line += style.Render(segment.text)
+		p = p.add(style, segment.text)
 	}
 
-	return line
+	return p
 }

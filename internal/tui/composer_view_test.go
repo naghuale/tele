@@ -265,12 +265,48 @@ func TestWrappingDoesNotChangeTheDraft(t *testing.T) {
 		t.Fatalf("composer = %q, want no wrap written into the draft", m.Composer())
 	}
 
-	view := plain(m.View())
-	for _, want := range []string{"перенесется", "по ширине"} {
-		if !strings.Contains(view, want) {
-			t.Fatalf("the wrapped draft lost %q:\n%s", want, view)
+	// The draft is shown in full, whatever the field happened to break it
+	// at: a word split across two rows is a normal thing to have typed,
+	// and what must not happen is a row of it that is not on the screen.
+	// The comparison is letter by letter, because the field may have cut
+	// a word in half between two rows and that is not a loss of it.
+	rows := drawnComposerRows(plain(m.View()))
+
+	var drawn strings.Builder
+	for _, row := range rows {
+		text := row
+		if _, after, found := strings.Cut(text, composerPrompt); found {
+			text = after
+		}
+
+		drawn.WriteString(strings.ReplaceAll(
+			strings.ReplaceAll(text, cursorBar, ""), " ", "",
+		))
+	}
+
+	if want := strings.ReplaceAll(m.Composer(), " ", ""); !strings.Contains(
+		drawn.String(), want,
+	) {
+		t.Fatalf(
+			"the screen lost part of the draft %q:\n%s",
+			want,
+			strings.Join(rows, "\n"),
+		)
+	}
+}
+
+// drawnComposerRows returns the rows of the screen the draft is drawn in.
+func drawnComposerRows(view string) []string {
+	var rows []string
+
+	for _, line := range viewLines(view) {
+		if strings.Contains(line, composerPrompt) ||
+			strings.Contains(line, cursorBar) {
+			rows = append(rows, line)
 		}
 	}
+
+	return rows
 }
 
 // The cursor is drawn on a cell, and a cell is a grapheme cluster.

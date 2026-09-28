@@ -7,65 +7,65 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-  Chats                    Anna Example                                                                                 
-  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                
+  Chats                             Anna Example                                                                        
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
   / Search · 3 unread                                                                                                   
-   Anna Example    12:07                                                                                                
-    the build is gr…  2                                                                                                 
+    Anna Example            12:07                                                                                       
+     the build is green again  2                                                                                        
                                                                                                                         
-   Release Room    12:05                                                                                                
-    the tag is pushed                                                                                                   
+    Release Room            12:05                                                                                       
+     the tag is pushed                                                                                                  
                                                                                                                         
-   Notes           11:58                                                                                                
-    milk, bread, co…  1                                                                                                 
+    Notes                   11:58                                                                                       
+     milk, bread, coffee       1                                                                                        
                                                                                                                         
-   Команда Разраб… 11:40                                                                                                
-    созвон в 15:00                                                                                                      
-                                                                                                                        
-                                                                                                                        
+    Команда Разработки      11:40                                                                                       
+     созвон в 15:00                                                                                                     
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                            Anna Example · 12:07                                                                        
-                             Спасибо, посмотрю после обеда                                                              
                                                                                                                         
-                                                        Shipped the release notes                                       
-                                                        ✓ Sent 12:05                                                    
                                                                                                                         
-                            Anna Example · 12:02                                                                        
-                             The build is green again                                                                   
+                                     Anna Example · 12:02                                                               
+                                      The build is green again                                                          
                                                                                                                         
-                           ›Write a message…                                                                            
-                           Enter open · / search · q quit                                                               
+                                                               Shipped the release notes                                
+                                                               ✓ Sent 12:05                                             
+                                                                                                                        
+                                     Anna Example · 12:07                                                               
+                                      Спасибо, посмотрю после обеда                                                     
+                                                                                                                        
+                                    › Write a message…                                                                  
+                                    Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183mChats                 \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;102mAnna Example                                                                                 \x1b[0m\x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;183m━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;102m/ Search · 3 unread   \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m\x1b[1;38;5;183m \x1b[0m\x1b[1;38;5;183mAnna Example\x1b[0m    \x1b[38;5;102m12:07\x1b[0m\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m  \x1b[38;5;146mthe build is gr…\x1b[0m \x1b[1;38;5;232;48;5;183m 2 \x1b[0m\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m\x1b[0m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[1;38;5;189mRelease Room\x1b[0m    \x1b[38;5;102m12:05\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[38;5;146mthe tag is pushed\x1b[0m   \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[1;38;5;189mNotes\x1b[0m           \x1b[38;5;102m11:58\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[38;5;146mmilk, bread, co…\x1b[0m \x1b[1;38;5;232;48;5;183m 1 \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[1;38;5;189mКоманда Разраб…\x1b[0m \x1b[38;5;102m11:40\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[38;5;146mсозвон в 15:00\x1b[0m      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m\x1b[38;5;151mAnna Example\x1b[0m · \x1b[38;5;102m12:07\x1b[0m                                                                        \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189m  Спасибо, посмотрю после обеда\x1b[0m                                                              \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[2;38;5;146m \x1b[0m                           \x1b[48;5;59m \x1b[38;5;183mShipped the release notes                                      \x1b[0m \x1b[0m\x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                            \x1b[48;5;59m \x1b[38;5;102m✓ Sent 12:05                                                   \x1b[0m \x1b[0m\x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m\x1b[1;2;38;5;146m \x1b[0m\x1b[38;5;151mAnna Example\x1b[0m · \x1b[38;5;102m12:02\x1b[0m\x1b[0m                                                                        \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189m  The build is green again\x1b[0m                                                                   \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m                                                                                             \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[2;38;5;102m›\x1b[0m\x1b[2;38;5;102mWrite a message…\x1b[0m                                                                            \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                      \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[2;38;5;146mEnter open · / search · q quit                                                               \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183mChats                          \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;102mAnna Example                                                                        \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;183m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;102m/ Search · 3 unread            \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183;48;5;59m  \x1b[0m\x1b[1;38;5;183;48;5;59mAnna Example\x1b[0m\x1b[48;5;59m            \x1b[0m\x1b[38;5;102;48;5;59m12:07\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183;48;5;59m   \x1b[0m\x1b[38;5;146;48;5;59mthe build is green again\x1b[0m\x1b[48;5;59m \x1b[0m\x1b[1;38;5;232;48;5;59m 2 \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m                               \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mRelease Room\x1b[0m            \x1b[38;5;102m12:05\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mthe tag is pushed\x1b[0m           \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mNotes\x1b[0m                   \x1b[38;5;102m11:58\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mmilk, bread, coffee\x1b[0m      \x1b[1;38;5;232;48;5;183m 1 \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mКоманда Разработки\x1b[0m      \x1b[38;5;102m11:40\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mсозвон в 15:00\x1b[0m              \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m \x1b[0m\x1b[38;5;151mAnna Example\x1b[0m · \x1b[38;5;102m12:02\x1b[0m                                                               \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189m  The build is green again\x1b[0m                                                          \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m \x1b[0m                         \x1b[48;5;59m \x1b[38;5;183mShipped the release notes                               \x1b[0m \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146m \x1b[0m                         \x1b[48;5;59m \x1b[38;5;151m✓ Sent 12:05                                            \x1b[0m \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;146;48;5;59m \x1b[0m\x1b[38;5;151;48;5;59mAnna Example\x1b[0m\x1b[48;5;59m · \x1b[0m\x1b[38;5;102;48;5;59m12:07\x1b[0m\x1b[48;5;59m                                                               \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;189;48;5;59m  Спасибо, посмотрю после обеда\x1b[0m\x1b[48;5;59m                                                     \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[38;5;102m› \x1b[0m\x1b[38;5;102mWrite a message…\x1b[0m                                                                  \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[38;5;146mEnter open · / search · q quit                                                      \x1b[0m\x1b[0m"

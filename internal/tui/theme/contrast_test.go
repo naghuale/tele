@@ -205,27 +205,53 @@ func TestContrastRatioOfAnUnsetColourIsZero(t *testing.T) {
 	}
 }
 
-// The muted tier is computed, not named, and the walk has to stop at the
-// right place in both directions. A palette whose dim step is already
-// readable keeps the colour it was authored with, because a lift nobody
-// needed is a colour a theme author did not choose; a step that has to
-// move stops at the first one that clears; and a ramp on which nothing
-// clears returns the text ramp, because a muted tier that cannot be read
-// is not a tier.
-func TestTheMutedTierLiftsOnlyAsFarAsItHasTo(t *testing.T) {
-	dim := RGB("#3c3c3c")
+// The muted tier of every preset is the first step of the walk from the
+// palette's dim step towards its text ramp that clears the bar on both
+// surfaces a preview and a timestamp are drawn on.
+//
+// That is a stronger statement than "it clears the bar": a palette that
+// wrote a value one step too bright, or the text ramp itself, would still
+// pass a threshold test and would be a tier that is not a tier.
+func TestTheMutedTierOfEveryPresetIsTheFirstReadableStep(t *testing.T) {
+	for _, name := range ThemeNames() {
+		built := mustTheme(t, name)
+		palette := built.Palette
+
+		if !palette.Muted.IsSet() {
+			t.Errorf("theme %s: the palette names no muted step", name)
+			continue
+		}
+
+		surfaces := mutedSurfaces(palette, built.Mode != ThemeModeLight)
+		want := readableMuted(palette.Overlay0, palette.Text, surfaces)
+
+		if palette.Muted != want {
+			t.Errorf(
+				"theme %s: the palette names the muted step %v, want %v",
+				name,
+				palette.Muted,
+				want,
+			)
+		}
+	}
+}
+
+// The walk itself: a dim step a user can read is its own answer, because a
+// lift nobody needed is a colour the preset did not choose; a step that
+// has to move stops at the first one that clears; and a ramp on which
+// nothing clears gives up at the top of it rather than returning
+// something unreadable out of the middle.
+func TestTheMutedWalkStopsWhereItShould(t *testing.T) {
 	ramp := RGB("#ffffff")
 
-	// A dim step a user can read on both surfaces is its own answer: a
-	// lift nobody needed is a colour the theme author did not choose.
 	readable := []Color{RGB("#101010"), RGB("#0c0c0c")}
 	if got := readableMuted(RGB("#909090"), ramp, readable); got != RGB("#909090") {
 		t.Errorf("a readable dim step was lifted to %v, want it left alone", got)
 	}
 
 	unreadable := []Color{RGB("#404040"), RGB("#3a3a3a")}
-	got := readableMuted(dim, ramp, unreadable)
-	if got == dim {
+	got := readableMuted(RGB("#3c3c3c"), ramp, unreadable)
+	if got == RGB("#3c3c3c") {
 		t.Errorf("an unreadable dim step was left at %v", got)
 	}
 	for _, surface := range unreadable {
@@ -237,8 +263,6 @@ func TestTheMutedTierLiftsOnlyAsFarAsItHasTo(t *testing.T) {
 		}
 	}
 
-	// A ramp on which nothing clears gives up at the top of it, rather
-	// than returning something unreadable out of the middle of the walk.
 	if got := readableMuted(RGB("#dddddd"), ramp, []Color{ramp}); got != ramp {
 		t.Errorf("an unreadable ramp gave %v, want the text ramp", got)
 	}

@@ -314,9 +314,13 @@
   §4, §5, §10)
   - layout.go: every number that decides a shape, and nothing else
     decides one. Width classes are wide >= 100, medium 72-99 and
-    narrow below; the chat list pane is a fixed 24 columns when wide
-    and 16 when medium, never a share of the terminal, and the two
-    panes are separated by one column of space and no line
+    narrow below; the chat list pane is 28% of a wide screen kept
+    between 28 and 40 columns, a fixed 16 when medium, and absent
+    when narrow, and the two panes are separated by one column of
+    space and no line. A share alone is not right either way: a list
+    that does not grow cuts a name in half while the conversation
+    beside it has empty columns, and one that grows without a bound
+    takes the columns a message needs
   - height rules: below 20 rows the previews and the extra status
     lines go, below 10 the hint bar is not drawn, below 6 the
     conversation is the composer alone, and below 40x5 the screen says
@@ -397,6 +401,11 @@
   - the feed is bottom-anchored: fewer messages than the feed has rows
     for means the empty rows are above them, so the newest message sits
     on the row directly above the composer
+  - a page arrives from TDLib newest first and the model reverses it
+    where it lands, so the screen is oldest at the top and the newest
+    message directly above the composer (divergence 1, closed by #50).
+    A golden that handed the model an already chronological page would
+    be a golden of a program nobody runs
   - a message from the other side is its author and its time on one row
     ("author · time") and its text under it, wrapped to the width of the
     region. The author is coloured out of six theme roles picked by the
@@ -406,8 +415,9 @@
   - a message of this user is a block on the right on the composer's
     own surface, inset one column, at most 70% of the feed, with the
     time and the state of the send under the text at the block's right
-    edge ("✓ Sent 14:30", "● Queued", "↻ Retrying at 14:35") and no
-    author line: the block being on the right already says whose it is
+    edge in the colour of the state itself ("✓ Sent 14:30", "● Queued
+    14:30", "↻ Retrying at 14:35") and no author line: the block being
+    on the right already says whose it is
   - a blank row separates two messages, and it is the first thing to go
     on a screen shorter than 20 rows
   - a run of consecutive messages from one sender that share a
@@ -895,6 +905,12 @@
     values are the official Catppuccin Mocha, Tokyo Night Storm and
     Gruvbox Dark palettes, with the upstream role named in a comment
     beside each block
+  - the muted tier is a value the preset names (Palette.Muted) and not
+    one worked out at run time: it is the first step of the walk from
+    the dim step towards the text ramp that clears 4.5:1 on both
+    surfaces a preview and a timestamp are drawn on, the walk lives in
+    the test, and a golden file cannot be right on two machines when a
+    colour comes out of floating-point arithmetic
   - contrast: PrimaryText and SecondaryText are at or above WCAG AA
     4.5:1 on AppBackground, SidebarBackground, ChatBackground and
     ComposerBackground in every built-in theme; MutedText, which draws

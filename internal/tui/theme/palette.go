@@ -30,6 +30,18 @@ type Palette struct {
 	Subtext0 Color
 	Subtext1 Color
 
+	// Muted is the step the chat previews and the timestamps are drawn
+	// in.
+	//
+	// It is a value of its own and not Overlay0 because none of the three
+	// palettes has a step that is both dim enough to sit below Subtext0
+	// and readable: §24 holds a preview to WCAG AA, and a timestamp
+	// nobody can read is not a timestamp. Each preset names the value
+	// rather than having it computed, because a colour that is worked out
+	// at run time is a colour that can come out different on two
+	// machines, and a golden file cannot be right on one of them.
+	Muted Color
+
 	Accent    Color
 	AccentAlt Color
 
@@ -64,18 +76,22 @@ type Palette struct {
 // status roles, and blue, pink and peach for link, mention and code.
 func catppuccinMochaPalette() Palette {
 	return Palette{
-		Base:      RGB("#1e1e2e"),
-		Mantle:    RGB("#181825"),
-		Crust:     RGB("#11111b"),
-		Surface0:  RGB("#313244"),
-		Surface1:  RGB("#45475a"),
-		Surface2:  RGB("#585b70"),
-		Overlay0:  RGB("#6c7086"),
-		Overlay1:  RGB("#7f849c"),
-		Overlay2:  RGB("#9399b2"),
-		Text:      RGB("#cdd6f4"),
-		Subtext0:  RGB("#a6adc8"),
-		Subtext1:  RGB("#bac2de"),
+		Base:     RGB("#1e1e2e"),
+		Mantle:   RGB("#181825"),
+		Crust:    RGB("#11111b"),
+		Surface0: RGB("#313244"),
+		Surface1: RGB("#45475a"),
+		Surface2: RGB("#585b70"),
+		Overlay0: RGB("#6c7086"),
+		Overlay1: RGB("#7f849c"),
+		Overlay2: RGB("#9399b2"),
+		Text:     RGB("#cdd6f4"),
+		Subtext0: RGB("#a6adc8"),
+		Subtext1: RGB("#bac2de"),
+
+		// overlay0 lifted towards the text ramp until it reads on the
+		// mantle and the crust: 4.75:1 and 5.07:1.
+		Muted:     RGB("#7e839b"),
 		Accent:    RGB("#cba6f7"),
 		AccentAlt: RGB("#89b4fa"),
 		Success:   RGB("#a6e3a1"),
@@ -104,18 +120,22 @@ func catppuccinMochaPalette() Palette {
 // Catppuccin's subtext0 and subtext1 do.
 func tokyoNightStormPalette() Palette {
 	return Palette{
-		Base:      RGB("#24283b"),
-		Mantle:    RGB("#1a1b26"),
-		Crust:     RGB("#15161e"),
-		Surface0:  RGB("#292e42"),
-		Surface1:  RGB("#3b4261"),
-		Surface2:  RGB("#414868"),
-		Overlay0:  RGB("#565f89"),
-		Overlay1:  RGB("#7aa2f7"),
-		Overlay2:  RGB("#a9b1d6"),
-		Text:      RGB("#c0caf5"),
-		Subtext0:  RGB("#a9b1d6"),
-		Subtext1:  RGB("#565f89"),
+		Base:     RGB("#24283b"),
+		Mantle:   RGB("#1a1b26"),
+		Crust:    RGB("#15161e"),
+		Surface0: RGB("#292e42"),
+		Surface1: RGB("#3b4261"),
+		Surface2: RGB("#414868"),
+		Overlay0: RGB("#565f89"),
+		Overlay1: RGB("#7aa2f7"),
+		Overlay2: RGB("#a9b1d6"),
+		Text:     RGB("#c0caf5"),
+		Subtext0: RGB("#a9b1d6"),
+		Subtext1: RGB("#565f89"),
+
+		// comment lifted towards fg until it reads on the mantle and the
+		// crust: 4.66:1 and 4.90:1.
+		Muted:     RGB("#7e87b2"),
 		Accent:    RGB("#7aa2f7"),
 		AccentAlt: RGB("#bb9af7"),
 		Success:   RGB("#9ece6a"),
@@ -143,18 +163,22 @@ func tokyoNightStormPalette() Palette {
 // (bg4), the one step below the text ramp.
 func gruvboxDarkPalette() Palette {
 	return Palette{
-		Base:      RGB("#282828"),
-		Mantle:    RGB("#32302f"),
-		Crust:     RGB("#1d2021"),
-		Surface0:  RGB("#3c3836"),
-		Surface1:  RGB("#504945"),
-		Surface2:  RGB("#665c54"),
-		Overlay0:  RGB("#7c6f64"),
-		Overlay1:  RGB("#928374"),
-		Overlay2:  RGB("#bdae93"),
-		Text:      RGB("#ebdbb2"),
-		Subtext0:  RGB("#bdae93"),
-		Subtext1:  RGB("#928374"),
+		Base:     RGB("#282828"),
+		Mantle:   RGB("#32302f"),
+		Crust:    RGB("#1d2021"),
+		Surface0: RGB("#3c3836"),
+		Surface1: RGB("#504945"),
+		Surface2: RGB("#665c54"),
+		Overlay0: RGB("#7c6f64"),
+		Overlay1: RGB("#928374"),
+		Overlay2: RGB("#bdae93"),
+		Text:     RGB("#ebdbb2"),
+		Subtext0: RGB("#bdae93"),
+		Subtext1: RGB("#928374"),
+
+		// bg4 lifted towards fg until it reads on the mantle and the
+		// crust: 5.13:1 and 6.02:1.
+		Muted:     RGB("#a69881"),
 		Accent:    RGB("#fabd2f"),
 		AccentAlt: RGB("#d3869b"),
 		Success:   RGB("#b8bb26"),

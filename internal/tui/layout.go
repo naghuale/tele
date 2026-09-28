@@ -27,14 +27,25 @@ const (
 	// nothing but the composer.
 	composerOnlyHeight = 6
 
-	// wideSidebarWidth and mediumSidebarWidth are the fixed widths of the
-	// chat list pane, including its focus column.
+	// wideSidebarSharePercent is how much of a wide screen the chat list
+	// pane takes, and wideSidebarLeast and wideSidebarMost the bounds it
+	// is kept between.
 	//
-	// The list is not a flexible share of the width: a chat list that
-	// grows with the terminal leaves the conversation unreadable, and one
-	// that shrinks makes titles useless. §3.3 says the same for the
-	// narrow case, where it is not squeezed at all.
-	wideSidebarWidth   = 24
+	// The list is a share of the width and not a fixed number, because
+	// neither a fixed number nor a percentage alone is right: a chat list
+	// that grows with the terminal leaves the conversation unreadable, and
+	// one that does not grow cuts a name in half while the conversation
+	// beside it has empty columns. A quarter of the width is what the
+	// approved drawing gives the list, and it is never less than 28
+	// columns (a name of a length anybody has) and never more than 40
+	// (a list wider than that is not a list a person reads). §3.3 says
+	// the same for the narrow case, where it is not squeezed at all.
+	wideSidebarSharePercent = 28
+	wideSidebarLeast        = 28
+	wideSidebarMost         = 40
+
+	// mediumSidebarWidth is the fixed width of the chat list pane on a
+	// medium screen, including the column every region reserves.
 	mediumSidebarWidth = 16
 
 	// paneGapWidth is the space between the two panes.
@@ -138,12 +149,21 @@ func (l Layout) TwoPane() bool { return l.Kind != LayoutNarrow }
 func (l Layout) SidebarWidth() int {
 	switch l.Kind {
 	case LayoutWide:
-		return wideSidebarWidth
+		return wideSidebarWidth(l.Width)
 	case LayoutMedium:
 		return mediumSidebarWidth
 	default:
 		return 0
 	}
+}
+
+// wideSidebarWidth is the width of the chat list on a screen of the given
+// width: a quarter of it, kept between wideSidebarLeast and
+// wideSidebarMost.
+func wideSidebarWidth(width int) int {
+	share := width * wideSidebarSharePercent / 100
+
+	return minInt(maxInt(share, wideSidebarLeast), wideSidebarMost)
 }
 
 // ChatWidth returns the width of the conversation pane, or the full width

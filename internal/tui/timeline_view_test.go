@@ -296,7 +296,7 @@ func TestSelectedChatRowIsMarkedWithItsOwnGlyph(t *testing.T) {
 	)
 
 	view := plain(m.View())
-	row, _, ok := lineWith(view, theme.SelectionMark+m.selected().Title)
+	row, _, ok := lineWith(view, theme.SelectionMark+" "+m.selected().Title)
 	if !ok {
 		t.Fatalf("the selected chat is not marked with %q:\n%s", theme.SelectionMark, view)
 	}

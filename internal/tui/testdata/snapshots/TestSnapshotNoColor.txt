@@ -7,65 +7,65 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-  Chats                    Anna Example                                                                                 
-  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                
+  Chats                             Anna Example                                                                        
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
   / Search · 3 unread                                                                                                   
-  ›Anna Example    12:07                                                                                                
-    the build is gr…  2                                                                                                 
+  › Anna Example            12:07                                                                                       
+  ›  the build is green again  2                                                                                        
                                                                                                                         
-   Release Room    12:05                                                                                                
-    the tag is pushed                                                                                                   
+    Release Room            12:05                                                                                       
+     the tag is pushed                                                                                                  
                                                                                                                         
-   Notes           11:58                                                                                                
-    milk, bread, co…  1                                                                                                 
+    Notes                   11:58                                                                                       
+     milk, bread, coffee       1                                                                                        
                                                                                                                         
-   Команда Разраб… 11:40                                                                                                
-    созвон в 15:00                                                                                                      
-                                                                                                                        
-                                                                                                                        
+    Команда Разработки      11:40                                                                                       
+     созвон в 15:00                                                                                                     
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                            Anna Example · 12:07                                                                        
-                             Спасибо, посмотрю после обеда                                                              
                                                                                                                         
-                                                        Shipped the release notes                                       
-                                                        ✓ Sent 12:05                                                    
                                                                                                                         
-                           ›Anna Example · 12:02                                                                        
-                             The build is green again                                                                   
+                                     Anna Example · 12:02                                                               
+                                      The build is green again                                                          
                                                                                                                         
-                           ›Write a message…                                                                            
-                           Enter open · / search · q quit                                                               
+                                                               Shipped the release notes                                
+                                                               ✓ Sent 12:05                                             
+                                                                                                                        
+                                    ›Anna Example · 12:07                                                               
+                                      Спасибо, посмотрю после обеда                                                     
+                                                                                                                        
+                                    › Write a message…                                                                  
+                                    Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"  Chats                    Anna Example                                                                                 "
-"  ━━━━━━━━━━━━━━━━━━━━━━                                                                                                "
+"  Chats                             Anna Example                                                                        "
+"  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       "
 "  / Search · 3 unread                                                                                                   "
-"  ›Anna Example    12:07                                                                                                "
-"    the build is gr…  2                                                                                                 "
+"  › Anna Example            12:07                                                                                       "
+"  ›  the build is green again  2                                                                                        "
 "                                                                                                                        "
-"   Release Room    12:05                                                                                                "
-"    the tag is pushed                                                                                                   "
+"    Release Room            12:05                                                                                       "
+"     the tag is pushed                                                                                                  "
 "                                                                                                                        "
-"   Notes           11:58                                                                                                "
-"    milk, bread, co…  1                                                                                                 "
+"    Notes                   11:58                                                                                       "
+"     milk, bread, coffee       1                                                                                        "
 "                                                                                                                        "
-"   Команда Разраб… 11:40                                                                                                "
-"    созвон в 15:00                                                                                                      "
-"                                                                                                                        "
-"                                                                                                                        "
+"    Команда Разработки      11:40                                                                                       "
+"     созвон в 15:00                                                                                                     "
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "
-"                            Anna Example · 12:07                                                                        "
-"                             Спасибо, посмотрю после обеда                                                              "
 "                                                                                                                        "
-"                                                        Shipped the release notes                                       "
-"                                                        ✓ Sent 12:05                                                    "
 "                                                                                                                        "
-"                           ›Anna Example · 12:02                                                                        "
-"                             The build is green again                                                                   "
+"                                     Anna Example · 12:02                                                               "
+"                                      The build is green again                                                          "
 "                                                                                                                        "
-"                           ›Write a message…                                                                            "
-"                           Enter open · / search · q quit                                                               "
+"                                                               Shipped the release notes                                "
+"                                                               ✓ Sent 12:05                                             "
+"                                                                                                                        "
+"                                    ›Anna Example · 12:07                                                               "
+"                                      Спасибо, посмотрю после обеда                                                     "
+"                                                                                                                        "
+"                                    › Write a message…                                                                  "
+"                                    Enter open · / search · q quit                                                      "

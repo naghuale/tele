@@ -143,19 +143,28 @@ func snapshotWidthChats() []Chat {
 	}
 }
 
-// snapshotMessages is the history of the open chat, oldest first.
+// snapshotMessages is one page of history as TDLib answers it: newest
+// first.
+//
+// The order is the one a real page arrives in and not the one it is
+// drawn in. The model reverses a page where it lands (TDLib answers
+// newest first and a conversation is read oldest first, divergence 1 of
+// the specification), and a golden that handed the model an already
+// chronological list would be a golden of a program nobody runs: the
+// screen would show 12:07 at the top and 12:02 above the composer, which
+// is exactly the mistake this fixture exists to catch.
 //
 // The times are strings on purpose: they are part of the fixture rather
 // than a moment, so a snapshot never depends on when it was drawn.
 func snapshotMessages() []Message {
 	return []Message{
 		{
-			ID: 1, Text: "The build is green again", Time: "12:02",
+			ID: 3, Text: "Спасибо, посмотрю после обеда", Time: "12:07",
 			Author: "Anna Example", AuthorID: 5,
 		},
 		{ID: 2, Outgoing: true, Text: "Shipped the release notes", Time: "12:05"},
 		{
-			ID: 3, Text: "Спасибо, посмотрю после обеда", Time: "12:07",
+			ID: 1, Text: "The build is green again", Time: "12:02",
 			Author: "Anna Example", AuthorID: 5,
 		},
 	}
@@ -557,18 +566,20 @@ func snapshotGroup(t *testing.T, f snapshotFixture) Model {
 		Kind:    ChatKindGroup,
 		Preview: "the tag is pushed",
 		Time:    "12:09",
+		// A page as TDLib answers it, newest first; the model reverses
+		// it. See snapshotMessages.
 		Messages: []Message{
 			{
-				ID: 1, Text: "the build is green again", Time: "12:02",
-				Author: "Marta", AuthorID: 21,
+				ID: 3, Outgoing: true, Text: "Thank you both",
+				Time: "12:06",
 			},
 			{
 				ID: 2, Text: "I will take the release notes",
 				Time: "12:04", Author: "Boris", AuthorID: 34,
 			},
 			{
-				ID: 3, Outgoing: true, Text: "Thank you both",
-				Time: "12:06",
+				ID: 1, Text: "the build is green again", Time: "12:02",
+				Author: "Marta", AuthorID: 21,
 			},
 		},
 	}}
@@ -597,13 +608,15 @@ func snapshotChannel(t *testing.T, f snapshotFixture) Model {
 		Unread:  12,
 		Preview: "[2 photos] the new wallpaper",
 		Time:    "12:07",
+		// A page as TDLib answers it, newest first; the model reverses
+		// it. See snapshotMessages.
 		Messages: []Message{
 			{
-				ID: 1, Media: "photo", AlbumID: 9, Time: "12:05",
+				ID: 2, Media: "photo", AlbumID: 9, Time: "12:05",
 				Author: "Xiaomi News", AuthorID: 900,
 			},
 			{
-				ID: 2, Media: "photo", AlbumID: 9, Time: "12:05",
+				ID: 1, Media: "photo", AlbumID: 9, Time: "12:05",
 				Author: "Xiaomi News", AuthorID: 900,
 			},
 		},
@@ -877,6 +890,7 @@ func TestSnapshotInvariants(t *testing.T) {
 			assertNoFrame(t, screen.test, view.plain)
 			assertOnePanelRule(t, screen.test, view.plain)
 			assertNoFocusGlyphsInRows(t, screen.test, view.plain)
+			assertNoFaint(t, screen.test, view.profile, view.escaped)
 			assertLinesFit(t, screen.test, view.widths, view.width, view.plain)
 		})
 	}
@@ -1270,6 +1284,76 @@ func assertOnePanelRule(t *testing.T, test string, lines []string) {
 
 		t.Errorf("%s: no rule under any heading", test)
 	}
+}
+
+// assertNoFaint fails if a screen with colour asks the terminal to make a
+// run faint.
+//
+// Faint is the terminal multiplying a colour it was given by something of
+// its own, and by how much is not a number anybody chose: the Apple
+// Terminal takes a muted colour down to about 2:1. The theme package
+// measures the contrast of a colour against a background and the
+// contrast test holds the muted tier to 4.5:1, and a terminal that dims
+// it afterwards has undone exactly that. A tier is dimmer because its
+// colour is dimmer.
+//
+// The no-colour profile is exempt, and always was: there is no colour
+// there to be faint about, and termenv prints no attributes under it in
+// any case.
+func assertNoFaint(t *testing.T, test, profile string, escaped []string) {
+	t.Helper()
+
+	if profile == theme.ProfileNoColor.String() {
+		return
+	}
+
+	for index, line := range escaped {
+		if !asksForFaint(line) {
+			continue
+		}
+
+		t.Errorf(
+			"%s: row %d asks the terminal for a faint run: %s",
+			test,
+			index+1,
+			line,
+		)
+	}
+}
+
+// faintSGR is the SGR parameter that makes a run faint.
+const faintSGR = "2"
+
+// asksForFaint reports whether a rendered line asks the terminal for a
+// faint run anywhere in it.
+//
+// The SGR sequences are read one at a time rather than searched for as
+// text: "38;2;..." is a true-colour foreground and not a faint, and a
+// search for ";2;" says otherwise about every coloured run on the screen.
+func asksForFaint(line string) bool {
+	for rest := line; rest != ""; {
+		start := strings.Index(rest, "\x1b[")
+		if start < 0 {
+			return false
+		}
+
+		rest = rest[start+len("\x1b["):]
+
+		end := strings.Index(rest, "m")
+		if end < 0 {
+			return false
+		}
+
+		for _, parameter := range strings.Split(rest[:end], ";") {
+			if parameter == faintSGR {
+				return true
+			}
+		}
+
+		rest = rest[end+1:]
+	}
+
+	return false
 }
 
 // assertLinesFit fails if any line of the screen is wider than the terminal

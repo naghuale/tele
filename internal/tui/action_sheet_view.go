@@ -186,5 +186,10 @@ func (m Model) overlayRow(behind, popup string, firstColumn int) string {
 		return head + popup + spaces(behindWidth-popupEnd)
 	}
 
-	return head + popup + m.widths.TruncateLeft(behind, behindWidth-popupEnd, "")
+	// The tail is what is left of the row behind the popup, and it is
+	// behindWidth - popupEnd columns wide. Truncating by that many columns
+	// would leave a tail exactly popupEnd wide and a row popupEnd columns
+	// over the screen, which the terminal then wraps: the menu pushes the
+	// conversation off the right edge and every row under it moves.
+	return head + popup + m.widths.TruncateLeft(behind, popupEnd, "")
 }

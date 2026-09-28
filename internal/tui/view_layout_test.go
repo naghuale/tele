@@ -336,8 +336,8 @@ func TestLayoutAtWideWidth(t *testing.T) {
 	m := openedModel(t, width, height)
 	layout := LayoutFor(width, height)
 
-	if got := layout.SidebarWidth(); got != wideSidebarWidth {
-		t.Fatalf("sidebar = %d, want %d", got, wideSidebarWidth)
+	if got, want := layout.SidebarWidth(), width*wideSidebarSharePercent/100; got != want {
+		t.Fatalf("sidebar = %d, want %d", got, want)
 	}
 	if got := layout.SidebarWidth() + paneGapWidth + layout.ChatWidth(); got != width {
 		t.Fatalf(
@@ -476,4 +476,43 @@ func composerColumnOf(widths termwidth.WidthModel, view string) int {
 	return widths.StringWidth(
 		composer[:strings.Index(composer, composerPlaceholder)],
 	)
+}
+
+// The chat list is a quarter of a wide screen, kept between a name long
+// enough to be somebody's and a list wide enough to be a list. A pane
+// narrower than the least cuts every name in it while the conversation
+// beside it has empty columns, and one wider than the most takes columns
+// the words of a message need.
+func TestTheWideChatListIsAQuarterOfTheWidthAndNoMore(t *testing.T) {
+	for _, width := range []int{
+		wideLayoutMinWidth, 110, 120, 140, 160, 200, 400,
+	} {
+		sidebar := LayoutFor(width, 30).SidebarWidth()
+
+		if sidebar < wideSidebarLeast {
+			t.Errorf("width %d: the list is %d columns, want at least %d",
+				width, sidebar, wideSidebarLeast)
+		}
+		if sidebar > wideSidebarMost {
+			t.Errorf("width %d: the list is %d columns, want at most %d",
+				width, sidebar, wideSidebarMost)
+		}
+
+		share := width * wideSidebarSharePercent / 100
+		if sidebar != minInt(maxInt(share, wideSidebarLeast), wideSidebarMost) {
+			t.Errorf("width %d: the list is %d columns, want a quarter of it",
+				width, sidebar)
+		}
+	}
+}
+
+// A medium screen keeps the fixed list of §10.3: a share of the width
+// there would leave the conversation too narrow to read a message in.
+func TestTheMediumChatListKeepsItsFixedWidth(t *testing.T) {
+	for _, width := range []int{mediumLayoutMinWidth, 80, wideLayoutMinWidth - 1} {
+		if got := LayoutFor(width, 30).SidebarWidth(); got != mediumSidebarWidth {
+			t.Errorf("width %d: the list is %d columns, want %d",
+				width, got, mediumSidebarWidth)
+		}
+	}
 }

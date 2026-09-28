@@ -1502,11 +1502,8 @@ func (m *Model) moveComposerRow(delta int) {
 // composerWidth returns the width a row of the draft is laid out in.
 func (m Model) composerWidth() int {
 	layout := LayoutFor(m.width, m.height)
-	width := layout.ChatContentWidth() -
-		selectionMarkerWidth -
-		contentInsetWidth
 
-	return maxInt(width, 1)
+	return maxInt(layout.ChatContentWidth()-composerPromptWidth(), 1)
 }
 
 func (m Model) handleComposerEnter() (tea.Model, tea.Cmd) {

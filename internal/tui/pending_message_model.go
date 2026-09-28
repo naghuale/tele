@@ -161,26 +161,25 @@ func (m Model) pendingMessageRows(
 	blockWidth := m.outgoingBlockWidth(width)
 	offset := maxInt(width-selectionMarkerWidth-blockWidth, 0)
 	textWidth := maxInt(blockWidth-2*outgoingBubbleInset, 1)
+	mark := styles.unstyled()
 
 	rows := make([]string, 0, 4)
 	for _, line := range m.widths.Wrap(message.Text, textWidth, ellipsis) {
 		rows = append(rows, m.outgoingRow(
-			styles, spaces(selectionMarkerWidth), offset, blockWidth,
-			line, false,
+			styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
+			offset, blockWidth, line, m.tokens().OutgoingMessage,
 		))
 	}
 
-	if state := m.deliveryStateLabelFor(message, textWidth); state != "" {
-		rows = append(rows, m.outgoingRow(
-			styles, spaces(selectionMarkerWidth), offset, blockWidth,
-			state, true,
-		))
-	}
-	if at := formatMessageTime(message.CreatedAt); at != "" {
-		rows = append(rows, m.outgoingRow(
-			styles, spaces(selectionMarkerWidth), offset, blockWidth, at, true,
-		))
-	}
+	// The state and the time it was queued are one line, because they are
+	// one fact about the message: it is at this state, as of this moment.
+	// Two lines of it under a two-line message is a status block the reader
+	// has to assemble out of three rows.
+	label, colour := m.deliveryStateRun(message, textWidth)
+	rows = append(rows, m.outgoingRow(
+		styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
+		offset, blockWidth, label, colour,
+	))
 
 	// §3.1 puts the second row of an uncertain message under the state,
 	// and it is the only thing in the interface that says what the user
@@ -188,59 +187,54 @@ func (m Model) pendingMessageRows(
 	// decision rather than an error to retry away.
 	if message.State == MessageDeliveryUncertain {
 		rows = append(rows, m.outgoingRow(
-			styles, spaces(selectionMarkerWidth), offset, blockWidth,
-			uncertainWarning, true,
+			styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
+			offset, blockWidth, uncertainWarning, m.tokens().StatusUncertain,
 		))
 	}
 
 	return rows
 }
 
-// uncertainWarning is the second row of an uncertain message.
-const uncertainWarning = "Message may already have been sent"
-
-// deliveryStateLabel returns the words of a delivery state: the symbol and
-// the word, and never one without the other.
+// deliveryStateRun returns the words under a message of this user and the
+// colour of them.
 //
-// The words carry the meaning and the symbol makes it readable at a glance
-// (§2.7, §14), so a terminal without the glyph says the same thing. An
-// uncertain message does not borrow the wording of a failure: a message
-// that may have gone out is not a message that did not.
-func (m Model) deliveryStateLabel(
-	state MessageDeliveryState,
-	width int,
-) string {
-	marked, known := deliveryStateOf(state)
-	if !known {
-		return ""
-	}
-
-	return m.widths.TruncateMarked(marked.Mark().String(), width, ellipsis)
-}
-
-// deliveryStateLabelFor returns the words of the state of a pending
-// message and the time it is due at.
-//
-// A retry is a time, not a countdown: §6.3 asks for a screen that does not
-// repaint itself every second, and a countdown is a screen that repaints
-// itself every second.
-func (m Model) deliveryStateLabelFor(
+// The colour is the state's own, so the line under a message repeats what
+// the words under it say rather than being the same grey everywhere: a
+// muted `! Failed` is a warning about nothing in particular. A state this
+// build does not know keeps its text and is drawn in the muted tier
+// rather than being given a colour that belongs to a different state.
+func (m Model) deliveryStateRun(
 	message PendingMessage,
 	width int,
-) string {
-	label := m.deliveryStateLabel(message.State, width)
-	if label == "" {
-		return ""
+) (string, theme.Color) {
+	state, known := deliveryStateOf(message.State)
+	if !known {
+		return "", m.tokens().MutedText
 	}
 
-	if message.State == MessageDeliveryRetrying {
-		if at := formatMessageTime(message.NextAttemptAt); at != "" {
-			label += " at " + at
-		}
+	label := state.Mark().String()
+	queuedAt := formatMessageTime(message.CreatedAt)
+
+	// A retry is a time, not a countdown: §6.3 asks for a screen that does
+	// not repaint itself every second, and a countdown is a screen that
+	// repaints itself every second.
+	//
+	// The state and the time are one line because they are one fact about
+	// the message, and a retrying one is the exception rather than the
+	// rule: it names a time of its own, and two times on one line is a
+	// sentence a user has to read twice.
+	if retry := formatMessageTime(message.NextAttemptAt); retry != "" &&
+		message.State == MessageDeliveryRetrying {
+		label += " at " + retry
+	} else if queuedAt != "" {
+		label += " " + queuedAt
 	}
 
-	return m.widths.TruncateMarked(label, width, ellipsis)
+	return m.widths.TruncateMarked(label, width, ellipsis), state.Color(m.tokens())
 }
+
+// uncertainWarning is the second row of an uncertain message.
+const uncertainWarning = "Message may already have been sent"
 
 // deliveryStateOf maps a TUI delivery state onto the theme's vocabulary of
 // states.

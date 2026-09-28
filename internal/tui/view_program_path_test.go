@@ -122,7 +122,7 @@ func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 	model, _ = updateModel(t, model, press(tea.KeyDown))
 
 	selected := model.selected().Title
-	marked := theme.SelectionMark + selected
+	marked := theme.SelectionMark + " " + selected
 	if !strings.Contains(plain(model.View()), marked) {
 		t.Fatalf(
 			"view does not mark the selected chat %q:\\n%s",
@@ -133,8 +133,8 @@ func TestProgramPathDrawsTheSelectedChatInNoColor(t *testing.T) {
 
 	// And nothing else carries the mark: one selected chat, one marker.
 	view := plain(model.View())
-	if got := strings.Count(view, theme.SelectionMark+selected); got != 1 {
-		t.Fatalf("%d marked rows, want 1:\\n%s", got, view)
+	if got := strings.Count(view, marked); got != 1 {
+		t.Fatalf("%d marked rows, want 1:\n%s", got, view)
 	}
 }
 
@@ -155,7 +155,9 @@ func TestProgramPathKeepsTheOpenChatSelected(t *testing.T) {
 
 		view := plain(model.View())
 		if profile == theme.ProfileNoColor {
-			if !strings.Contains(view, theme.SelectionMark+model.selected().Title) {
+			if !strings.Contains(
+				view, theme.SelectionMark+" "+model.selected().Title,
+			) {
 				t.Fatalf("profile %v: the open chat is not marked:\n%s", profile, view)
 			}
 
@@ -177,9 +179,17 @@ func TestProgramPathKeepsTheOpenChatSelected(t *testing.T) {
 // decimal digits a colour has: a hand-written sequence would go stale the
 // first time the colour library rounded a value.
 func selectedBackgroundEscape(m Model) string {
-	rendered := m.styles().selected(true).Render("x")
+	return backgroundEscape(m.styles().selected(true).Render("x"))
+}
 
-	start := strings.Index(rendered, "\x1b[48;2;")
+// backgroundParameters is the SGR background of a rendered run, without the
+// escape and the terminator around it: what a run carries in force.
+//
+// The numbers are the colour library's and not the token's, because a
+// value the library rounds on the way to the terminal is the value the
+// terminal is given, and this is a test about what the terminal is given.
+func backgroundParameters(rendered string) string {
+	start := strings.Index(rendered, backgroundSGR)
 	if start < 0 {
 		return ""
 	}
@@ -189,8 +199,24 @@ func selectedBackgroundEscape(m Model) string {
 		return ""
 	}
 
-	return rendered[start : start+end+1]
+	return rendered[start : start+end]
 }
+
+// backgroundEscape is the whole background sequence of a rendered run.
+func backgroundEscape(rendered string) string {
+	parameters := backgroundParameters(rendered)
+	if parameters == "" {
+		return ""
+	}
+
+	return "\x1b[" + parameters + "m"
+}
+
+// backgroundSGR starts the background parameters of an SGR sequence. The
+// true-colour and the indexed forms are both "48;", and a test that
+// looked for one of them would pass on one profile and say nothing on the
+// other.
+const backgroundSGR = "48;"
 
 // A wide and a medium screen have two panes before a chat is chosen, and
 // the right one says what to do rather than standing empty.

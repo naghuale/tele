@@ -94,11 +94,21 @@ type queryResult struct {
 	err error
 }
 
-// querySequence is process-wide and exists only to generate unique
-// @extra identifiers. The client ID is included for diagnostics.
+// querySequence is process-wide and is the only source of telecli @extra
+// identifiers. Every request in the process is numbered here, whoever
+// sends it: the authorization coordinator, a linkage probe and the session
+// pump all ask newQueryID.
+//
+// One counter is the whole point. Two counters would hand out the same
+// identifier twice, and TDLib answers a request by its identifier alone,
+// so the second requester of an identifier would receive the first
+// requester's answer.
 var querySequence atomic.Uint64
 
 // newQueryID returns a unique query identifier for one logical client.
+//
+// It is the single mint for @extra. Anything that sends a request this
+// package will answer must come through here.
 func newQueryID(clientID int) QueryID {
 	sequence := querySequence.Add(1)
 	return QueryID(
@@ -217,8 +227,15 @@ func decodeQueryResult(raw RawMessage) (RawMessage, error) {
 // Query sends one asynchronous TDLib request and waits for the matching
 // @extra response.
 //
-// The session pump remains the only consumer of Client.Updates(). It
-// routes matching responses into the pending-query registry.
+// Everything it returns carried a telecli @extra: the routing below hands
+// over nothing else, so an answer a caller reads always names the request
+// it belongs to.
+//
+// The pending registry belongs to the client rather than to this session:
+// an answer is routed by the identifier on it, and the identifier is the
+// only thing that says which request it belongs to. A reader that is not
+// the sender must still hand the answer over, so a second session over
+// the same client cannot keep the answers of the first.
 func (s *AuthorizedSession) Query(
 	ctx context.Context,
 	request RawMessage,
@@ -233,6 +250,10 @@ func (s *AuthorizedSession) Query(
 		return nil, err
 	}
 
+	if err := s.acceptQueries(); err != nil {
+		return nil, err
+	}
+
 	queryID := newQueryID(s.client.ID())
 
 	requestWithID, err := withQueryID(request, queryID)
@@ -244,12 +265,12 @@ func (s *AuthorizedSession) Query(
 		response: make(chan queryResult, 1),
 	}
 
-	if err := s.registerQuery(queryID, pending); err != nil {
+	if err := s.client.registerQuery(queryID, pending); err != nil {
 		return nil, err
 	}
 
 	// Registration happens before Send. TDLib may respond immediately.
-	defer s.unregisterQuery(queryID, pending)
+	defer s.client.unregisterQuery(queryID, pending)
 
 	if err := s.sender.Send(s.client.ID(), requestWithID); err != nil {
 		return nil, fmt.Errorf("telegram query: send: %w", err)
@@ -266,63 +287,82 @@ func (s *AuthorizedSession) Query(
 		return decodeQueryResult(result.raw)
 
 	case <-s.pumpDone:
-		return nil, s.queryTerminalError()
+		return nil, ErrQuerySessionClosed
 
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-// registerQuery registers a pending response.
-func (s *AuthorizedSession) registerQuery(
+// acceptQueries reports whether this session can still wait for an
+// answer.
+//
+// The check is separate from the registration because the registry is the
+// client's: a session whose pump has stopped must not leave a waiter
+// behind, and it must not disturb the waiters of another session over the
+// same client. A caller that passes this check and then races with the
+// pump's exit is still released, because Query waits on pumpDone too.
+func (s *AuthorizedSession) acceptQueries() error {
+	select {
+	case <-s.pumpDone:
+		return ErrQuerySessionClosed
+	default:
+		return nil
+	}
+}
+
+// registerQuery registers a pending answer on the client.
+func (c *Client) registerQuery(
 	queryID QueryID,
 	pending *pendingQuery,
 ) error {
-	if queryID == "" || pending == nil {
+	if c == nil || queryID == "" || pending == nil {
 		return ErrQueryInvalidRequest
 	}
 
-	s.queryMu.Lock()
-	defer s.queryMu.Unlock()
+	c.queryMu.Lock()
+	defer c.queryMu.Unlock()
 
-	select {
-	case <-s.pumpDone:
-		return s.queryTerminalErrorLocked()
-	default:
+	if c.queryErr != nil {
+		return c.queryErr
 	}
-
-	if _, exists := s.pendingQueries[queryID]; exists {
+	if _, exists := c.pendingQueries[queryID]; exists {
 		return fmt.Errorf("telegram query: duplicate query ID %q", queryID)
 	}
-	s.pendingQueries[queryID] = pending
+	if c.pendingQueries == nil {
+		// A Client built by a test is a literal, so the map is made
+		// here rather than by every construction site.
+		c.pendingQueries = make(map[QueryID]*pendingQuery)
+	}
+	c.pendingQueries[queryID] = pending
 	return nil
 }
 
 // unregisterQuery removes pending only when it is still the registered
 // waiter for queryID.
-func (s *AuthorizedSession) unregisterQuery(
+func (c *Client) unregisterQuery(
 	queryID QueryID,
 	pending *pendingQuery,
 ) {
-	s.queryMu.Lock()
-	defer s.queryMu.Unlock()
+	c.queryMu.Lock()
+	defer c.queryMu.Unlock()
 
-	current, exists := s.pendingQueries[queryID]
+	current, exists := c.pendingQueries[queryID]
 	if !exists || current != pending {
 		return
 	}
-	delete(s.pendingQueries, queryID)
+	delete(c.pendingQueries, queryID)
 }
 
-// routeQueryResponse routes one response from the session pump.
+// routeResponse routes one response read from the client.
 //
 // The boolean result is true only when raw contains a telecli-owned
-// @extra that matched a currently pending query, or when a late
-// response for a cancelled query is consumed silently.
+// @extra that matched a currently pending request, or when a late
+// response for an abandoned query is consumed silently.
 //
 // A response without a telecli-owned @extra, or with a foreign @extra
 // (string or otherwise), is treated as a normal application update.
-func (s *AuthorizedSession) routeQueryResponse(raw RawMessage) (bool, error) {
+func (c *Client) routeResponse(raw RawMessage) (bool, error) {
 	queryID, owned, err := responseQueryID(raw)
 	if err != nil {
 		return false, err
@@ -331,16 +371,18 @@ func (s *AuthorizedSession) routeQueryResponse(raw RawMessage) (bool, error) {
 		return false, nil
 	}
 
-	s.queryMu.Lock()
-	pending := s.pendingQueries[queryID]
+	c.queryMu.Lock()
+	pending := c.pendingQueries[queryID]
 	if pending != nil {
-		delete(s.pendingQueries, queryID)
+		delete(c.pendingQueries, queryID)
 	}
-	s.queryMu.Unlock()
+	c.queryMu.Unlock()
 
 	if pending == nil {
-		// A late response to a cancelled telecli query is consumed
-		// rather than exposed on the application update stream.
+		// A late response to an abandoned telecli query is consumed
+		// rather than exposed on the application update stream. No
+		// waiter can be added under this identifier again, so nothing
+		// can be waiting for it.
 		return true, nil
 	}
 
@@ -350,34 +392,82 @@ func (s *AuthorizedSession) routeQueryResponse(raw RawMessage) (bool, error) {
 	return true, nil
 }
 
-// failPendingQueries resolves all pending queries with err.
+// failPendingQueries resolves all pending answers with err.
 //
-// The pump must call this exactly once before it closes pumpDone.
-func (s *AuthorizedSession) failPendingQueries(err error) {
+// The runtime calls it once per client, when the client's update channel
+// is closed and no reader is left. A session that stops on its own does
+// not call it: another session may still be reading the same client, and
+// its waiters are not this session's to fail.
+func (c *Client) failPendingQueries(err error) {
+	if c == nil {
+		return
+	}
 	if err == nil {
 		err = ErrQuerySessionClosed
 	}
 
-	s.queryMu.Lock()
-	pending := s.pendingQueries
-	s.pendingQueries = make(map[QueryID]*pendingQuery)
-	s.queryErr = err
-	s.queryMu.Unlock()
+	c.queryMu.Lock()
+	pending := c.pendingQueries
+	c.pendingQueries = make(map[QueryID]*pendingQuery)
+	c.queryErr = err
+	c.queryMu.Unlock()
 
 	for _, query := range pending {
 		query.response <- queryResult{err: err}
 	}
 }
 
-func (s *AuthorizedSession) queryTerminalError() error {
-	s.queryMu.Lock()
-	defer s.queryMu.Unlock()
-	return s.queryTerminalErrorLocked()
+// unexpectedResponse names a request, the type that answered it and the
+// identifier the answer carried.
+//
+// Only those three are read. An answer can hold a name, a phone number or
+// a message body, and an error message must not carry any of it; the
+// identifier is enough to find the request in a trace, and the type says
+// whose answer it was.
+func unexpectedResponse(requestType string, raw RawMessage) string {
+	identifier := responseExtra(raw)
+	if identifier == "" {
+		return fmt.Sprintf(
+			"%s returned @type=%q",
+			requestType,
+			responseTypeName(raw),
+		)
+	}
+	return fmt.Sprintf(
+		"%s returned @type=%q @extra=%q",
+		requestType,
+		responseTypeName(raw),
+		identifier,
+	)
 }
 
-func (s *AuthorizedSession) queryTerminalErrorLocked() error {
-	if s.queryErr != nil {
-		return s.queryErr
+// responseTypeName reads only the "@type" of a response.
+func responseTypeName(raw RawMessage) string {
+	var envelope struct {
+		Type string `json:"@type"`
 	}
-	return ErrQuerySessionClosed
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return ""
+	}
+	return envelope.Type
+}
+
+// responseExtra reads only the "@extra" of a response, and answers an
+// empty string when there is none or it is not a string.
+//
+// The identifier is generated by newQueryID and copied by TDLib, so it
+// carries nothing that came off the wire.
+func responseExtra(raw RawMessage) string {
+	var envelope queryEnvelope
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return ""
+	}
+	if len(envelope.Extra) == 0 || string(envelope.Extra) == "null" {
+		return ""
+	}
+	var value string
+	if err := json.Unmarshal(envelope.Extra, &value); err != nil {
+		return ""
+	}
+	return value
 }

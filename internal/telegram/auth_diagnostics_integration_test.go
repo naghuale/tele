@@ -510,28 +510,59 @@ func TestAuthDiagnosticsDoesNotAttributeUnrelatedErrorToPhoneRequest(
 	}
 }
 
-// TestAuthDiagnosticsRejectsUnknownRequestID proves a foreign identifier
-// is not mistaken for one of ours.
-func TestAuthDiagnosticsRejectsUnknownRequestID(t *testing.T) {
+// TestAuthDiagnosticsNumbersTheRequestsOfThisRun proves the number in the
+// trace counts the requests of the run that produced it, and is not the
+// @extra the request carries.
+//
+// The identifier is minted process-wide, so that no two requests anywhere
+// in the process can share one. A trace is read by a person following one
+// handshake, so it prints its own count instead: the numbers of two runs
+// in one process are the same, and both start at one.
+func TestAuthDiagnosticsNumbersTheRequestsOfThisRun(t *testing.T) {
 	t.Parallel()
 
-	for _, foreign := range []QueryID{
-		"someone-else:1:1",
-		"telecli:1:abc",
-		"telecli:1",
-		"",
-	} {
-		if id := diagnosticIDFor(foreign); id != 0 {
-			t.Fatalf(
-				"diagnosticIDFor(%q) = %d, want 0",
-				foreign,
-				id,
-			)
-		}
+	// Identifiers minted before the run move the process-wide counter
+	// well past the number of requests the run makes.
+	for range 50 {
+		newQueryID(999)
 	}
 
-	if id := diagnosticIDFor("telecli:1:7"); id != 7 {
-		t.Fatalf("diagnosticIDFor(own) = %d, want 7", id)
+	var trace bytes.Buffer
+
+	client := newTestClient(t)
+	sender := &answerSender{
+		client: client,
+		reply: func(id QueryID) RawMessage {
+			return RawMessage(`{"@type":"ok","@extra":"` + string(id) + `"}`)
+		},
+	}
+
+	feedAuth(t, client,
+		"authorizationStateWaitPhoneNumber",
+		"authorizationStateWaitCode",
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	_, _ = RunAuthWithClientDiagnostics(
+		ctx,
+		sender,
+		client,
+		traceAuthParams(),
+		&fakeProvider{phone: tracePhone, code: traceCode},
+		NewWriterAuthDiagnostics(&trace),
+	)
+
+	got := trace.String()
+
+	for _, want := range []string{
+		"request_id=1 request=set_authentication_phone_number",
+		"request_id=2 request=check_authentication_code",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace = %q, want substring %q", got, want)
+		}
 	}
 }
 

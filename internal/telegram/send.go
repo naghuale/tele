@@ -121,20 +121,23 @@ func (s *AuthorizedSession) SendTextMessage(
 
 	if response.Type != "message" {
 		return Message{}, fmt.Errorf(
-			"%w: sendMessage returned @type=%q",
-			ErrUnexpectedSendResponse, response.Type,
+			"%w: %s",
+			ErrUnexpectedSendResponse,
+			unexpectedResponse("sendMessage", raw),
 		)
 	}
 	if int64(response.ChatID) != int64(chatID) {
 		return Message{}, fmt.Errorf(
-			"%w: requested chat_id=%d, returned chat_id=%d",
+			"%w: requested chat_id=%d, returned chat_id=%d for @extra=%q",
 			ErrUnexpectedSendResponse, chatID, int64(response.ChatID),
+			responseExtra(raw),
 		)
 	}
 	if response.ID == 0 {
 		return Message{}, fmt.Errorf(
-			"%w: zero message id",
+			"%w: zero message id for @extra=%q",
 			ErrUnexpectedSendResponse,
+			responseExtra(raw),
 		)
 	}
 

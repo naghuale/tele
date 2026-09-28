@@ -175,8 +175,9 @@ func (s *AuthorizedSession) LoadChats(
 	}
 	if response.Type != "ok" {
 		return false, fmt.Errorf(
-			"%w: loadChats returned @type=%q",
-			ErrUnexpectedChatResponse, response.Type,
+			"%w: %s",
+			ErrUnexpectedChatResponse,
+			unexpectedResponse("loadChats", raw),
 		)
 	}
 	return false, nil
@@ -225,8 +226,9 @@ func (s *AuthorizedSession) GetChats(
 	}
 	if response.Type != "chats" {
 		return ChatListSnapshot{}, fmt.Errorf(
-			"%w: getChats returned @type=%q",
-			ErrUnexpectedChatResponse, response.Type,
+			"%w: %s",
+			ErrUnexpectedChatResponse,
+			unexpectedResponse("getChats", raw),
 		)
 	}
 
@@ -285,14 +287,16 @@ func (s *AuthorizedSession) GetChat(
 	}
 	if response.Type != "chat" {
 		return ChatSummary{}, fmt.Errorf(
-			"%w: getChat returned @type=%q",
-			ErrUnexpectedChatResponse, response.Type,
+			"%w: %s",
+			ErrUnexpectedChatResponse,
+			unexpectedResponse("getChat", raw),
 		)
 	}
 	if int64(response.ID) != int64(chatID) {
 		return ChatSummary{}, fmt.Errorf(
-			"%w: getChat requested id=%d, returned id=%d",
+			"%w: getChat requested id=%d, returned id=%d for @extra=%q",
 			ErrUnexpectedChatResponse, chatID, int64(response.ID),
+			responseExtra(raw),
 		)
 	}
 

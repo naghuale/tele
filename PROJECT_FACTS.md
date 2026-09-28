@@ -83,6 +83,11 @@
   and rejects Send with ErrRuntimeFailed; Close still releases the
   native handle
 - Client routing: by @client_id envelope field
+- Client ownership: Authorize and RunAuth each create their own logical
+  client, so a session never shares one with another session in
+  production. Two sessions over one client are still correct: the
+  pending answers live on the client, so whichever pump reads an
+  answer hands it to the caller waiting for it (#55)
 - Initial client activation: Authorize sends getAuthorizationState
   immediately after NewClient. In the verified TDLib 1.8.67 runtime,
   a freshly created logical client produced no initial authorization
@@ -121,6 +126,20 @@
 ## Authorization lifecycle
 - Coordinator: internal/telegram/auth_coordinator.go
   - single owner of Client.Updates() and Client.Errors() during auth
+  - requests are tagged with newQueryID, the same mint the session
+    pump uses. A counter of the run's own would mint the identifier
+    the session pump mints, and the two answers would then be
+    indistinguishable to the reader that comes next (#55)
+  - the answer the run leaves on the wire: on an account TDLib
+    already knows, setTdlibParameters is accepted and the state
+    becomes ready inside the handling of that one request, so the
+    ready state is pushed before the `ok` the request produces. The
+    run returns on the ready state with that `ok` still on the wire,
+    and the session pump consumes it as a late answer
+  - the number in the auth trace counts the requests of the run and is
+    kept in the pending table, not decoded back out of the
+    identifier: the identifier is a process-wide wire identifier and
+    the trace is read by a person following one handshake
   - terminal states: Ready, Closed, Closing, LoggingOut
   - unsupported states abort with ErrUnsupportedAuthState
   - empty provider input aborts with ErrInvalidAuthParameters
@@ -184,11 +203,31 @@
 ## Chat and message lifecycle
 - Correlated queries: internal/telegram/query.go
   - @extra-based request/response correlation
-  - pendingQuery registry guarded by queryMu
+  - newQueryID is the only mint of a telecli @extra, process-wide:
+    telecli:<client id>:<process sequence>. One counter is the whole
+    point — TDLib answers a request by its identifier alone, so two
+    counters would hand out the same identifier twice and the second
+    requester of it would receive the first requester's answer
+  - the pending registry is on Client, not on AuthorizedSession
+    (internal/telegram/runtime.go), guarded by the client's queryMu:
+    an answer is routed by the identifier on it, and the identifier is
+    the only thing that says which request it belongs to, so a reader
+    that is not the sender must still hand it over. Two sessions over
+    one client therefore cannot keep each other's answers
+  - a session that stops on its own does not fail the registry: its
+    own waiters are released by Query's select on pumpDone, and
+    another session's are not this session's to fail
+  - Runtime.closeClientChannels fails the registry once per client,
+    before the update channel is closed, because that is the point at
+    which no reader is left
   - responses with telecli-owned @extra never reach LiveState
   - foreign @extra (string, object, or non-string) is treated as a
     normal application update
   - late responses to cancelled queries are consumed silently
+  - a wrong answer reports the request, the @type that arrived and the
+    @extra the answer carried, and nothing else: an answer can hold a
+    name, a phone number or a message body, and the identifier is
+    enough to find the request in a trace
   - TDLib error objects decode into *TDLibError with
     ErrTDLibResponse preserved for errors.Is
 - Chat projection: internal/telegram/chats.go

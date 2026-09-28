@@ -127,8 +127,9 @@ func (s *AuthorizedSession) GetUserName(
 
 	if response.Type != "user" {
 		return "", fmt.Errorf(
-			"%w: getUser returned @type=%q",
-			ErrUserNameUnavailable, response.Type,
+			"%w: %s",
+			ErrUserNameUnavailable,
+			unexpectedResponse("getUser", raw),
 		)
 	}
 

@@ -80,10 +80,9 @@ func (s *AuthorizedSession) chatLifecycle(
 	}
 	if response.Type != "ok" {
 		return fmt.Errorf(
-			"%w: %s returned @type=%q",
+			"%w: %s",
 			ErrChatLifecycleResponse,
-			method,
-			response.Type,
+			unexpectedResponse(method, raw),
 		)
 	}
 
@@ -121,15 +120,16 @@ func (s *AuthorizedSession) GetMeUserID(ctx context.Context) (int64, error) {
 	}
 	if response.Type != "user" {
 		return 0, fmt.Errorf(
-			"%w: getMe returned @type=%q",
+			"%w: %s",
 			ErrChatLifecycleResponse,
-			response.Type,
+			unexpectedResponse("getMe", raw),
 		)
 	}
 	if response.ID == 0 {
 		return 0, fmt.Errorf(
-			"%w: getMe returned a zero user id",
+			"%w: getMe returned a zero user id for @extra=%q",
 			ErrChatLifecycleResponse,
+			responseExtra(raw),
 		)
 	}
 

@@ -55,10 +55,21 @@ type Runtime struct {
 	closeErr              error
 }
 
+// Client is one logical TDLib client: a request sender, a stream of
+// updates, and the registry of the answers that stream is carrying.
+//
+// The registry is here and not on a session because the answers belong to
+// the wire, not to whoever reads it. A reader that is not the sender must
+// still hand an answer to the caller waiting for it, so two sessions over
+// one client cannot keep each other's answers.
 type Client struct {
 	id      int
 	updates chan Update
 	errors  chan error
+
+	queryMu        sync.Mutex
+	pendingQueries map[QueryID]*pendingQuery
+	queryErr       error
 }
 
 func NewRuntime(cfg Config, native Native, rec recorder.ComponentRecorder) (*Runtime, error) {
@@ -295,7 +306,20 @@ func (r *Runtime) broadcastError(err error) {
 	}
 }
 
+// closeClientChannels is the end of the line for a client: no reader is
+// left, so every waiter is released before the channels are closed.
 func (r *Runtime) closeClientChannels() {
+	r.mu.Lock()
+	clients := make([]*Client, 0, len(r.clients))
+	for _, client := range r.clients {
+		clients = append(clients, client)
+	}
+	r.mu.Unlock()
+
+	for _, client := range clients {
+		client.failPendingQueries(ErrQuerySessionClosed)
+	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, client := range r.clients {

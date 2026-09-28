@@ -368,9 +368,9 @@ func TestQueryContextCancellationRemovesPending(t *testing.T) {
 		t.Fatal("Query did not return after cancel")
 	}
 
-	session.queryMu.Lock()
-	n := len(session.pendingQueries)
-	session.queryMu.Unlock()
+	session.client.queryMu.Lock()
+	n := len(session.client.pendingQueries)
+	session.client.queryMu.Unlock()
 	if n != 0 {
 		t.Fatalf("pending queries = %d, want 0", n)
 	}
@@ -499,9 +499,9 @@ func TestQuerySendErrorRemovesPending(t *testing.T) {
 		t.Fatalf("err = %v, want send error", err)
 	}
 
-	session.queryMu.Lock()
-	n := len(session.pendingQueries)
-	session.queryMu.Unlock()
+	session.client.queryMu.Lock()
+	n := len(session.client.pendingQueries)
+	session.client.queryMu.Unlock()
 	if n != 0 {
 		t.Fatalf("pending queries = %d, want 0", n)
 	}
@@ -643,7 +643,7 @@ func TestRouteQueryResponseIgnoresForeignExtra(t *testing.T) {
 	session, _, _, _ := newSessionWithFakes(t)
 
 	raw := RawMessage(`{"@type":"updateSome","@extra":"other:9:9"}`)
-	routed, err := session.routeQueryResponse(raw)
+	routed, err := session.client.routeResponse(raw)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}
@@ -656,7 +656,7 @@ func TestRouteQueryResponseIgnoresForeignObjectExtra(t *testing.T) {
 	session, _, _, _ := newSessionWithFakes(t)
 
 	raw := RawMessage(`{"@type":"updateSome","@extra":{"source":"other"}}`)
-	routed, err := session.routeQueryResponse(raw)
+	routed, err := session.client.routeResponse(raw)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}

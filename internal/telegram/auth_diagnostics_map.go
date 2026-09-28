@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"encoding/json"
-	"strconv"
-	"strings"
 )
 
 // The mapping from internal values to diagnostic labels is the only place
@@ -226,36 +224,4 @@ func answerResult(
 	}
 
 	return AuthDiagnosticResultAnswered
-}
-
-// diagnosticIDFor recovers the sequence number from a query identifier.
-//
-// isTelecliQueryID only checks the namespace prefix, so the full shape is
-// verified here: telecli, a client number, a sequence number. Anything else
-// yields zero, which the writer renders as an unattributed answer rather
-// than an invented number.
-func diagnosticIDFor(queryID QueryID) AuthDiagnosticRequestID {
-	parts := strings.Split(string(queryID), ":")
-	if len(parts) != 3 || parts[0]+":" != queryNamespace {
-		return 0
-	}
-
-	for _, part := range parts[1:] {
-		if part == "" {
-			return 0
-		}
-
-		for _, digit := range part {
-			if digit < '0' || digit > '9' {
-				return 0
-			}
-		}
-	}
-
-	value, err := strconv.ParseUint(parts[2], 10, 64)
-	if err != nil {
-		return 0
-	}
-
-	return AuthDiagnosticRequestID(value)
 }

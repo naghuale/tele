@@ -186,8 +186,9 @@ func (s *AuthorizedSession) GetChatHistory(
 	}
 	if response.Type != "messages" {
 		return HistoryPage{}, fmt.Errorf(
-			"%w: getChatHistory returned @type=%q",
-			ErrUnexpectedHistoryResponse, response.Type,
+			"%w: %s",
+			ErrUnexpectedHistoryResponse,
+			unexpectedResponse("getChatHistory", raw),
 		)
 	}
 

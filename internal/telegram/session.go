@@ -51,10 +51,6 @@ type AuthorizedSession struct {
 	authState AuthState
 	lastErr   error
 
-	queryMu        sync.Mutex
-	pendingQueries map[QueryID]*pendingQuery
-	queryErr       error
-
 	closeOnce  sync.Once
 	closeDone  chan struct{}
 	closeErrMu sync.RWMutex
@@ -240,7 +236,6 @@ func newAuthorizedSession(
 		cancel:          cancel,
 		closed:          make(chan struct{}),
 		pumpDone:        make(chan struct{}),
-		pendingQueries:  make(map[QueryID]*pendingQuery),
 		closeDone:       make(chan struct{}),
 	}
 
@@ -322,10 +317,12 @@ func (s *AuthorizedSession) recordError(err error) {
 func (s *AuthorizedSession) run(held []RawMessage) {
 	// Defer order is LIFO:
 	//   1. close(errors)
-	//   2. failPendingQueries
-	//   3. close(pumpDone)
+	//   2. close(pumpDone)
+	//
+	// The pending answers of this session are not failed here. They
+	// belong to the client, and a waiter on this client is released by
+	// Query's own select on pumpDone.
 	defer close(s.pumpDone)
-	defer s.failPendingQueries(ErrQuerySessionClosed)
 	defer close(s.errors)
 
 	clientUpdates := s.client.Updates()
@@ -353,7 +350,7 @@ func (s *AuthorizedSession) run(held []RawMessage) {
 				return
 			}
 
-			routed, routeErr := s.routeQueryResponse(u.Raw)
+			routed, routeErr := s.client.routeResponse(u.Raw)
 			if routeErr != nil {
 				s.recordError(fmt.Errorf(
 					"session: route query response: %w",

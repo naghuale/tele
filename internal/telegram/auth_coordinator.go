@@ -147,6 +147,17 @@ func RunAuthWithClient(
 	)
 }
 
+// pendingAuthRequest is one request this run sent and still waits for.
+//
+// The number is the one the trace prints, and it counts the requests of
+// this run. It is not recoverable from the @extra the request carries:
+// that identifier is minted process-wide, so the two numbers are
+// deliberately not the same counter.
+type pendingAuthRequest struct {
+	id      AuthDiagnosticRequestID
+	request AuthDiagnosticRequest
+}
+
 // RunAuthWithClientDiagnostics is RunAuthWithClient with metadata-only
 // authorization diagnostics.
 //
@@ -194,8 +205,16 @@ func RunAuthWithClientDiagnostics(
 	// TDLib copies it into the answer. Without that, an error arriving
 	// after a phone request could only be guessed onto it, and a guess
 	// is exactly what this trace exists to avoid.
+	//
+	// The identifier is minted by newQueryID like every other request in
+	// the process. A counter of this run's own would hand out the same
+	// string the session pump mints, and the two answers would then be
+	// indistinguishable to the reader that comes next. The number in the
+	// trace is a separate thing: it counts the requests of this run, so
+	// it starts at one and is kept here rather than decoded back out of
+	// the identifier.
 	var diagnosticSequence AuthDiagnosticRequestID
-	pending := make(map[QueryID]AuthDiagnosticRequest)
+	pending := make(map[QueryID]pendingAuthRequest)
 
 	for {
 		select {
@@ -237,8 +256,8 @@ func RunAuthWithClientDiagnostics(
 			if queryID, matched, idErr := responseQueryID(
 				update.Raw,
 			); idErr == nil && matched {
-				request, known := pending[queryID]
-				id := diagnosticIDFor(queryID)
+				owned, known := pending[queryID]
+				request, id := owned.request, owned.id
 
 				// Classification belongs to a request. An answer with
 				// no owner gets no name, because there is nothing the
@@ -404,17 +423,15 @@ func RunAuthWithClientDiagnostics(
 				id := diagnosticSequence
 
 				tagged := request
-				queryID := QueryID(fmt.Sprintf(
-					"%s%d:%d",
-					queryNamespace,
-					client.ID(),
-					id,
-				))
+				queryID := newQueryID(client.ID())
 
 				withID, tagErr := withQueryID(request, queryID)
 				if tagErr == nil {
 					tagged = withID
-					pending[queryID] = requestType
+					pending[queryID] = pendingAuthRequest{
+						id:      id,
+						request: requestType,
+					}
 				} else {
 					id = 0
 				}

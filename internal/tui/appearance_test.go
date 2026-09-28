@@ -325,9 +325,13 @@ func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
 	}
 
 	// The list, the column every region reserves, the inset between the
-	// marker and the text, and the marker's own column.
-	first := LayoutFor(m.width, m.height).SidebarWidth() + paneGapWidth
-	want := first + 2*focusColumnWidth + 2*contentInsetWidth
+	// marker and the text, and the margin the feed keeps on each side.
+	// The other side's messages start in the left margin: there is no
+	// block behind them, and a text that started one column further in
+	// would read as a message with a name hanging off its left edge.
+	layout := LayoutFor(m.width, m.height)
+	first := layout.SidebarWidth() + paneGapWidth
+	want := first + focusColumnWidth + contentInsetWidth + layout.FeedMargin()
 	if got := indentOf(incoming); got != want {
 		t.Fatalf("the incoming text starts at %d, want %d", got, want)
 	}
@@ -364,10 +368,14 @@ func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
 	m.selectedMsg = 0
 	m.timelineTop = 0
 
-	width := LayoutFor(m.width, m.height).ChatContentWidth()
-	limit := int(float64(width) * outgoingBubbleShare)
-	if got := m.outgoingBlockWidth(width); got > limit {
-		t.Fatalf("the block is %d columns, want at most %d", got, limit)
+	layout := LayoutFor(m.width, m.height)
+	width := layout.ChatContentWidth()
+	limit := width * outgoingBubbleSharePercent / 100
+	block := m.outgoingBlockFor(
+		layout, width, strings.Repeat("long ", 60), "✓ Sent 10:01",
+	)
+	if block.width > limit {
+		t.Fatalf("the block is %d columns, want at most %d", block.width, limit)
 	}
 }
 

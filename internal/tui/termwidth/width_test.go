@@ -529,6 +529,50 @@ func TestAMeasuredWidthIsTheWidthOfTheFlag(t *testing.T) {
 	}
 }
 
+// The rounded ends of a message block are one column in both rules, and a
+// terminal that was asked about one of them does not get to say otherwise.
+//
+// The two halves are what the interface draws around a message of this
+// user when `tui.nerd_font` is on, and the block they sit on is fitted to
+// a width the interface computed from that one column. A measurement that
+// disagreed would move one end of every block and not the other, and the
+// row would be a column over the width of the feed — which is a row the
+// terminal wraps, and a wrapped row moves everything under it.
+func TestTheRoundedEndsOfABlockAreOneColumnWide(t *testing.T) {
+	measured := Measurement{Widths: map[string]int{
+		NerdHalfLeft:  2,
+		NerdHalfRight: 2,
+	}}
+
+	for _, mode := range []Mode{ModeGrapheme, ModeCodepoint} {
+		unasked := newWidthModel(mode, nil)
+		asked := newWidthModel(mode, measured.Widths)
+
+		for _, glyph := range []string{NerdHalfLeft, NerdHalfRight} {
+			if got := unasked.StringWidth(glyph); got != nerdHalfWidth {
+				t.Errorf(
+					"%v: %q is %d columns, want %d",
+					mode, glyph, got, nerdHalfWidth,
+				)
+			}
+			if got := asked.StringWidth(glyph); got != nerdHalfWidth {
+				t.Errorf(
+					"%v measured at two: %q is %d columns, want %d",
+					mode, glyph, got, nerdHalfWidth,
+				)
+			}
+		}
+
+		// The two of them are the ends of one block, so the block is
+		// exactly as wide as its two ends say: two columns between them
+		// and nothing else.
+		block := NerdHalfLeft + "ok" + NerdHalfRight
+		if got := unasked.StringWidth(block); got != 4 {
+			t.Errorf("%v: the block with both ends is %d columns, want 4", mode, got)
+		}
+	}
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a

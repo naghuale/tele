@@ -349,10 +349,15 @@ func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
 		rows := model.entryLines(entries[0], layout, width, model.styles())
 
 		// The first row of a block is the blank line between messages, so
-		// the name is on the second and the text under it. The name is one
-		// column further right than the row starts, because the column in
-		// front of it is the marker of the message under the cursor.
-		head := indentOf(rows[1]) + selectionMarkerWidth
+		// the name is on the second and the text under it. The name is
+		// where the words of it start, which is past the column the marker
+		// of the message under the cursor stands in — the feed keeps a
+		// margin there, and the text starts with the name rather than
+		// beside it.
+		head := strings.Index(plain(rows[1]), messageAuthor(entries[0].message))
+		if head < 0 {
+			t.Fatalf("the sender's name is not on the second row: %q", plain(rows[1]))
+		}
 		for index, row := range rows[2:] {
 			if got := indentOf(row); got != head {
 				t.Fatalf(

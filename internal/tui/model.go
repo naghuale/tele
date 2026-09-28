@@ -305,6 +305,18 @@ type Model struct {
 	// terminal nobody could ask.
 	widths termwidth.WidthModel
 
+	// nerdFont says that the terminal is drawn with a Nerd Font, and that
+	// the block of a message of this user is rounded with the two halves
+	// the font provides.
+	//
+	// It is false unless the configuration asked for it: a terminal
+	// without the font draws the halves as empty squares, and empty
+	// squares at both ends of every message of this user are worse than
+	// the square corners they were meant to replace. A terminal does not
+	// report its font, so this is the one thing about the screen the
+	// program has to be told rather than measure.
+	nerdFont bool
+
 	width  int
 	height int
 

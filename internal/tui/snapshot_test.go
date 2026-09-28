@@ -189,6 +189,12 @@ type snapshotFixture struct {
 	// chats is the list the screen is drawn over, and nil for the list
 	// every other snapshot is drawn over.
 	chats []Chat
+
+	// nerdFont says the terminal is drawn with a Nerd Font, so the block
+	// of a message of this user is rounded with the two halves the font
+	// provides. It is false on every other screen, which is the default
+	// and the only thing a terminal without the font can show.
+	nerdFont bool
 }
 
 // wide is the two-pane layout of §10.2 at the size the snapshots use.
@@ -256,6 +262,7 @@ func snapshotModel(
 	}
 	deps.Theme = built.ForProfile(f.profile)
 	deps.ColorProfile = f.profile
+	deps.NerdFont = f.nerdFont
 	// The rule is given rather than measured: a snapshot of a screen drawn
 	// with whatever the terminal of the machine that made it happened to
 	// say is a snapshot of that terminal.
@@ -559,6 +566,12 @@ func snapshotScreens() []snapshotScreen {
 
 			return snapshotChatList(t, f)
 		}},
+		{"TestSnapshotMessageSidesSquare", func(t *testing.T) Model {
+			return snapshotMessageSides(t, false)
+		}},
+		{"TestSnapshotMessageSidesRounded", func(t *testing.T) Model {
+			return snapshotMessageSides(t, true)
+		}},
 	}
 }
 
@@ -683,6 +696,22 @@ func snapshotDifficultNames(t *testing.T, mode termwidth.Mode) Model {
 	m.focus = FocusChatList
 
 	return m
+}
+
+// snapshotMessageSides is a conversation with a message from each side,
+// drawn once with the rounded ends of a Nerd Font and once without them.
+//
+// It is the one screen of the two, twice, because the two differ in two
+// columns of every row of a block and in nothing else: a reviewer looking
+// at the pair sees exactly what the setting bought, and a reviewer looking
+// at either one alone can tell which shape the ends of a message have.
+func snapshotMessageSides(t *testing.T, nerdFont bool) Model {
+	t.Helper()
+
+	f := wide(theme.ProfileTrueColor)
+	f.nerdFont = nerdFont
+
+	return snapshotConversation(t, f)
 }
 
 // snapshotThemed is the wide conversation in a named theme, which is the
@@ -968,6 +997,19 @@ func TestSnapshotFullFeedFromTheNewest(t *testing.T) {
 // still there and the characters are not.
 func TestSnapshotUntrustedNames(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotUntrustedNames"))
+}
+
+// The same conversation with square ends and with rounded ones, which is
+// the whole of what the setting changes and the whole of what a reviewer
+// has to look at to accept it. The golden without the font is also the
+// proof that the default did not change: everything outside the two ends
+// of each block is the same screen.
+func TestSnapshotMessageSidesSquare(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotMessageSidesSquare"))
+}
+
+func TestSnapshotMessageSidesRounded(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotMessageSidesRounded"))
 }
 
 // ---- what every snapshot has to satisfy ----

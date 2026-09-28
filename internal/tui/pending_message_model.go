@@ -149,16 +149,24 @@ func (m Model) pendingMessageRows(
 	width int,
 	styles viewStyles,
 ) []string {
-	blockWidth := m.outgoingBlockWidth(width)
-	offset := maxInt(width-selectionMarkerWidth-blockWidth, 0)
-	textWidth := maxInt(blockWidth-2*outgoingBubbleInset, 1)
 	mark := styles.unstyled()
+	label, colour := m.deliveryStateLabel(message)
+
+	// The warning is a line of the block as much as the state is, and a
+	// block that had to cut the sentence in half is a block that cannot
+	// say what a user has to decide.
+	under := []string{label}
+	if message.State == MessageDeliveryUncertain {
+		under = append(under, uncertainWarning)
+	}
+
+	block := m.outgoingBlockFor(layout, width, message.Text, under...)
 
 	rows := make([]string, 0, 4)
-	for _, line := range m.widths.Wrap(message.Text, textWidth, ellipsis) {
+	for _, line := range m.widths.Wrap(message.Text, block.text, ellipsis) {
 		rows = append(rows, m.outgoingRow(
-			styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
-			offset, blockWidth, line, m.tokens().OutgoingMessage,
+			styles, false, mark, spaces(selectionMarkerWidth),
+			block, line, m.tokens().OutgoingMessage, false,
 		))
 	}
 
@@ -166,10 +174,9 @@ func (m Model) pendingMessageRows(
 	// one fact about the message: it is at this state, as of this moment.
 	// Two lines of it under a two-line message is a status block the reader
 	// has to assemble out of three rows.
-	label, colour := m.deliveryStateRun(message, textWidth)
 	rows = append(rows, m.outgoingRow(
-		styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
-		offset, blockWidth, label, colour,
+		styles, false, mark, spaces(selectionMarkerWidth),
+		block, label, colour, true,
 	))
 
 	// §3.1 puts the second row of an uncertain message under the state,
@@ -178,25 +185,29 @@ func (m Model) pendingMessageRows(
 	// decision rather than an error to retry away.
 	if message.State == MessageDeliveryUncertain {
 		rows = append(rows, m.outgoingRow(
-			styles, theme.Color{}, mark, spaces(selectionMarkerWidth),
-			offset, blockWidth, uncertainWarning, m.tokens().StatusUncertain,
+			styles, false, mark, spaces(selectionMarkerWidth),
+			block, uncertainWarning, m.tokens().StatusUncertain, true,
 		))
 	}
 
 	return rows
 }
 
-// deliveryStateRun returns the words under a message of this user and the
+// deliveryStateLabel returns the words under a message of this user and the
 // colour of them.
 //
+// The words come back whole rather than fitted to a width, for the same
+// reason the state of a message of the history does: the block of a
+// message is as wide as the state under it, and a state cut to the width of
+// a block that was measured without it is a state that cannot name what
+// happened to the message.
+//
 // The colour is the state's own, so the line under a message repeats what
-// the words under it say rather than being the same grey everywhere: a
-// muted `! Failed` is a warning about nothing in particular. A state this
-// build does not know keeps its text and is drawn in the muted tier
-// rather than being given a colour that belongs to a different state.
-func (m Model) deliveryStateRun(
+// the words under it say rather than being the same grey everywhere. A
+// state this build does not know keeps its text and is drawn in the muted
+// tier rather than being given a colour that belongs to a different state.
+func (m Model) deliveryStateLabel(
 	message PendingMessage,
-	width int,
 ) (string, theme.Color) {
 	state, known := deliveryStateOf(message.State)
 	if !known {
@@ -221,7 +232,7 @@ func (m Model) deliveryStateRun(
 		label += " " + queuedAt
 	}
 
-	return m.widths.TruncateMarked(label, width, ellipsis), state.Color(m.tokens())
+	return label, state.Color(m.tokens())
 }
 
 // uncertainWarning is the second row of an uncertain message.

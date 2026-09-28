@@ -162,7 +162,10 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 // The two lines of a row are the two things a chat list is: who it is and
 // what it is about. The time and the badge are at the right edge of the
 // rows they belong to, so the eye can run down the times without reading
-// any of the names.
+// any of the names — and the badge with them, because a badge that sits
+// wherever the preview of its chat happened to end is a column the eye has
+// to find on every row, and a column the eye has to find is a column that
+// is not there.
 func (m Model) chatListRowLines(
 	entry chatListEntry,
 	selected bool,
@@ -181,7 +184,6 @@ func (m Model) chatListRowLines(
 	mark := styles.selectionMarker(selected)
 	at := chat.Time
 	badgeText, badgeStyle := m.chatListUnreadBadge(chat)
-	badgeColumns := m.widths.StringWidth(badgeText)
 	timeColumns := m.widths.StringWidth(at)
 	timeStyle := styles.text(m.tokens().MutedText)
 
@@ -205,7 +207,10 @@ func (m Model) chatListRowLines(
 	markStyle := styles.selectionMark(selected, m.focus == FocusChatList)
 
 	if m.chatListRowHeight(layout) == 1 {
-		short := maxInt(nameWidth-badgeColumns-2, 1)
+		short := maxInt(
+			nameWidth-m.widths.StringWidth(badgeText)-2,
+			1,
+		)
 
 		head := m.painter(surface).
 			add(markStyle, markRun).
@@ -229,9 +234,15 @@ func (m Model) chatListRowLines(
 
 	// The badge is spent out of the width of the preview and not added to
 	// it: a preview that pushes the badge off the end of the row is a
-	// preview that has taken the only number in it.
+	// preview that has taken the only number in it. The preview is cut
+	// before the badge, so the badge is in the same column whatever the
+	// chat is about, and the columns between the end of the preview and
+	// the badge are the row's own — on the selected chat they are the
+	// selection, and a selection that stops where the words stop is a
+	// highlight under a name rather than a selected row.
 	previewWidth := maxInt(
-		width-selectionMarkerWidth-contentInsetWidth-badgeColumns-timeGapColumns,
+		width-selectionMarkerWidth-contentInsetWidth-
+			m.widths.StringWidth(badgeText)-timeGapColumns,
 		1,
 	)
 	detail := m.painter(surface).
@@ -242,7 +253,7 @@ func (m Model) chatListRowLines(
 				m.chatListPreview(chat), previewWidth, ellipsis,
 			),
 		).
-		badge(badgeStyle, badgeText).
+		rightOwn(badgeText, width, badgeStyle).
 		String()
 
 	return []string{head, detail, m.painter(surface).pad(width).String()}

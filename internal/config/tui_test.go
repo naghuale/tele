@@ -31,6 +31,7 @@ func TestInterfaceDefaultsAreWrittenIntoTheFile(t *testing.T) {
 		`theme = "` + DefaultTUITheme + `"`,
 		`color = "` + DefaultTUIColorMode + `"`,
 		`width = "` + DefaultTUIWidthMode + `"`,
+		`nerd_font = false`,
 	} {
 		if !strings.Contains(string(contents), want) {
 			t.Errorf(
@@ -53,6 +54,7 @@ data_dir = "/tmp/telecli-config-test"
 theme = "gruvbox-dark"
 color = "never"
 width = "grapheme"
+nerd_font = true
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -71,6 +73,9 @@ width = "grapheme"
 	}
 	if cfg.TUI.Width != "grapheme" {
 		t.Errorf("width = %q, want grapheme", cfg.TUI.Width)
+	}
+	if !cfg.TUI.NerdFont {
+		t.Error("nerd_font = false, want true")
 	}
 }
 
@@ -135,5 +140,11 @@ func TestAbsentInterfaceSectionGetsTheDefaults(t *testing.T) {
 	}
 	if cfg.TUI.Width != DefaultTUIWidthMode {
 		t.Errorf("width = %q, want the default %q", cfg.TUI.Width, DefaultTUIWidthMode)
+	}
+	if cfg.TUI.NerdFont != DefaultTUINerdFont {
+		t.Errorf(
+			"nerd_font = %v, want the default %v",
+			cfg.TUI.NerdFont, DefaultTUINerdFont,
+		)
 	}
 }

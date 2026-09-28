@@ -1039,7 +1039,8 @@
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by
   --config or TELECLI_CONFIG
-- Interface configuration: [tui] theme, [tui] color and [tui] width
+- Interface configuration: [tui] theme, [tui] color, [tui] width and
+  [tui] nerd_font
   - theme: a built-in theme name, default catppuccin-mocha; an unknown
     name is a configuration error that lists the names there are
   - color: "auto" (default), "always" or "never"; anything else is a
@@ -1047,6 +1048,17 @@
   - width: "auto" (default), "grapheme" or "codepoint"; anything else
     is a configuration error with the valid values in it, resolved by
     the composition root like the theme and reported by telecli doctor
+  - nerd_font: a bool, default false. It says the terminal is drawn with
+    a Nerd Font, and the block of a message of this user is then rounded
+    with the two halves the font provides (U+E0B6 and U+E0B4), each one
+    column, painted in the colour of the block on the background of the
+    feed. It is off by default because a terminal without the font draws
+    them as empty squares, and a terminal does not report its font, so
+    the user is the only party that can say. Reported by telecli doctor
+    and resolved by the composition root like the theme and the width
+    rule; under the no-colour profile neither the ends nor the background
+    of a block is drawn, because there is no colour for the half to be
+    the colour of
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
@@ -1059,6 +1071,12 @@
     is drawn; codepoint: the widths of its code points added up, with
     U+FE0F, U+FE0E, ZWJ, a skin tone and whatever follows a ZWJ at
     nothing, and a flag at the width the terminal gave it
+  - two glyphs are stated rather than counted: the halves of a rounded
+    end of a message block (U+E0B6, U+E0B4) take one column in both
+    rules, whatever a measurement said about them, because a block that
+    is a column wider on one side is a row a column over the width of
+    the feed and a row over the width of the feed is a row the terminal
+    wraps
   - auto measures the terminal before the first frame, with the standard
     cursor position request (ESC[6n) over six probes, inside a total
     budget of 150 ms, erasing the line it wrote on and restoring the

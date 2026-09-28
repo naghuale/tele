@@ -55,6 +55,34 @@ const (
 	// divider, and one column of space is what is left of that idea
 	// without a line.
 	paneGapWidth = 1
+
+	// feedMargin is the space on each side of the feed, and
+	// feedMarginNarrow the same space on a single-pane screen.
+	//
+	// Three columns is the air a conversation has in the approved
+	// drawing: without it the other side's messages start against the
+	// edge of the region and this user's end at it, and a feed whose
+	// messages touch both edges is a column of text rather than a
+	// conversation. A single-pane screen has no pane beside the
+	// conversation to be told apart from and a message of this user
+	// takes most of it there, so the margin is one column: a margin the
+	// width of the chat list beside it would be a margin that makes the
+	// message smaller for no reason.
+	feedMargin       = 3
+	feedMarginNarrow = 1
+
+	// bubbleInset is the space inside the block of a message of this user
+	// on each side of its text, and bubbleInsetNarrow the same on a
+	// single-pane screen.
+	//
+	// Two columns is the air inside the block: text flush against the
+	// background of the block reads as a highlight rather than as a
+	// message, and a highlight is not something a person can be on the
+	// right-hand side of. The narrow screen has one, because the block
+	// there is nearly the whole width and the message would otherwise be
+	// a word and a half wide.
+	bubbleInset       = 2
+	bubbleInsetNarrow = 1
 )
 
 // focusColumnWidth is the single column a focus marker occupies, and
@@ -228,6 +256,31 @@ func (l Layout) ChatContentWidth() int {
 	}
 
 	return width
+}
+
+// FeedMargin returns the space the feed of a conversation keeps on each of
+// its sides, which is where the selection marker of a message stands and
+// where a message of this user ends.
+//
+// It is a method and not a constant because a single-pane screen gives it
+// a column where a two-pane one gives it three, and the two answers have
+// to come from the same place as every other number that decides a shape.
+func (l Layout) FeedMargin() int {
+	if l.Kind == LayoutNarrow {
+		return feedMarginNarrow
+	}
+
+	return feedMargin
+}
+
+// BubbleInset returns the space inside the block of a message of this
+// user on each side of its text.
+func (l Layout) BubbleInset() int {
+	if l.Kind == LayoutNarrow {
+		return bubbleInsetNarrow
+	}
+
+	return bubbleInset
 }
 
 // visibleRange returns the [start, end) slice window of a list of total

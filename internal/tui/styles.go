@@ -365,6 +365,31 @@ func (s viewStyles) bubble() lipgloss.Style {
 		Background(lipgloss.Color(s.theme.Tokens.ComposerBackground.Print()))
 }
 
+// roundedEnd is the style of one half of a rounded end of a block of a
+// message of this user: the colour of the block, on the background of the
+// feed.
+//
+// It is a semicircle in the colour of the block standing on the colour of
+// the feed, which is how a Nerd Font draws the two halves of a rounded
+// rectangle: what the block has at its ends is not a curve but two of
+// them, and the space between them is the feed showing through. Painting
+// the half in the block's own colour is what makes it the block's corner
+// rather than a glyph on top of it.
+//
+// A block with no background of its own has nothing for the half to be
+// the colour of, and the style is empty: under the no-colour profile the
+// ends are not drawn at all, which is the same reason the background of
+// the block is not drawn there.
+func (s viewStyles) roundedEnd(block, feed theme.Color) lipgloss.Style {
+	if !block.IsSet() || !feed.IsSet() {
+		return s.renderer.NewStyle()
+	}
+
+	return s.renderer.NewStyle().
+		Foreground(lipgloss.Color(block.Print())).
+		Background(lipgloss.Color(feed.Print()))
+}
+
 // pill is the badge of an unread count: a count on a background of its
 // own, in the colour the surface is behind it.
 //
@@ -625,6 +650,20 @@ func (p *rowPainter) right(text string, width int, style lipgloss.Style) *rowPai
 // row a user is looking at is the row that has to say what is unread on
 // it.
 func (p *rowPainter) badge(style lipgloss.Style, text string) *rowPainter {
+	return p.own(style, text)
+}
+
+// own writes a run of the row that carries its own background, and takes
+// the surface of the row only where the run has none.
+//
+// It is for the two things on this screen that are a colour of their own
+// rather than a cell of the row: the unread count, which is a pill, and
+// the rounded end of a message block, which is a semicircle of the
+// block's own colour on the background of the feed. A run that went
+// through the surface of the row would paint the pill in the row's colour
+// and the semicircle over the block, and neither of those is what either
+// of them is.
+func (p *rowPainter) own(style lipgloss.Style, text string) *rowPainter {
 	if text == "" {
 		return p
 	}
@@ -632,6 +671,30 @@ func (p *rowPainter) badge(style lipgloss.Style, text string) *rowPainter {
 	p.written.WriteString(style.Render(text))
 
 	return p
+}
+
+// rightOwn writes a run that has a surface of its own at the end of a row
+// of the given width, with the columns that are missing filled in before
+// it.
+//
+// It is what puts the unread count in the same column of every row: a
+// count that sits wherever the preview of its chat happened to end is a
+// column the eye has to find on every row, and a column the eye has to
+// find is a column that is not there. The run is the last one on the row
+// for the same reason — a badge followed by the time of the chat is a
+// badge that has moved, and the times are the column this list is read
+// down.
+func (p *rowPainter) rightOwn(
+	text string,
+	width int,
+	style lipgloss.Style,
+) *rowPainter {
+	if text == "" {
+		return p.pad(width - p.width())
+	}
+
+	return p.pad(width-p.width()-p.widths.StringWidth(text)).
+		own(style, text)
 }
 
 // width returns how many columns have been written so far, escape

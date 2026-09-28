@@ -282,6 +282,10 @@ func (w WidthModel) itemWidth(item lineItem) int {
 		return 0
 	}
 
+	if columns, ok := fixedWidth[item.text]; ok {
+		return columns
+	}
+
 	if measured, ok := w.measured[item.text]; ok {
 		return measured
 	}
@@ -362,6 +366,48 @@ func isEscape(sequence string) bool {
 	head := sequence[0]
 
 	return head == 0x1b || (head >= 0x80 && head <= 0x9f)
+}
+
+// The two halves of the rounded end of a Nerd Font block, and the columns
+// they take.
+//
+// They are the glyphs the interface draws at the ends of a message of this
+// user when the setting `tui.nerd_font` is on: U+E0B6 on the left and
+// U+E0B4 on the right, each painted in the colour of the block so that it
+// reads as a semicircle cut out of it. They are declared here rather than
+// counted by a rule, because the two rules of this package both happen to
+// say one column today and neither of them says it for a reason: a
+// private-use code point is a letter to wcwidth and a letter to the emoji
+// tables, and the day a version of either of them decides otherwise the
+// block is a column wider on one side, the row is a column over the width
+// of the feed, and the terminal wraps it and moves everything under it.
+//
+// So the width is a fact about the glyph and not a result of the counting,
+// and it is the same one column in both rules: a block whose ends were two
+// columns in one of them would be a different shape in each.
+const (
+	// NerdHalfLeft rounds the left end of a block.
+	NerdHalfLeft = "\ue0b6"
+
+	// NerdHalfRight rounds the right end of a block.
+	NerdHalfRight = "\ue0b4"
+
+	// nerdHalfWidth is how many columns either of them takes.
+	nerdHalfWidth = 1
+)
+
+// fixedWidth is the glyphs whose width this package states rather than
+// counts, and what it states.
+//
+// It is keyed by the whole cluster and not by the code point, so a glyph
+// made of several code points can be in here too, and it is consulted
+// before the measurement as well as before the rules: a terminal cannot
+// draw a semicircle out of a rounded rectangle, and the whole of the
+// drawing it is a part of is sized for the one column the interface
+// promised.
+var fixedWidth = map[string]int{
+	NerdHalfLeft:  nerdHalfWidth,
+	NerdHalfRight: nerdHalfWidth,
 }
 
 // The code points that join a cluster together without taking a column of

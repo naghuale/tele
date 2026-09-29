@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -269,6 +270,108 @@ ORDER BY accepted_at_ns ASC, id ASC
 		return nil, fmt.Errorf(
 			"outbox unsettled accepted rows: %w", err,
 		)
+	}
+
+	return entries, nil
+}
+
+// ListSettledUncertain implements UnsettledAcceptedStore.
+func (s *sqliteStore) ListSettledUncertain(
+	ctx context.Context,
+	accountKey string,
+	reason string,
+	limit int,
+) ([]UnsettledAccepted, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf(
+			"outbox settled uncertain: nil sqlite store",
+		)
+	}
+	account, err := normalizeAccountKey(accountKey)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return nil, fmt.Errorf(
+			"%w: the reason a settlement wrote is required to recognise "+
+				"its own records", ErrInvalidEntry,
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, account_key, chat_id, encrypted_text, accepted_at_ns, version,
+       telegram_message_id
+FROM outbox_entries
+WHERE state = ? AND account_key = ? AND last_error_message = ?
+  AND telegram_message_id IS NOT NULL AND telegram_message_id != 0
+ORDER BY accepted_at_ns ASC, id ASC
+`, string(StateUncertain), account, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"outbox settled uncertain query: %w", err,
+		)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var entries []UnsettledAccepted
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		var (
+			record        UnsettledAccepted
+			idText        string
+			account       string
+			ciphertext    []byte
+			acceptedAt    int64
+			telegramIDRaw sql.NullInt64
+		)
+		if err := rows.Scan(
+			&idText,
+			&account,
+			&record.ChatID,
+			&ciphertext,
+			&acceptedAt,
+			&record.Version,
+			&telegramIDRaw,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"outbox settled uncertain scan: %w", err,
+			)
+		}
+
+		record.ID = ID(idText)
+		record.AccountKey = account
+		record.AcceptedAt = time.Unix(0, acceptedAt).UTC()
+		record.TelegramMessageID = telegramIDRaw.Int64
+
+		plaintext, err := s.cipher.DecryptMessage(
+			ctx, record.ID, record.AccountKey, record.ChatID, ciphertext,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"outbox: decrypt message %s: %w", record.ID, err,
+			)
+		}
+		record.Text = string(plaintext)
+
+		normalized, err := normalizeSettledRecord(record)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, normalized)
+
+		if limit > 0 && len(entries) >= limit {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("outbox settled uncertain rows: %w", err)
 	}
 
 	return entries, nil

@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -163,7 +164,15 @@ func (s *MemoryStore) ListUnsettledAccepted(
 		if entry.State != StateAccepted || entry.AccountKey != account {
 			continue
 		}
-		unsettled, err := unsettledFromEntry(entry)
+		unsettled, err := normalizeSettledRecord(UnsettledAccepted{
+			ID:                entry.ID,
+			AccountKey:        entry.AccountKey,
+			ChatID:            entry.ChatID,
+			Text:              entry.Text,
+			AcceptedAt:        entry.AcceptedAt,
+			TelegramMessageID: entry.TelegramMessageID,
+			Version:           entry.Version,
+		})
 		if err != nil {
 			return nil, fmt.Errorf(
 				"outbox unsettled accepted: entry %q: %w",
@@ -171,6 +180,74 @@ func (s *MemoryStore) ListUnsettledAccepted(
 			)
 		}
 		result = append(result, unsettled)
+	}
+
+	sortUnsettled(result)
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+// ListSettledUncertain implements UnsettledAcceptedStore.
+func (s *MemoryStore) ListSettledUncertain(
+	ctx context.Context,
+	accountKey string,
+	reason string,
+	limit int,
+) ([]UnsettledAccepted, error) {
+	if s == nil {
+		return nil, fmt.Errorf("outbox settled uncertain: nil memory store")
+	}
+	account, err := normalizeAccountKey(accountKey)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return nil, fmt.Errorf(
+			"%w: the reason a settlement wrote is required to recognise "+
+				"its own records", ErrInvalidEntry,
+		)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	var result []UnsettledAccepted
+	for _, entry := range s.entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.State != StateUncertain ||
+			entry.AccountKey != account ||
+			entry.LastErrorMessage != trimmed {
+			continue
+		}
+		settled, err := normalizeSettledRecord(UnsettledAccepted{
+			ID:                entry.ID,
+			AccountKey:        entry.AccountKey,
+			ChatID:            entry.ChatID,
+			Text:              entry.Text,
+			AcceptedAt:        entry.AcceptedAt,
+			TelegramMessageID: entry.TelegramMessageID,
+			Version:           entry.Version,
+		})
+		if err != nil {
+			// A record with no message id was never accepted, so it was
+			// never this queue's to re-check; it is not an error, and
+			// refusing the whole read over it would strand the records
+			// that are.
+			continue
+		}
+		result = append(result, settled)
 	}
 
 	sortUnsettled(result)

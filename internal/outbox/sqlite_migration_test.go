@@ -741,3 +741,153 @@ func TestMigratedAcceptedEntryCanBeMadeUncertain(t *testing.T) {
 		)
 	}
 }
+
+// A record main left accepted, and one a settlement could not find, are
+// both resolvable after the migration.
+//
+// The second is the record the owner's account filled: the settlement ran,
+// could not find thirteen messages, and marked them uncertain. They are
+// now the only records that can be re-checked, because a record this queue
+// put into uncertain for any other reason is a question for the user and
+// not this queue's to answer again. A main database has to survive the
+// migration with both, and the second one has to come back recognisable.
+func TestMigratedRecordsAreSettleableAndRecheckable(t *testing.T) {
+	t.Parallel()
+
+	const reason = "no confirmation from the run that sent it; not found in the chat"
+
+	path := filepath.Join(t.TempDir(), "outbox.db")
+	db := openMainDatabase(t, path)
+	cipher := &fakeCipher{}
+	for _, row := range everyStateOnMain() {
+		writeLegacyRow(t, db, cipher, row)
+	}
+	// The record a settlement could not find: main's accepted record,
+	// after a lookup that failed.
+	if _, err := db.ExecContext(
+		context.Background(),
+		`UPDATE outbox_entries SET state = ?, last_error_message = ?
+		 WHERE id = ?`,
+		string(StateUncertain), reason, "m-accepted",
+	); err != nil {
+		t.Fatalf("mark the record uncertain: %v", err)
+	}
+	if err := applyMigrations(context.Background(), db); err != nil {
+		t.Fatalf("applyMigrations: %v", err)
+	}
+
+	store, err := NewSQLiteStore(
+		context.Background(), SQLiteStoreConfig{Path: path}, cipher,
+	)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if closer, ok := store.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	settler := store.(UnsettledAcceptedStore)
+
+	// The accepted records are the ones still waiting.
+	awaiting, err := settler.ListUnsettledAccepted(
+		context.Background(), "account-1", 0,
+	)
+	if err != nil {
+		t.Fatalf("ListUnsettledAccepted: %v", err)
+	}
+	if len(awaiting) != 0 {
+		t.Fatalf(
+			"awaiting = %#v, want none: the only accepted record is the "+
+				"one that was settled", awaiting,
+		)
+	}
+
+	// And the record a settlement wrote comes back, with its text and its
+	// temporary identifier, so a later and better lookup can find the
+	// message and say so.
+	recheck, err := settler.ListSettledUncertain(
+		context.Background(), "account-1", reason, 0,
+	)
+	if err != nil {
+		t.Fatalf("ListSettledUncertain: %v", err)
+	}
+	if len(recheck) != 1 {
+		t.Fatalf("recheck = %#v, want the one record", recheck)
+	}
+	record := recheck[0]
+	if record.ID != "m-accepted" {
+		t.Fatalf("id = %q, want m-accepted", record.ID)
+	}
+	if record.Text != "accepted payload" {
+		t.Fatalf("text = %q, want the payload main wrote", record.Text)
+	}
+	if record.TelegramMessageID != 9001 {
+		t.Fatalf(
+			"temporary id = %d, want 9001: without it the record cannot "+
+				"be told apart from one that was never accepted",
+			record.TelegramMessageID,
+		)
+	}
+	if !record.PreviouslyUncertain {
+		t.Fatal("the record is not marked as one to look at again")
+	}
+
+	// The answer to a second look is a sent record under the identifier
+	// the chat holds.
+	settled, err := store.MarkSent(
+		context.Background(), record.ID, record.Version, 5001,
+		record.AcceptedAt.Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("MarkSent on a re-checked record: %v", err)
+	}
+	if settled.State != StateSent || settled.TelegramMessageID != 5001 {
+		t.Fatalf("settled = %#v, want sent under the chat's id", settled)
+	}
+}
+
+// A record that is uncertain for another reason is not this queue's to
+// answer again.
+func TestARecordUncertainForAnotherReasonIsNotRechecked(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore()
+
+	id := ID("m-lease")
+	if err := store.Enqueue(context.Background(), Entry{
+		ID: id, AccountKey: "account-1", ChatID: 44,
+		Text: "моё", State: StateQueued,
+		CreatedAt: time.Unix(1700000000, 0).UTC(),
+		UpdatedAt: time.Unix(1700000000, 0).UTC(),
+	}); err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	claimed, err := store.Claim(
+		context.Background(), id, 0, "gone",
+		time.Unix(1700000030, 0).UTC(), time.Unix(1700000000, 0).UTC(),
+	)
+	if err != nil {
+		t.Fatalf("Claim: %v", err)
+	}
+	if _, err := store.MarkUncertain(
+		context.Background(), claimed.ID, claimed.Version,
+		"send context canceled", time.Unix(1700000000, 0).UTC(),
+	); err != nil {
+		t.Fatalf("MarkUncertain: %v", err)
+	}
+
+	got, err := store.ListSettledUncertain(
+		context.Background(), "account-1",
+		"no confirmation from the run that sent it; not found in the chat",
+		0,
+	)
+	if err != nil {
+		t.Fatalf("ListSettledUncertain: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf(
+			"recheck = %#v, want nothing: a lost lease is the user's "+
+				"question, and only a human in Telegram can answer it", got,
+		)
+	}
+}

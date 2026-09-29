@@ -81,12 +81,23 @@ func (p *settlementPath) leaveAcceptedAs(
 	id, text string,
 	at time.Time,
 ) outbox.Entry {
+	return p.leaveAcceptedIn(id, text, settlementChat, at)
+}
+
+// leaveAcceptedIn is leaveAcceptedAs for a named chat, because the shapes
+// this file is about are the ones a real account produces: a chat with
+// oneself and a private chat are not the same chat id.
+func (p *settlementPath) leaveAcceptedIn(
+	id, text string,
+	chatID int64,
+	at time.Time,
+) outbox.Entry {
 	p.t.Helper()
 
 	entry := outbox.Entry{
 		ID:         outbox.ID(id),
 		AccountKey: settlementAccountKey,
-		ChatID:     settlementChat,
+		ChatID:     chatID,
 		Text:       text,
 		State:      outbox.StateQueued,
 		CreatedAt:  at,

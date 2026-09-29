@@ -306,6 +306,14 @@ func (e Entry) Validate() error {
 // received it, and rather than leave the record looking like a message
 // still on its way out, the next run either finds the message in the
 // chat and marks it sent or admits it does not know.
+//
+// uncertain -> sent closes that loop. A settlement that cannot find a
+// message has said "I do not know", and saying it is not the same as being
+// finished: the lookup can be wrong, and it was. A record this queue put
+// into uncertain because it could not find the message is looked at again
+// on the next run, and becomes sent when the message turns up. A record
+// that is uncertain because a lease was lost is not — there the honest
+// answer is the user's, and only a human looking in Telegram can give it.
 func (e Entry) CanTransition(next State) bool {
 	if !next.Valid() {
 		return false
@@ -334,7 +342,13 @@ func (e Entry) CanTransition(next State) bool {
 			next == StateQueued ||
 			next == StateCanceled
 	case StateUncertain:
-		return next == StateCanceled
+		// canceled is the user saying they have looked. sent is a later
+		// run finding the message in the chat: a settlement is allowed to
+		// be wrong once, and the record it was wrong about is the one it
+		// is obliged to look at again. There is no live update coming for
+		// this record — the process that would have delivered it is gone —
+		// so the chat is the only thing left that can say.
+		return next == StateSent || next == StateCanceled
 	case StateSent, StateFailedPermanent, StateCanceled:
 		return false
 	}

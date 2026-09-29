@@ -818,13 +818,37 @@
     a process that is gone has no future event at all
   - Restart settlement: internal/application/restart_settlement.go runs
     once at startup, before the dispatcher takes anything new. It lists
-    the records an earlier process left accepted, reads one history page
-    per chat, and matches on the message text digest plus a time window
+    the records an earlier process left accepted, reads the history of
+    each chat, and matches on the message text digest plus a time window
     of five minutes around the moment TDLib took the message. Found
     becomes `sent` with the identifier the history will come back with;
     not found becomes `uncertain`. A chat that cannot be read leaves its
     records accepted, because a history that could not be fetched is not
     evidence that a message is missing
+  - the history is read PAGE BY PAGE, not once. The first version read
+    one page of the newest hundred messages and gave up, and the owner's
+    account found it: thirteen records from the day before, every one of
+    them in the chat and showing as sent, and none of them in the newest
+    hundred. It pages back until every record of the chat has a
+    candidate, the chat runs out, or a budget of ten pages is spent, and
+    the common case of a queue closed a moment ago still costs exactly
+    one request
+  - the three other suspects were checked against real shapes and were
+    all sound: the store's payload decrypts to the text that was queued,
+    both moments are Unix (the store in nanoseconds, TDLib in seconds) and
+    are compared as a duration so the owner's UTC+10 is not involved, and
+    is_outgoing is set on what the account sent.
+    restart_settlement_shapes_test.go holds a real-shaped record and a
+    recorded getChatHistory page read by telegram.DecodeHistoryPage —
+    which is the same decoder GetChatHistory uses, extracted so a recorded
+    answer goes through the live code rather than a hand-built page
+  - a settlement is allowed to be wrong once, and it was. The records it
+    marked uncertain are re-checked on the next run, which needs three
+    things that did not exist: `uncertain -> sent`, a read
+    (`ListSettledUncertain`) that finds records by the exact reason a
+    settlement writes, and a shared constant for that reason. A record
+    that is uncertain because a lease was lost is NOT re-checked: that
+    question is the user's, and only a human in Telegram can answer it
   - the text is the reason settlement needs its own store capability
     (`outbox.UnsettledAcceptedStore`) rather than the payload-free
     `SendResultStore`. It is compared as a SHA-256 digest, never logged

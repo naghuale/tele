@@ -178,6 +178,21 @@ func (s *AuthorizedSession) GetChatHistory(
 		return HistoryPage{}, fmt.Errorf("getChatHistory: %w", err)
 	}
 
+	return DecodeHistoryPage(raw, chatID)
+}
+
+// DecodeHistoryPage reads a getChatHistory answer into a page.
+//
+// It is the response half of GetChatHistory, separated from the request so
+// that a recorded answer can be read by the same code that reads a live
+// one. A settlement that has to find a message in a chat is only
+// trustworthy if the page it searches was decoded the way the interface
+// decodes every page; a test that built a page by hand would prove the
+// settlement and not the shape it is given.
+func DecodeHistoryPage(
+	raw RawMessage,
+	chatID ChatID,
+) (HistoryPage, error) {
 	var response getChatHistoryResponse
 	if err := json.Unmarshal(raw, &response); err != nil {
 		return HistoryPage{}, fmt.Errorf(

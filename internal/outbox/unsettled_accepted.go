@@ -54,9 +54,31 @@ type UnsettledAccepted struct {
 	// message it now holds at the moment TDLib took it.
 	AcceptedAt time.Time
 
+	// TelegramMessageID is the temporary identifier TDLib handed out.
+	//
+	// It names nothing outside this queue, so it is not what a match is
+	// made on — the text and the time are, because those are what the
+	// chat can be asked about. It is here because a record that was
+	// marked uncertain by an earlier settlement has to be recognisable as
+	// one that was accepted, and a record with no identifier was never
+	// accepted.
+	TelegramMessageID int64
+
 	// Version is the version the store held this entry at, and it is
 	// what the settlement is written against.
 	Version uint64
+
+	// PreviouslyUncertain says the record is one a settlement already
+	// marked uncertain, rather than one still waiting for its first
+	// result.
+	//
+	// The two are looked at for different reasons. A record that is
+	// accepted is waiting for an answer that is not coming, and looking
+	// is the only thing that settles it. A record a settlement marked
+	// uncertain has already been looked for and not found, so it is here
+	// to be given a second look by a lookup that may have been wrong —
+	// and it is the one record this queue promised to try again.
+	PreviouslyUncertain bool
 }
 
 // UnsettledAcceptedStore is the part of a durable store that restart
@@ -76,6 +98,48 @@ type UnsettledAcceptedStore interface {
 		accountKey string,
 		limit int,
 	) ([]UnsettledAccepted, error)
+
+	// ListSettledUncertain returns the entries of an account that a
+	// settlement marked uncertain with exactly this reason, oldest
+	// acceptance first.
+	//
+	// The reason is the whole of the selection. An uncertain record is
+	// either one a settlement could not find in its chat or one whose
+	// lease was lost mid-send, and the two are not the same question: the
+	// first is this queue's to ask again, the second is the user's to
+	// answer. Matching on the sentence the settlement wrote is what keeps
+	// the second out, and a settlement that cannot recognise its own
+	// records cannot be corrected by a later, better lookup.
+	//
+	// Only records holding a message identifier are returned. An accepted
+	// record always holds one, and a record without one was never
+	// accepted and so was never this queue's to re-check.
+	ListSettledUncertain(
+		ctx context.Context,
+		accountKey string,
+		reason string,
+		limit int,
+	) ([]UnsettledAccepted, error)
+}
+
+// normalizeSettled reports a malformed re-check record.
+func normalizeSettled(
+	entry UnsettledAccepted,
+) (UnsettledAccepted, error) {
+	normalized, err := normalizeUnsettled(entry)
+	if err != nil {
+		return UnsettledAccepted{}, err
+	}
+	if normalized.TelegramMessageID == 0 {
+		return UnsettledAccepted{}, fmt.Errorf(
+			"%w: %s has no message id, so it was never accepted",
+			ErrInvalidEntry, normalized.ID,
+		)
+	}
+
+	normalized.PreviouslyUncertain = true
+
+	return normalized, nil
 }
 
 // normalizeUnsettled reports a malformed UnsettledAccepted.
@@ -111,16 +175,12 @@ func normalizeUnsettled(
 	return entry, nil
 }
 
-// unsettledFromEntry projects an accepted entry for settlement.
-func unsettledFromEntry(entry Entry) (UnsettledAccepted, error) {
-	return normalizeUnsettled(UnsettledAccepted{
-		ID:         entry.ID,
-		AccountKey: entry.AccountKey,
-		ChatID:     entry.ChatID,
-		Text:       entry.Text,
-		AcceptedAt: entry.AcceptedAt,
-		Version:    entry.Version,
-	})
+// normalizeSettledRecord is what both stores hand to the re-check: a
+// record a settlement marked uncertain, read back with its text.
+func normalizeSettledRecord(
+	record UnsettledAccepted,
+) (UnsettledAccepted, error) {
+	return normalizeSettled(record)
 }
 
 // sortUnsettled orders records oldest acceptance first, so the message

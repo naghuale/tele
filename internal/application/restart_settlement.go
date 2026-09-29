@@ -43,6 +43,16 @@ type TelegramHistoryReader interface {
 	) (telegram.HistoryPage, error)
 }
 
+// settlementUncertainReason is what a settlement writes when it cannot
+// find a message in its chat.
+//
+// It is a constant because it is also how a later settlement recognises
+// its own records: the same sentence in last_error_message is what says
+// "a lookup already tried this and did not find it, and the lookup may
+// have been wrong". An uncertain record whose reason is something else —
+// a lease lost mid-send — is the user's question and is left alone.
+const settlementUncertainReason = "no confirmation from the run that sent it; not found in the chat"
+
 // settlementWindow is how far from the moment TDLib took the message a
 // matching message may be dated.
 //
@@ -57,16 +67,27 @@ type TelegramHistoryReader interface {
 // an hour later".
 const settlementWindow = 5 * time.Minute
 
-// settlementHistoryLimit is how many messages of a chat are read to
-// settle its records.
+// settlementHistoryLimit is how many messages one request asks for.
 //
-// One page is what TDLib serves in a single request, and the records
-// being settled were all sent by this queue, so they are the newest
-// messages of the chat unless the user has sent a great deal since. A
-// record that is not in the newest hundred is not going to be found by
-// reading more: it would be settled as uncertain, which is the honest
-// answer for a message that old.
+// It is the maximum TDLib serves in one call, so a page is as deep as a
+// page can be and asking for more is asking for nothing.
 const settlementHistoryLimit = 100
+
+// settlementPageBudget is how many pages one chat may be read across.
+//
+// The records being settled were all sent by this queue, so they are near
+// the end of the chat — but "near" is not "in the first page", and the
+// owner's account proved it: thirteen records from the day before, every
+// one of them in the chat, and none of them found, because one page of the
+// newest hundred messages did not reach back that far.
+//
+// So the settlement pages backwards until it has found every record it
+// can or the chat runs out. The budget is what stops a busy chat from
+// being read to its beginning on every start: a record that is older than
+// this many messages is a record this queue sent long enough ago that
+// asking again is not worth the traffic, and it is settled as uncertain —
+// which is what a user is asked to look at.
+const settlementPageBudget = 10
 
 // restartSettler settles the records a previous process left accepted.
 type restartSettler struct {
@@ -124,6 +145,27 @@ func (s *restartSettler) Settle(ctx context.Context) (settlementCounts, error) {
 			"restart settlement: list accepted records: %w", err,
 		)
 	}
+
+	// And the records an earlier settlement of ours could not find.
+	//
+	// A settlement is allowed to be wrong once, and it was: on the
+	// owner's account it marked thirteen records uncertain because the
+	// lookup did not reach far enough, and "uncertain" asks the user to go
+	// and look in Telegram by hand — which is the work the program is
+	// being paid to do. The records it wrote that sentence to are looked
+	// at again, and become sent when the message turns up. A record that
+	// is uncertain for any other reason is not ours to answer.
+	previous, err := s.store.ListSettledUncertain(
+		ctx, s.accountKey, settlementUncertainReason, 0,
+	)
+	if err != nil {
+		return counts, fmt.Errorf(
+			"restart settlement: list records an earlier settlement "+
+				"could not find: %w", err,
+		)
+	}
+	unsettled = append(unsettled, previous...)
+
 	if len(unsettled) == 0 {
 		return counts, nil
 	}
@@ -161,10 +203,8 @@ func (s *restartSettler) settleChat(
 	records []outbox.UnsettledAccepted,
 	counts *settlementCounts,
 ) error {
-	page, err := s.history.GetChatHistory(
-		ctx, telegram.ChatID(chatID), 0, settlementHistoryLimit,
-	)
-	if err != nil {
+	candidates, readErr := s.readCandidates(ctx, chatID, records)
+	if readErr != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -175,13 +215,11 @@ func (s *restartSettler) settleChat(
 			"restart settlement could not read a chat",
 			slog.Int64("chat_id", chatID),
 			slog.Int("records", len(records)),
-			slog.String("error", outbox.SafeReason(err)),
+			slog.String("error", outbox.SafeReason(readErr)),
 		)
 		counts.unreadable += len(records)
 		return nil
 	}
-
-	candidates := settlementCandidates(page, records)
 
 	for _, record := range records {
 		if err := ctx.Err(); err != nil {
@@ -218,6 +256,85 @@ func (s *restartSettler) settleChat(
 	}
 
 	return nil
+}
+
+// readCandidates reads as much of a chat as it takes to account for the
+// records waiting in it.
+//
+// It pages backwards from the newest message, because a record this queue
+// sent is near the end of the chat but is not necessarily in the first
+// page. It stops as soon as every record has a candidate, as soon as the
+// chat runs out, or when the page budget is spent — and it stops the
+// moment the candidates cover the records, so the common case of a queue
+// that was closed a moment ago costs exactly one request.
+func (s *restartSettler) readCandidates(
+	ctx context.Context,
+	chatID int64,
+	records []outbox.UnsettledAccepted,
+) ([]settlementCandidate, error) {
+	var (
+		candidates []settlementCandidate
+		unfound    = len(records)
+		from       telegram.MessageID
+	)
+
+	for page := 0; page < settlementPageBudget; page++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		history, err := s.history.GetChatHistory(
+			ctx, telegram.ChatID(chatID), from, settlementHistoryLimit,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if len(history.Messages) == 0 {
+			return candidates, nil
+		}
+
+		candidates = append(
+			candidates, settlementCandidates(history, records)...,
+		)
+		unfound -= coveredRecords(candidates, records)
+		if unfound <= 0 {
+			return candidates, nil
+		}
+
+		// The boundary is the oldest message of the page, and a page that
+		// returned less than it asked for is the end of the chat: TDLib
+		// answers with what it has, and asking again for the same boundary
+		// answers with the same messages.
+		if len(history.Messages) < settlementHistoryLimit ||
+			history.NextFrom == 0 ||
+			history.NextFrom == from {
+			return candidates, nil
+		}
+		from = history.NextFrom
+	}
+
+	return candidates, nil
+}
+
+// coveredRecords is how many of the records now have at least one
+// candidate to be matched against.
+func coveredRecords(
+	candidates []settlementCandidate,
+	records []outbox.UnsettledAccepted,
+) int {
+	wanted := make(map[[sha256.Size]byte]struct{}, len(records))
+	for _, record := range records {
+		wanted[textDigest(record.Text)] = struct{}{}
+	}
+
+	covered := make(map[[sha256.Size]byte]struct{}, len(wanted))
+	for _, candidate := range candidates {
+		if _, interesting := wanted[candidate.digest]; interesting {
+			covered[candidate.digest] = struct{}{}
+		}
+	}
+
+	return len(covered)
 }
 
 // settlementCandidate is one message of a chat that could match a
@@ -341,11 +458,8 @@ func (s *restartSettler) markUncertain(
 	record outbox.UnsettledAccepted,
 ) error {
 	_, err := s.entries.MarkUncertain(
-		ctx,
-		record.ID,
-		record.Version,
-		"no confirmation from the run that sent it; not found in the chat",
-		s.stamp(),
+		ctx, record.ID, record.Version,
+		settlementUncertainReason, s.stamp(),
 	)
 	if err != nil {
 		if errors.Is(err, outbox.ErrVersionConflict) {

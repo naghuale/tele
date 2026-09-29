@@ -1165,77 +1165,93 @@ func TestANarrowScreenLetsTheBlockFillTheFeed(t *testing.T) {
 // makes them look for it is a list they read instead.
 //
 // The column is the one the words end at rather than the edge of the pane,
-// because the row keeps two columns of air inside the selection on each
-// side. The time and the count stop two columns short of the edge together.
+// because every row keeps its columns of air inside it on each side (§4.2).
+// The time and the count stop short of the edge together.
+//
+// It is proved on the chosen chat as well as on the others, because the
+// count is the one run of the row with a surface of its own and the
+// surface of the chosen chat is the selection: a count written in the wrong
+// colour on the wrong background is a count nobody can read, and the
+// chosen chat is the one the reader is looking at.
 func TestTheUnreadBadgeIsInTheSameColumnAsTheTime(t *testing.T) {
-	for _, preview := range []string{"", "ok", strings.Repeat("word ", 40)} {
-		m := chatListWith(t, preview)
-
-		layout := LayoutFor(m.width, m.height)
-		width := layout.SidebarContentWidth()
-		last := chatListInset + maxInt(width-2*chatListInset, 1) - 1
-
-		for index, chat := range m.chats {
-			badge := m.chatListUnreadBadge(chat, theme.Color{})
-			if badge.inner == "" {
-				continue
+	for _, preview := range []string{"", "ok", "[photo]", strings.Repeat("word ", 40)} {
+		for _, chosen := range []bool{false, true} {
+			m := chatListWith(t, preview)
+			if chosen {
+				m.selectedChat = 1
 			}
 
-			lines := m.chatListRowLines(m.chatListEntries()[index], false, layout, width)
-			if len(lines) != 3 {
-				t.Fatalf("preview %q: a chat takes %d rows, want two of words and a gap",
-					preview, len(lines))
-			}
+			layout := LayoutFor(m.width, m.height)
+			width := layout.SidebarContentWidth()
+			inset := layout.ChatListInset()
+			last := inset + maxInt(width-2*inset, 1) - 1
 
-			head := renderedCells(t, m, lines[0])
-			detail := renderedCells(t, m, lines[1])
-			timeEnd := lastWord(head)
-			from, to, count := bandOf(
-				detail, backgroundParameters(badge.pill.Render("x")),
-			)
+			for index, chat := range m.chats {
+				badge := m.chatListUnreadBadge(chat, m.selectedSurface(chosen))
+				if badge.inner == "" {
+					continue
+				}
 
-			if count == 0 {
-				t.Fatalf(
-					"preview %q: the badge of %q is not on the screen",
-					preview, chat.Title,
+				lines := m.chatListRowLines(
+					m.chatListEntries()[index], chosen, layout, width,
 				)
-			}
-			if to != timeEnd {
-				t.Errorf(
-					"preview %q: the badge of %q ends at column %d, the time above it at %d",
-					preview, chat.Title, to, timeEnd,
+				if len(lines) < 2 {
+					t.Fatalf("preview %q: a chat takes %d rows, want two of words and a gap",
+						preview, len(lines))
+				}
+
+				head := renderedCells(t, m, lines[len(lines)-3])
+				detail := renderedCells(t, m, lines[len(lines)-2])
+				timeEnd := lastWord(head)
+				from, to, count := bandOf(
+					detail, backgroundParameters(badge.pill.Render("x")),
 				)
-			}
-			if to != last {
-				t.Errorf(
-					"preview %q: the badge of %q ends at column %d, want the last word of the row (%d)",
-					preview, chat.Title, to, last,
-				)
-			}
-			// The preview is cut so that at least two columns stand
-			// between it and the count: a pill one column from the last
-			// letter of the preview is one run with the preview.
-			if gap := from - lastWordBefore(detail, from); gap < chatListBadgeGap {
-				t.Errorf(
-					"preview %q: the badge of %q starts %d columns after the preview, want at least %d",
-					preview, chat.Title, gap, chatListBadgeGap,
-				)
+
+				if count == 0 {
+					t.Fatalf(
+						"preview %q: the badge of %q is not on the screen",
+						preview, chat.Title,
+					)
+				}
+				if to != timeEnd {
+					t.Errorf(
+						"preview %q: the badge of %q ends at column %d, the time above it at %d",
+						preview, chat.Title, to, timeEnd,
+					)
+				}
+				if to != last {
+					t.Errorf(
+						"preview %q: the badge of %q ends at column %d, want the last word of the row (%d)",
+						preview, chat.Title, to, last,
+					)
+				}
+				// The preview is cut so that at least two columns stand
+				// between it and the count: a pill one column from the last
+				// letter of the preview is one run with the preview.
+				if gap := from - lastWordBefore(detail, from); gap < chatListBadgeGap {
+					t.Errorf(
+						"preview %q: the badge of %q starts %d columns after the preview, want at least %d",
+						preview, chat.Title, gap, chatListBadgeGap,
+					)
+				}
 			}
 		}
 	}
 }
 
-// A selected chat is selected right across: every cell between the two
-// columns of air on each side, on both of its rows of words and on both
-// of its rows of air, and the cells between the end of the preview and
-// the count with it.
+// A selected chat is selected right across: every cell of both of its rows
+// of words carries the Selected, the columns of air inside the row included
+// and the cells between the end of the preview and the count with them.
 //
 // A selection that stops where the words stop is a highlight under a name
-// rather than a selected row, and one that runs the width of the list is
-// the band the list stopped having. The count is the one run of the row
-// with a surface of its own, so that the number in it can be read.
+// rather than a selected row, and a short preview is where it stops: the
+// count is a pill that sits at the right edge whatever the preview says, so
+// a preview of two words leaves the whole middle of the row empty, and
+// every one of those cells has to be the selection or the card has a hole
+// in it. The count is the one run of the row with a surface of its own, so
+// that the number in it can be read.
 func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
-	for _, preview := range []string{"ok", strings.Repeat("word ", 40)} {
+	for _, preview := range []string{"", "ok", "[photo]", strings.Repeat("word ", 40)} {
 		m := chatListWith(t, preview)
 		layout := LayoutFor(m.width, m.height)
 		width := layout.SidebarContentWidth()
@@ -1248,42 +1264,176 @@ func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
 		}
 
 		selected := selectionBackground(m)
-		inner := maxInt(width-2*chatListInset, 1)
-		last := chatListInset + inner - 1
 
-		for index, line := range lines {
+		for index, line := range lines[1:3] {
 			cells := renderedCells(t, m, line)
-			// The air rows carry the colour of the selection in the
-			// foreground of a half block and the background of the list
-			// behind it; the rows of words carry it in the background.
-			from, to, count := bandOfForeground(cells, selectionForeground(m))
-			if count == 0 {
-				from, to, count = bandOf(cells, selected)
-			}
+			// The air rows of the card carry the colour of the selection
+			// in the foreground of a half block; the rows of words carry it
+			// in the background, and every cell of them that is not the
+			// count has to carry it.
+			_, _, count := bandOf(cells, selected)
 			_, _, badgeColumns := bandOf(cells, pill)
 
-			if count+badgeColumns != inner {
+			if count+badgeColumns != width {
 				t.Errorf(
 					"preview %q: row %d has %d selected cells and a count of %d, want the %d of the row",
-					preview, index, count, badgeColumns, inner,
+					preview, index, count, badgeColumns, width,
 				)
 			}
-			if from != chatListInset || to+badgeColumns != last {
-				t.Errorf(
-					"preview %q: row %d is selected from column %d to %d, want %d to %d",
-					preview, index, from, to+badgeColumns, chatListInset, last,
-				)
-			}
-			for column := 0; column < chatListInset; column++ {
-				if cells[column].background == selected {
+			for column, cell := range cells {
+				if cell.background != selected && cell.background != pill {
 					t.Errorf(
-						"preview %q: row %d column %d is inside the air of the row, not the selection",
-						preview, index, column,
+						"preview %q: row %d column %d is on %q, want the selection or the count",
+						preview, index, column, cell.background,
+					)
+				}
+			}
+			// The columns of air inside the row are the selection too: a
+			// card that stopped two columns short on each side is a
+			// stripe with an outline, which is the band §4.2 removed.
+			for _, column := range []int{0, width - 1} {
+				if cells[column].background != selected {
+					t.Errorf(
+						"preview %q: row %d column %d is the air of the row on %q, want the selection %q",
+						preview, index, column, cells[column].background, selected,
 					)
 				}
 			}
 		}
 	}
+}
+
+// Every row of the chat list keeps air inside it on each side — two columns
+// on a two-pane screen, one on a single-pane one — so the first and the last
+// cell of a row are a space on the background of the row, and the name, the
+// preview, the time and the count are all strictly inside it: nothing of a
+// chat touches the edge of the pane or of the gap beside it.
+//
+// It is checked on the cells of every row of every chat, chosen or not, and
+// at all three of the layouts. A word that touches an edge is a list the
+// pane is wearing rather than a list of chats, and the words of the chosen
+// chat have to keep the same air as the words of every other one — the
+// chosen chat is the row whose background is the Selected, and the air
+// inside it is the Selected too.
+func TestEveryRowOfTheListKeepsItsAirInsideIt(t *testing.T) {
+	for _, size := range [][2]int{{120, 30}, {80, 30}, {60, 30}} {
+		for _, chosen := range []int{0, 1, 2} {
+			m := focusedOn(
+				programModel(t, theme.ProfileTrueColor, size[0], size[1]),
+				FocusChatList,
+			)
+			m.chats = []Chat{
+				{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
+				{ID: 2, Title: "Release Room", Unread: 63, Preview: "[photo]", Time: "12:05"},
+				{ID: 3, Title: "Notes", Preview: "", Time: "11:58"},
+			}
+			m.chatsState = loadStateLoaded
+			m.selectedChat = chosen
+
+			layout := LayoutFor(m.width, m.height)
+			width := chatListPaneWidth(layout)
+			inset := layout.ChatListInset()
+			want := 2
+			if layout.Kind == LayoutNarrow {
+				want = 1
+			}
+			if inset != want {
+				t.Fatalf(
+					"size=%v: the air inside a row is %d columns, want %d",
+					size, inset, want,
+				)
+			}
+
+			rows, selected := m.chatListRows(layout, width)
+			if selected < 0 {
+				t.Fatalf("size=%v: the list has no row under the cursor", size)
+			}
+
+			list := backgroundParameters(
+				m.styles().on(m.tokens().SidebarBackground, m.styles().unstyled()).
+					Render("x"),
+			)
+			highlight := backgroundParameters(
+				m.styles().selected(true).Render("x"),
+			)
+
+			for index, row := range rows {
+				for line, rendered := range row {
+					cells := renderedCells(t, m, rendered)
+					if len(cells) != width {
+						t.Errorf(
+							"size=%v chat=%d row=%d: the row is %d columns, want %d",
+							size, index, line, len(cells), width,
+						)
+
+						continue
+					}
+
+					// The air of the air rows of a card is the background
+					// of the list: the edge of the card is the half block
+					// in the middle of the row and not a stripe of colour
+					// at the end of it. Every other row of the chat is on
+					// the background of the chat, which is the Selected
+					// for the chosen one.
+					own := list
+					if index == selected && line != 0 && line != len(row)-1 {
+						own = highlight
+					}
+
+					for _, column := range []int{0, width - 1} {
+						if cells[column].text != " " {
+							t.Errorf(
+								"size=%v chat=%d row=%d: cell %d is %q, want the air of the row",
+								size, index, line, column, cells[column].text,
+							)
+						}
+						if cells[column].background != own {
+							t.Errorf(
+								"size=%v chat=%d row=%d: cell %d is on %q, want the background of the row %q",
+								size, index, line, column, cells[column].background, own,
+							)
+						}
+					}
+
+					// And no word of the row is inside the air on either
+					// side: the name and the preview begin after it, and
+					// the time and the count end before it.
+					for _, column := range append(
+						columnRange(0, inset), columnRange(width-inset, width)...,
+					) {
+						if strings.TrimSpace(cells[column].text) != "" {
+							t.Errorf(
+								"size=%v chat=%d row=%d: cell %d is %q, want the air of the row",
+								size, index, line, column, cells[column].text,
+							)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// chatListPaneWidth returns the width the chat list is drawn at: the width
+// of the sidebar on a two-pane screen and of the whole content area on a
+// single-pane one, which is where the list is when there is no conversation
+// beside it to be told apart from.
+func chatListPaneWidth(layout Layout) int {
+	if layout.Kind == LayoutNarrow {
+		return layout.FullContentWidth()
+	}
+
+	return layout.SidebarContentWidth()
+}
+
+// columnRange returns the columns of a run of the given length.
+func columnRange(from, to int) []int {
+	columns := make([]int, 0, maxInt(to-from, 0))
+	for column := from; column < to; column++ {
+		columns = append(columns, column)
+	}
+
+	return columns
 }
 
 // The air of a selected row is two half rows of the colour of the

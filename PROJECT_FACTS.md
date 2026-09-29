@@ -1096,6 +1096,28 @@
     are therefore of two heights, and the window of the list is placed by
     the heights of the rows that were drawn (chatListHeights,
     visibleHeights) rather than by dividing the budget by one of them
+  - every row of the chat list keeps air inside it: two columns on each
+    side on a two-pane screen, one in Narrow (Layout.ChatListInset). The
+    name, the preview, the time and the count are all strictly inside it,
+    so nothing of a chat touches the edge of the pane or of the pane gap.
+    The air is on the background of the ROW, which for the chosen chat is
+    the Selected: the card is a band of colour with words in it, and a
+    band that stopped two columns short on each side is the stripe #59
+    removed. The air of the two air rows of the card is the background of
+    the list instead, because the edge of the card is the half block and
+    not a stripe of colour at the end of it
+  - the count is the last cells of the second row and its right edge is
+    the right edge of the time in the first row, at any length of preview;
+    the preview is cut with an ellipsis at least chatListBadgeGap columns
+    before it, and the columns in between are the row's own, so the chosen
+    chat has no hole in it after a short preview. On a screen below the
+    short layout height the row is one line — the name and the count, the
+    count at the right edge where the time would be — because §4.2 gives
+    the timestamp up before the count
+  - a name cut to a width that does not leave the marker's own column and
+    space is a name a column too long, and a row a column over the width
+    of the pane is a row the terminal wraps; nameWidth is therefore
+    content less the marker, its space and the time
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
@@ -1450,11 +1472,14 @@
     reads as a cursor. The unread badge is the one exception, and it keeps
     the background of the badge on every row: a count drawn in the colour
     of the list on the background of the selection is a number nobody can
-    read. The two columns of air inside each side of a selected row are
-    the other exception, and they carry the background of the list: a
-    selection that ran the width of the pane is the band the pane stopped
-    having, and the two columns are the same two a message keeps inside
-    its block
+    read. The columns of air inside the row are NOT an exception: they
+    carry the selection as well, so the chosen chat is a band of colour
+    from the first cell of the row to the last one that is not the count.
+    A band that stopped two columns short on each side is the stripe the
+    chat list stopped having, and the air is there to keep the words off
+    the edges of the pane rather than to cut the band short. Only the two
+    air rows of the card are on the background of the list instead, since
+    the edge of the card is the half block and not a stripe of colour
   - OutgoingBubble is the surface of the block of a message of this user,
     and ComposerBackground is the surface of the block of a message of the
     other side: two roles because two colours, so that the two sides of a

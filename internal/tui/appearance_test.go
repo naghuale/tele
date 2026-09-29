@@ -655,14 +655,9 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 				m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
 					Render("x"),
 			)
-			list := backgroundParameters(
-				m.styles().
-					on(m.tokens().SidebarBackground, m.styles().unstyled()).
-					Render("x"),
-			)
 
 			for _, row := range rows[0][1:3] {
-				assertSelectedRow(t, m, background, badge, list, row)
+				assertSelectedRow(t, m, background, badge, row)
 			}
 		})
 	}
@@ -743,17 +738,15 @@ func assertSelectedBlock(
 }
 
 // assertSelectedRow fails unless every column of a selected row is on the
-// background of the row, or on the background of the list where the row
-// keeps its two columns of air, or on the background of the badge.
+// background of the row or on the background of the badge.
 //
-// The two exceptions are on purpose. The air is what the row keeps between
-// the edge of the selection and the words in it — the same two columns a
-// message keeps inside its block — and a selection that ran the width of
-// the list would be the band the list stopped having. The badge is the
-// other: the unread count of the selected chat drawn in the colour of the
-// list on the background of the selection is a number nobody can read, and
-// drawn in the colour of the badge on the background of the selection it
-// is a badge that has stopped being one.
+// The columns of air inside the row are on the background of the row: the
+// card is a band of colour with words in it, and a band that stopped short
+// of the edges of the pane is the stripe §4.2 removed. The badge is the
+// one exception: the unread count of the selected chat drawn in the colour
+// of the list on the background of the selection is a number nobody can
+// read, and drawn in the colour of the badge on the background of the
+// selection it is a badge that has stopped being one.
 //
 // The row is walked a run at a time rather than read as one string: a
 // reset in the middle of a row is invisible in the plain text and in a
@@ -761,7 +754,7 @@ func assertSelectedBlock(
 func assertSelectedRow(
 	t *testing.T,
 	m Model,
-	selected, badge, list string,
+	selected, badge string,
 	row string,
 ) {
 	t.Helper()
@@ -775,10 +768,9 @@ func assertSelectedRow(
 		switch {
 		case badge != "" && strings.Contains(run.sgr, badge):
 		case strings.Contains(run.sgr, selected):
-		case list != "" && strings.Contains(run.sgr, list):
 		default:
 			t.Errorf(
-				"%d columns of the row are on neither the selection, the air nor the badge: %q",
+				"%d columns of the row are on neither the selection nor the badge: %q",
 				width,
 				run.text,
 			)
@@ -810,15 +802,11 @@ func TestTheUnreadBadgeKeepsItsPillOnTheSelectedRow(t *testing.T) {
 		m.styles().pill(m.tokens().Unread, m.tokens().SidebarBackground).
 			Render("x"),
 	)
-	list := backgroundParameters(
-		m.styles().on(m.tokens().SidebarBackground, m.styles().unstyled()).
-			Render("x"),
-	)
 	if selected == badge {
 		t.Skip("the theme gives the selection and the badge the same colour")
 	}
 
-	assertSelectedRow(t, m, selected, badge, list, rows[0][2])
+	assertSelectedRow(t, m, selected, badge, rows[0][2])
 }
 
 // The feed is chronological: the oldest message is on the first row of it

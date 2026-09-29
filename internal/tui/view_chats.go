@@ -235,11 +235,13 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 // whatever foreground the terminal happens to be in, and the terminal's
 // foreground is not a colour the program chose.
 //
-// The selection also keeps the same two columns of air on the left and on
-// the right that a message keeps inside its block. A selection that runs
-// the width of the list is the band the list stopped having, and one
-// column of air between its edge and the words of the name is the same
-// mistake a block made with one column of inset.
+// Every row keeps two columns of air inside it on each side (one in Narrow)
+// and no word of it touches the edge of the pane or of the gap beside it.
+// The air is on the background of the row, which for the chosen chat is
+// the Selected: the card is a band of colour with words in it, and a band
+// that stopped two columns short on each side is a stripe with an outline.
+// The time and the count are inside that air too, so the right edge of
+// every row of the list is the same column and the two can be read down.
 func (m Model) chatListRowLines(
 	entry chatListEntry,
 	selected bool,
@@ -249,17 +251,23 @@ func (m Model) chatListRowLines(
 	styles := m.styles()
 	chat := entry.chat
 	surface := m.selectedSurface(selected)
-	// The air of the selection is in the background of the list, and it is
-	// written rather than left to the region behind it: a cell with no
-	// background at all is a cell the terminal paints with whatever it
-	// thinks its own background is.
-	list := styles.on(m.tokens().SidebarBackground, styles.unstyled())
-	// content is the width of the words of the row, between the two
-	// columns of air on each side. Every row of the list is fitted to
+	// onRow is the background of the whole row, the air inside it included:
+	// the Selected of a chosen chat and the background of the list on every
+	// other one, so that the first and the last cell of a row are a space
+	// on the background of the row rather than a cell the terminal paints
+	// with whatever it thinks its own background is.
+	background := m.tokens().SidebarBackground
+	if selected {
+		background = m.tokens().Selected
+	}
+	onRow := styles.on(background, styles.unstyled())
+	// inset is the air on each side, content the width of the words
+	// between the two of them, and every row of the list is fitted to
 	// width, which is content and the four columns of air.
-	content := maxInt(width-2*chatListInset, 1)
+	inset := layout.ChatListInset()
+	content := maxInt(width-2*inset, 1)
 	air := func() *rowPainter {
-		return m.painter(theme.Color{}).own(list, spaces(chatListInset))
+		return m.painter(theme.Color{}).own(onRow, spaces(inset))
 	}
 
 	title := chat.Title
@@ -278,7 +286,13 @@ func (m Model) chatListRowLines(
 	// few letters of the name it belongs to, and a cut name is a name a
 	// user cannot recognise at a glance. The badge and the time are spent
 	// out of the width of the name and not added to it.
-	nameWidth := content - selectionMarkerWidth
+	//
+	// What the name is spent out of is the width of the row less the air on
+	// each side, less the marker's column and its space, and less the time
+	// and the gap before it: a name cut to a width that does not leave the
+	// marker's room is a name a column too long, and a row a column over
+	// the width of the pane is a row the terminal wraps.
+	nameWidth := content - selectionMarkerWidth - contentInsetWidth
 	if nameWidth-timeColumns-timeGapColumns >= minNameBesideTime {
 		nameWidth -= timeColumns + timeGapColumns
 	} else {
@@ -291,37 +305,42 @@ func (m Model) chatListRowLines(
 	// through.
 	markRun := mark + " "
 	markStyle := styles.selectionMark(selected, m.focus == FocusChatList)
-	// edge closes a row: the two columns of air on the right of it, in the
-	// background of the list.
-	edge := func(row *rowPainter) string {
-		return row.own(list, spaces(chatListInset)).String()
+	// edge closes a row: the columns of air on the right of it, on the
+	// background of the row like the ones on the left, so the right edge of
+	// every row of the list is the same column and the times and the counts
+	// are both on it.
+	edge := func(painted *rowPainter) string {
+		return painted.own(onRow, spaces(inset)).String()
 	}
 
 	if layout.Short() {
+		// On a screen too short for a preview (§3.4) the row is one line:
+		// the name and the count, with the count at the right edge of the
+		// row where the time would be. The time is the first thing to go
+		// (§4.2), because a chat list that has a preview has a time beside
+		// it and a count on its own line, and a screen short enough to have
+		// neither can keep one number or one timestamp but not both.
 		short := maxInt(nameWidth-m.widths.StringWidth(badge.text())-2, 1)
 
-		// On a screen too short for a preview (§3.4) the row is one line:
-		// the name, the count, the time. The count is not at the right edge
-		// there, because the time is, and the time is the column this list
-		// is read down.
-		head := edge(badge.at(
+		head := edge(badge.write(
 			air().
 				add(markStyle, markRun).
 				add(styles.rowText(selected),
 					m.widths.TruncateMarked(title, short, ellipsis)),
-		).right(at, width-chatListInset, timeStyle))
+			width-inset,
+		))
 
 		return []string{head}
 	}
 
 	head := edge(m.chatTitle(
 		m.painter(surface).
-			own(list, spaces(chatListInset)).
+			own(onRow, spaces(inset)).
 			add(markStyle, markRun),
 		title,
 		selected,
 		nameWidth,
-	).right(at, width-chatListInset, timeStyle))
+	).right(at, width-inset, timeStyle))
 
 	// The badge is spent out of the width of the preview and not added to
 	// it: a preview that pushes the badge off the end of the row is a
@@ -339,7 +358,7 @@ func (m Model) chatListRowLines(
 	)
 	detail := edge(badge.write(
 		m.painter(surface).
-			own(list, spaces(chatListInset)).
+			own(onRow, spaces(inset)).
 			add(markStyle, markRun+spaces(contentInsetWidth)).
 			add(
 				styles.text(m.tokens().SecondaryText),
@@ -347,7 +366,7 @@ func (m Model) chatListRowLines(
 					m.chatListPreview(chat), previewWidth, ellipsis,
 				),
 			),
-		width-chatListInset,
+		width-inset,
 	))
 
 	// The card is the chosen chat and nothing else. A half block is a
@@ -356,14 +375,14 @@ func (m Model) chatListRowLines(
 	// a light stripe under every chat in the list, and the list is then a
 	// list of stripes with words in them.
 	if !selected {
-		return []string{head, detail, m.painter(theme.Color{}).own(list, spaces(width)).String()}
+		return []string{head, detail, m.painter(theme.Color{}).own(onRow, spaces(width)).String()}
 	}
 
 	return []string{
-		m.chatListAirRow(styles, content, termwidth.HalfBlockLower),
+		m.chatListAirRow(styles, inset, content, termwidth.HalfBlockLower),
 		head,
 		detail,
-		m.chatListAirRow(styles, content, termwidth.HalfBlockUpper),
+		m.chatListAirRow(styles, inset, content, termwidth.HalfBlockUpper),
 	}
 }
 
@@ -387,7 +406,7 @@ func (m Model) chatListRowLines(
 // edges, which is what a theme with no colours draws everywhere else too.
 func (m Model) chatListAirRow(
 	styles viewStyles,
-	content int,
+	inset, content int,
 	glyph string,
 ) string {
 	list := styles.on(m.tokens().SidebarBackground, styles.unstyled())
@@ -400,24 +419,16 @@ func (m Model) chatListAirRow(
 	drawn := behind.IsSet() && m.tokens().SidebarBackground.IsSet()
 
 	return m.painter(theme.Color{}).
-		own(list, spaces(chatListInset)).
+		own(list, spaces(inset)).
 		own(list, halfRow(
 			styles.blockEdge(behind, m.tokens().SidebarBackground),
 			drawn,
 			glyph,
 			content,
 		)).
-		own(list, spaces(chatListInset)).
+		own(list, spaces(inset)).
 		String()
 }
-
-// chatListInset is the air between the edge of a selected row of the list
-// and the words in it, on each side.
-//
-// It is the same two columns a message keeps inside its block, and for the
-// same reason: a selection flush against its own words is a stripe of
-// colour, and the words of a name are what the row is for.
-const chatListInset = 2
 
 // chatListBadgeGap is the air between the end of a preview and the badge
 // of the chat, and it is wider than the gap between a name and its time

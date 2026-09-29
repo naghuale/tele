@@ -32,9 +32,14 @@ type DurableOutboxRuntimeDeps struct {
 	// the shape a test drives the durable runtime in.
 	MessageEvents telegramMessageEvents
 
-	// Logger receives the reconciler's diagnostics. Message text is
-	// never logged; error strings go through outbox.SafeReason. A nil
-	// value uses slog.Default().
+	// Logger receives the reconciler's and the dispatcher's diagnostics.
+	// Message text is never logged; error strings go through
+	// outbox.SafeReason.
+	//
+	// The composition root passes the logger the program's mode calls
+	// for: a file while the interface is on the screen, the terminal
+	// outside it. A nil value discards, because the default destination
+	// is the terminal and the terminal may belong to a running interface.
 	Logger *slog.Logger
 
 	// History reads a chat's recent messages so that records a
@@ -45,9 +50,13 @@ type DurableOutboxRuntimeDeps struct {
 }
 
 // logger is the logger the dependency block falls back to.
+//
+// A nil logger discards. The composition root passes the real one, and a
+// component built without it says nothing rather than writing over a
+// running interface.
 func (d DurableOutboxRuntimeDeps) logger() *slog.Logger {
 	if d.Logger == nil {
-		return slog.Default()
+		return discardLogger()
 	}
 	return d.Logger
 }
@@ -156,6 +165,14 @@ func openDurableOutboxRuntime(
 	accountKey, err := durableOutboxAccountKey(cfg, deps)
 	if err != nil {
 		return nil, err
+	}
+
+	// The dispatcher is the other half of the queue that logs, and it is
+	// given the same logger as the reconciler. One message going out is
+	// logged twice otherwise — once by each — and the two halves have to
+	// end up in the same file or the report is half a story.
+	if cfg.Outbox.Dispatcher.Logger == nil {
+		cfg.Outbox.Dispatcher.Logger = deps.logger()
 	}
 
 	sender := NewTelegramOutboxSender(deps.Session)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -87,6 +88,21 @@ type sendPath struct {
 }
 
 func newSendPath(t *testing.T) *sendPath {
+	t.Helper()
+
+	return newSendPathWithLogger(t, nil)
+}
+
+// newSendPathWithLogger is newSendPath with the logger the production
+// wiring hands the reconciler.
+//
+// A nil logger is the same as newSendPath's: the reconciler then discards,
+// which is the default for a component that was not given one. Passing a
+// real one is what lets a test watch where the reasons go.
+func newSendPathWithLogger(
+	t *testing.T,
+	logger *slog.Logger,
+) *sendPath {
 	t.Helper()
 
 	dataDir := filepath.Join(t.TempDir(), "outbox")
@@ -172,6 +188,7 @@ func newSendPath(t *testing.T) *sendPath {
 		events:     live,
 		accountKey: sendPathAccountKey,
 		clock:      outbox.SystemClock{},
+		logger:     logger,
 		counters:   &sendResultCounters{},
 		sink:       newSendResultCounterFile(dataDir),
 	}

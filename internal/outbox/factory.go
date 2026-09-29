@@ -312,8 +312,10 @@ func Open(
 		}
 
 		if dispatcherConfig.Logger == nil {
+			// Never slog.Default(): its destination is the terminal,
+			// which an interface may own. See NewDispatcher.
 			dispatcherConfig.Logger =
-				slog.Default()
+				slog.New(slog.NewTextHandler(io.Discard, nil))
 		}
 
 		result.Dispatcher = NewDispatcher(

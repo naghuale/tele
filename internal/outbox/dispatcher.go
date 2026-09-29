@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -90,7 +91,8 @@ type DispatcherConfig struct {
 
 	// Logger receives structured diagnostics. Message text is never
 	// logged; error strings are passed through SafeReason. When nil,
-	// slog.Default() is used.
+	// the dispatcher discards: it never falls back to slog.Default(),
+	// whose default destination is the terminal an interface may own.
 	Logger *slog.Logger
 }
 
@@ -112,8 +114,6 @@ func DefaultDispatcherConfig(
 
 		Retention:     7 * 24 * time.Hour,
 		PurgeInterval: time.Hour,
-
-		Logger: slog.Default(),
 	}
 }
 
@@ -176,7 +176,10 @@ func NewDispatcher(
 		cfg.PurgeInterval = time.Hour
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = slog.Default()
+		// A dispatcher with no logger says nothing. The default would
+		// write to the terminal, and a terminal running the interface is
+		// not a place a log line may go.
+		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 
 	return &Dispatcher{

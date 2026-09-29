@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Authorization diagnostics report the shape of the authorization
@@ -210,12 +211,53 @@ func NewWriterAuthDiagnostics(writer io.Writer) AuthDiagnostics {
 
 // NewEnvironmentAuthDiagnostics returns diagnostics only when
 // TELECLI_AUTH_TRACE is truthy, and a silent sink otherwise.
+//
+// A nil writer uses the process's trace destination, which is standard
+// error until the composition root redirects it: a trace asked for while
+// `telecli tui` is running must not land on the screen.
 func NewEnvironmentAuthDiagnostics(writer io.Writer) AuthDiagnostics {
 	if !authTraceEnabled(os.Getenv(authTraceEnvironment)) {
 		return DiscardAuthDiagnostics()
 	}
+	if writer == nil {
+		writer = AuthTraceOutput()
+	}
 
 	return NewWriterAuthDiagnostics(writer)
+}
+
+// traceOutput is where a trace goes when the caller has no opinion.
+//
+// It is a variable rather than a constant because the composition root is
+// the one that knows: the same program writes its reasons to the terminal
+// when a user is waiting to read them and to a file when an interface
+// owns the screen. A component cannot know which, and guessing wrong
+// breaks the screen.
+var traceOutput atomic.Pointer[io.Writer]
+
+// SetAuthTraceOutput sets where an authorization trace goes, and returns a
+// function that puts the previous destination back.
+//
+// It is the narrowest of the process-wide redirects, and it is here for
+// the same reason as the others: the trace is a printer, and while the
+// interface is running no printer may write to the terminal.
+func SetAuthTraceOutput(w io.Writer) func() {
+	if w == nil {
+		w = io.Discard
+	}
+	previous := traceOutput.Load()
+	traceOutput.Store(&w)
+
+	return func() { traceOutput.Store(previous) }
+}
+
+// AuthTraceOutput is where an authorization trace goes now.
+func AuthTraceOutput() io.Writer {
+	if w := traceOutput.Load(); w != nil {
+		return *w
+	}
+
+	return os.Stderr
 }
 
 // authTraceEnabled reports whether a trace was asked for.

@@ -479,9 +479,15 @@ func (r *sendResultReconciler) now() time.Time {
 	return r.clock.Now()
 }
 
+// log is the logger this reconciler reports through.
+//
+// A nil logger discards. It does not fall back to slog.Default(), because
+// the default writes to the terminal the interface owns: one line per
+// confirmed message would shift every row of a running screen, and the
+// component that wrote it would be the one that looks broken.
 func (r *sendResultReconciler) log() *slog.Logger {
 	if r.logger == nil {
-		return slog.Default()
+		return discardLogger()
 	}
 	return r.logger
 }

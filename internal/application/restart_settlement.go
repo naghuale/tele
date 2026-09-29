@@ -368,9 +368,12 @@ func (s *restartSettler) stamp() time.Time {
 	return time.Now()
 }
 
+// log is the logger the settlement reports through. A nil logger
+// discards rather than reaching for the default, which writes to the
+// terminal the interface owns.
 func (s *restartSettler) log() *slog.Logger {
 	if s == nil || s.logger == nil {
-		return slog.Default()
+		return discardLogger()
 	}
 	return s.logger
 }

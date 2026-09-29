@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	"telecli/internal/config"
@@ -94,16 +93,15 @@ func reportOutboxStatus(
 	ctx, cancel := context.WithTimeout(ctx, outboxProbeTimeout)
 	defer cancel()
 
-	dataDir := strings.TrimSpace(cfg.MessageDelivery.DataDir)
-	if dataDir == "" {
-		dataDir = strings.TrimSpace(cfg.DataDir)
-	}
+	dataDir := resolveDataDir(cfg)
 
 	// A diagnostic command must not change anything. outbox.Open creates
 	// the data directory, the SQLite file and a new Keychain item when
 	// they are absent, and macOS may raise an access dialog. So the
 	// database is checked first and Open is only reached for a queue that
 	// already exists.
+	writeUILogPath(out, cfg)
+
 	if !outbox.DatabaseExists(dataDir) {
 		fmt.Fprint(out,
 			"Message queue: not created yet (it is created on first start)\n")
@@ -132,6 +130,29 @@ func reportOutboxStatus(
 	}
 
 	fmt.Fprint(out, DescribeSendingPaused(err, dataDir))
+}
+
+// writeUILogPath says where the reasons go while the interface runs.
+//
+// It is the answer to the question a quiet log creates. A user who is told
+// that the interface is running without complaint and then finds a message
+// in the wrong state has one place to look, and this is it: the reason is
+// not on the screen, because the screen belongs to the conversation, and it
+// is not in the terminal either, because a line there would break the
+// interface that is running.
+func writeUILogPath(out io.Writer, cfg config.Config) {
+	path := TUILogPath(cfg)
+	if path == "" {
+		fmt.Fprintln(out,
+			"  Log file: none (no data folder is configured)")
+		return
+	}
+
+	fmt.Fprintf(
+		out,
+		"  Log file: %s (written while the interface runs)\n",
+		path,
+	)
 }
 
 // writeSendResultCounters prints what the last run's reconciler saw.

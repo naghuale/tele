@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -157,6 +158,7 @@ func productionDurableRuntimeDeps(
 	session TelegramSender,
 	live *telegram.LiveState,
 	cfg config.Config,
+	logger *slog.Logger,
 ) DurableOutboxRuntimeDeps {
 	return DurableOutboxRuntimeDeps{
 		KeyProvider: outbox.NewPlatformKeyProvider(),
@@ -173,6 +175,11 @@ func productionDurableRuntimeDeps(
 		// to a process that no longer exists, and the chat is the only
 		// place left that can say what became of the message.
 		History: sessionHistoryReader(session),
+		// Every reason the queue produces goes where the program's mode
+		// says: a file while the interface is on the screen, the
+		// terminal outside it. Nothing here falls back to a default,
+		// because a default is the terminal.
+		Logger: logger,
 	}
 }
 
@@ -191,6 +198,27 @@ func sessionHistoryReader(session TelegramSender) TelegramHistoryReader {
 	return reader
 }
 
+// deliveryLoggerOption carries the logger the delivery components report
+// through.
+//
+// It is a slice of options rather than a parameter because the same
+// function builds the runtime for every caller, and the ones that are
+// tests do not have a log file to offer. A nil option is the whole
+// default: components discard.
+type deliveryLoggerOption func(*deliveryLoggerSettings)
+
+type deliveryLoggerSettings struct {
+	logger *slog.Logger
+}
+
+// deliveryLogger returns the option that gives the delivery components a
+// logger.
+func deliveryLogger(logger *slog.Logger) deliveryLoggerOption {
+	return func(settings *deliveryLoggerSettings) {
+		settings.logger = logger
+	}
+}
+
 func prepareDeliveryAuthResult(
 	ctx context.Context,
 	cfg config.Config,
@@ -199,7 +227,14 @@ func prepareDeliveryAuthResult(
 	openDelivery deliveryOpenFunc,
 	sampling deliveryHealthSampling,
 	ownUserID int64,
+	options ...deliveryLoggerOption,
 ) (AuthRunResult, error) {
+	settings := &deliveryLoggerSettings{}
+	for _, option := range options {
+		if option != nil {
+			option(settings)
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return AuthRunResult{}, err
 	}
@@ -219,7 +254,7 @@ func prepareDeliveryAuthResult(
 	deps := MessageDeliveryRuntimeDeps{}
 	if cfg.MessageDelivery.Mode == config.MessageSendModeDurable {
 		deps.Durable = productionDurableRuntimeDeps(
-			session, session.LiveState(), cfg,
+			session, session.LiveState(), cfg, settings.logger,
 		)
 	}
 

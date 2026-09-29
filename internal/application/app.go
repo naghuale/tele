@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"runtime"
 	"time"
@@ -161,7 +162,19 @@ type App struct {
 	// diagnostics receives the reasons that must not reach the screen,
 	// such as why the message queue could not be opened. It is a field
 	// rather than os.Stderr so tests can read it.
+	//
+	// While the interface is on the screen this is the log file and not
+	// the terminal: the terminal belongs to the renderer, and a reason
+	// written over a running interface shifts every row below it.
 	diagnostics io.Writer
+
+	// logger is the structured logger every component is handed, so that
+	// no component has to reach for a process-wide default whose
+	// destination is the terminal.
+	logger *slog.Logger
+
+	// closeLog releases the log file, if this app opened one.
+	closeLog func() error
 
 	// theme and colorProfile are the interface theme resolved by the
 	// composition root and the profile it was built for.
@@ -212,6 +225,44 @@ func (a *App) WithWidthMode(mode termwidth.Mode) *App {
 	copied.widthMode = mode
 
 	return &copied
+}
+
+// WithLog returns a copy of the app that reports through logger, and
+// writes the reasons the screen must not show to w.
+//
+// The composition root calls it with a file while the interface is on the
+// screen, and with the terminal outside it. It is one call because the two
+// have to be the same decision: a program whose structured logs go to a
+// file and whose plain reasons go to the terminal has still put a line on
+// somebody's screen.
+func (a *App) WithLog(
+	logger *slog.Logger,
+	w io.Writer,
+	closeLog func() error,
+) *App {
+	if a == nil {
+		return nil
+	}
+	copied := *a
+	if logger == nil {
+		logger = discardLogger()
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	copied.logger = logger
+	copied.diagnostics = w
+	copied.closeLog = closeLog
+
+	return &copied
+}
+
+// CloseLog releases the log file, if this app opened one.
+func (a *App) CloseLog() error {
+	if a == nil || a.closeLog == nil {
+		return nil
+	}
+	return a.closeLog()
 }
 
 // WithDiagnostics returns a copy of the app that writes operational
@@ -624,6 +675,22 @@ func runTUI(args []string, env Environment) int {
 		return 1
 	}
 
+	// From here an interface may start, and once it does the terminal
+	// belongs to the renderer: nothing but the renderer's own frames may
+	// be written to it. Every reason goes to a file from this point on —
+	// including the ones the standard library would write to stderr on its
+	// own, which is why the two process-wide destinations are redirected
+	// as well as the components being handed a logger.
+	//
+	// It is installed before the credential gate because the mock-only
+	// path starts an interface too. The errors above stay on the
+	// terminal on purpose: no interface is running yet, there is a user
+	// waiting, and a program that failed to start says so where they are
+	// looking.
+	uiLog := openUILog(resolveDataDir(cfg), time.Now)
+	defer func() { _ = uiLog.Close() }()
+	installUILog(uiLog)
+
 	rec := recorder.NewNoop()
 
 	// Tri-state credential gate. Only a complete absence of
@@ -645,7 +712,9 @@ func runTUI(args []string, env Environment) int {
 			"warning: Telegram credentials are not set; "+
 				"starting mock-only TUI")
 
-		app := New(cfg, rec, env.RunTUI)
+		app := New(cfg, rec, env.RunTUI).WithLog(
+			uiLog.Logger, uiLog.Writer, nil,
+		)
 		if err := app.RunTUI(context.Background()); err != nil {
 			fmt.Fprintf(env.Stderr, "app error: %v\n", err)
 			return 1
@@ -734,10 +803,12 @@ func runTUI(args []string, env Environment) int {
 		// Saved Messages instead of showing the user's own.
 		ownUserID, err := resolveOwnUserID(authCtx, session)
 		if err != nil {
-			fmt.Fprintf(
-				env.Stderr,
-				"telegram own user unavailable: %v\n",
-				err,
+			// The interface is starting, so this is a log line and not
+			// a line on the terminal: writing it over the screen is how
+			// the screen breaks.
+			uiLog.Logger.Warn(
+				"telegram own user unavailable",
+				slog.String("error", outbox.SafeReason(err)),
 			)
 		}
 
@@ -749,6 +820,7 @@ func runTUI(args []string, env Environment) int {
 			openDelivery,
 			deliveryHealthSampling{Recorder: tuiHealthRecorder},
 			ownUserID,
+			deliveryLogger(uiLog.Logger),
 		)
 	}
 
@@ -759,7 +831,8 @@ func runTUI(args []string, env Environment) int {
 		runAuth,
 		env.RunTUI,
 		env.RunTUIWithSubmitter,
-	).WithInterface(interfaceTheme, colorProfile).WithWidthMode(widthMode)
+	).WithInterface(interfaceTheme, colorProfile).WithWidthMode(widthMode).
+		WithLog(uiLog.Logger, uiLog.Writer, uiLog.Close)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)
 

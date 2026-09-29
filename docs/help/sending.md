@@ -113,6 +113,7 @@ telecli doctor
 
 ```
 Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbox)
+  Log file: /Users/you/Library/Application Support/telecli/telecli.log (written while the interface runs)
   Messages: 0 queued, 0 sending, 1 on their way, 12 sent, 0 retrying, 0 failed, 0 uncertain, 0 canceled
   Send results: 14 seen, 13 matched, 1 named no record, 0 window gaps, over 210 passes
 ```
@@ -135,6 +136,17 @@ Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbo
 подтверждений вовсе. Если растёт `window gaps`, окно сообщений чата
 переполнено и подтверждения вытесняются из него раньше, чем их успевают
 прочитать.
+
+Пока открыт интерфейс, терминал принадлежит ему: ни одна строка журнала
+не печатается поверх экрана, потому что одна строка сдвигает всё, что
+ниже неё. Поэтому причины, которые нельзя показать на экране, пишутся в
+`telecli.log` рядом с очередью — `telecli doctor` печатает его путь.
+Файл создаётся с правами `600`, он переименовывается, когда вырастает
+больше нескольких мегабайт, и предыдущий остаётся рядом как `telecli.log.1`.
+Если файл открыть не удалось, причины просто не пишутся: программа
+работает и отправляет сообщения. Вне интерфейса (`telecli doctor`,
+`telecli outbox`) всё как раньше — причины идут в терминал, где есть
+человек, который их прочитает.
 
 Если в первой строке есть `on their way` и счётчик не уменьшается,
 `? Delivery uncertain` — состояние, при котором состояние неизвестно по

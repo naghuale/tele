@@ -831,7 +831,26 @@
     and never counted
   - the reconciler counts what it saw: seen, matched, named-no-record and
     window gaps, written to `send-results.json` beside the queue and
-    printed by `telecli doctor`. The owner's report of a message stuck on
+    printed by `telecli doctor`
+  - the reconciler and the dispatcher are HANDED a logger by the
+    composition root, and a nil logger discards. Nothing under internal/
+    falls back to slog.Default() or the standard log package: the default
+    destination is the terminal, and while `telecli tui` runs the
+    terminal belongs to the renderer. One log line per confirmed message
+    shifts every row of a running screen, and the component that wrote it
+    is the one working perfectly. internal/application/no_terminal_writes_test.go
+    parses every file under internal/ and fails on either call outside
+    three named composition-root files
+  - `telecli tui` installs its reasons in `<data_dir>/telecli.log` (0600,
+    rotated at 4 MiB, one previous file kept) and redirects all three
+    doors a component could take without being handed anything:
+    slog.SetDefault, log.SetOutput, and the TELECLI_AUTH_TRACE stream.
+    A log that cannot be opened is discarded, because a program that
+    refuses to start without a diagnostics file has made diagnostics a
+    dependency of its job. TDLib's own log stays off. Outside `tui`
+    nothing changes: reasons go to the terminal
+  - `telecli doctor` prints the log file path, because a quiet log is what
+    creates the question The owner's report of a message stuck on
     "on its way out" is answered by that line without a debugger on a
     running program
   - a confirmed message is not purged while the outcome is unknown:

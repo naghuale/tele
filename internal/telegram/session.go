@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -115,7 +114,7 @@ func Authorize(
 		client,
 		params,
 		provider,
-		NewEnvironmentAuthDiagnostics(os.Stderr),
+		NewEnvironmentAuthDiagnostics(nil),
 	)
 	if err != nil {
 		return nil, closeFailedAuthorization(rt, client, err)

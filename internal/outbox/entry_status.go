@@ -91,16 +91,20 @@ func validateEntryStatus(status EntryStatus) error {
 	if status.UpdatedAt.IsZero() {
 		return fmt.Errorf("%w: zero updated time", ErrInvalidEntry)
 	}
-	// A queue that holds a message and a message with no identifier in
-	// Telegram are the same contradiction the entry model rejects.
-	switch status.State {
-	case StateAccepted, StateSent:
+	// The same rule the writer uses, asked of the same place: a queue that
+	// holds a message and a message with no identifier in Telegram are the
+	// same contradiction, and this reader had its own copy of which states
+	// may carry one. It refused what the writer had learned to keep, so a
+	// queue holding one such record could not be read at all — and a read
+	// that cannot be made is a chat whose messages never change state.
+	switch status.State.MessageIDPolicy() {
+	case messageIDRequired:
 		if status.TelegramMessageID == 0 {
 			return fmt.Errorf(
 				"%w: %s status without message id", ErrInvalidEntry, status.ID,
 			)
 		}
-	default:
+	case messageIDForbidden:
 		if status.TelegramMessageID != 0 {
 			return fmt.Errorf(
 				"%w: message id in %s status", ErrInvalidEntry, status.State,

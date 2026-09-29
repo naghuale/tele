@@ -30,7 +30,23 @@ func (m *Model) mergePendingMessages(
 	fromQueue []PendingMessage,
 	statuses []MessageStatus,
 ) {
-	merged := make([]PendingMessage, 0, len(fromQueue)+len(m.pending))
+	m.pending = mergePendingMessages(m.pending, fromQueue, statuses)
+}
+
+// mergePendingMessages is the pending list a read of the queue produces
+// out of the one on the screen.
+//
+// It is a function of its arguments because the delivery poll has to be able
+// to ask what a read WOULD draw before deciding whether to deliver it: a
+// read that changes nothing the screen shows is a repaint that flickers,
+// and a read that changes something must be delivered even when the queue's
+// two lists are identical to the last time.
+func mergePendingMessages(
+	held []PendingMessage,
+	fromQueue []PendingMessage,
+	statuses []MessageStatus,
+) []PendingMessage {
+	merged := make([]PendingMessage, 0, len(fromQueue)+len(held))
 	listed := make(map[string]struct{}, len(fromQueue))
 
 	for _, message := range fromQueue {
@@ -38,7 +54,7 @@ func (m *Model) mergePendingMessages(
 		merged = append(merged, message)
 	}
 
-	for _, message := range m.pending {
+	for _, message := range held {
 		if !message.local {
 			continue
 		}
@@ -53,7 +69,7 @@ func (m *Model) mergePendingMessages(
 		return pendingMessageLess(merged[i], merged[j])
 	})
 
-	m.pending = merged
+	return merged
 }
 
 // withStateFrom returns the message with the state the statuses report for

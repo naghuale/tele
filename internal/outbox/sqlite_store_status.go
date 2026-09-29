@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"time"
 )
 
@@ -46,7 +48,24 @@ LIMIT ?
 			return nil, err
 		}
 		if err := validateEntryStatus(status); err != nil {
-			return nil, fmt.Errorf("validate outbox status %q: %w", status.ID, err)
+			// One record that cannot be reported is reported here and the
+			// read answers with the rest. Failing the read meant a chat
+			// whose delivery states never changed, with the reason in
+			// neither the screen nor the log — the owner read a message
+			// stuck on Queued for as long as the program ran and had
+			// nothing to read.
+			//
+			// The entry identifier and the reason are what go in. No
+			// message text is read here: the status projection is
+			// payload-free for exactly this reason.
+			s.log().Warn(
+				"outbox status record not reported",
+				slog.String("entry_id", status.ID),
+				slog.String("chat_id", strconv.FormatInt(status.ChatID, 10)),
+				slog.String("state", string(status.State)),
+				slog.String("reason", SafeReason(err)),
+			)
+			continue
 		}
 		result = append(result, status)
 	}

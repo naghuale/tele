@@ -180,6 +180,11 @@ func openDurableOutboxRuntime(
 		KeyProvider: deps.KeyProvider,
 		Sender:      sender,
 		Clock:       deps.Clock,
+		// The store reports the records a read could not make sense of
+		// through this, and the dispatcher's own diagnostics go to the
+		// same place. It is the same logger the reconciler was given, so
+		// everything the queue has to say lands in one file.
+		Logger: deps.logger(),
 		// A session that will send messages owns the queue: it holds
 		// the run lock, so `telecli outbox reset` refuses to move the
 		// queue file out from under it.

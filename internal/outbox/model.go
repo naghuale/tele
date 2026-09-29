@@ -220,8 +220,8 @@ func (e Entry) Validate() error {
 	// returned and sent the final one, so a record in either state has a
 	// message id and the moment TDLib took it; only sent says when
 	// Telegram confirmed it.
-	switch e.State {
-	case StateAccepted, StateSent:
+	switch e.State.MessageIDPolicy() {
+	case messageIDRequired:
 		if e.TelegramMessageID == 0 {
 			return fmt.Errorf("%w: %s without message id",
 				ErrInvalidEntry, e.State)
@@ -231,17 +231,10 @@ func (e Entry) Validate() error {
 				ErrInvalidEntry, e.State)
 		}
 
-	case StateUncertain:
-		// Uncertain has two origins and they do not look alike. A lost
-		// lease leaves a record that was dispatching: TDLib may or may
-		// not have taken the message, and there is no identifier
-		// because there was no answer. A record settled by a later run
-		// was accepted: TDLib did take it, and the identifier is what it
-		// is uncertain *about*.
-		//
-		// So both are optional, and they are required together: half of
-		// the pair is a record that claims Telegram named a message at a
-		// moment, or took a message at a moment, and not the other.
+	case messageIDOptional:
+		// Both of the pair or neither: half of it is a record that claims
+		// Telegram named a message at a moment, or took one at a moment,
+		// and not the other.
 		if (e.TelegramMessageID == 0) != e.AcceptedAt.IsZero() {
 			return fmt.Errorf(
 				"%w: uncertain with only one of message id and accepted time",
@@ -273,6 +266,56 @@ func (e Entry) Validate() error {
 	}
 
 	return nil
+}
+
+// MessageIDPolicy is what a state says about the identifier TDLib gave
+// the message.
+type MessageIDPolicy int
+
+const (
+	// messageIDForbidden: a record in this state may not hold one. The
+	// message is either not TDLib's yet or no longer its concern.
+	messageIDForbidden MessageIDPolicy = iota
+
+	// messageIDRequired: it must. These are the states in which Telegram
+	// holds the message and the record is the proof.
+	messageIDRequired
+
+	// messageIDOptional: it may, and if it does then the accepted time
+	// must be with it.
+	//
+	// This is uncertain, and it is uncertain for a reason worth writing
+	// down. An uncertain record has two origins that do not look alike. A
+	// lost lease leaves one that was dispatching: TDLib may or may not
+	// have taken the message, and there is no identifier because there was
+	// no answer. A record the restart settlement could not find was
+	// accepted: TDLib did take it, and the identifier is the evidence of
+	// that — which is what lets a later run tell the two apart and look
+	// only at the second.
+	//
+	// So the identifier is kept. It is a temporary one that names nothing
+	// outside this queue and is in no history page, and the settlement
+	// finds the message by its text and its time rather than by it.
+	messageIDOptional
+)
+
+// MessageIDPolicy reports what this state says about the identifier TDLib
+// gave the message.
+//
+// It is the single rule about it. The writer that fills a record in and
+// the reader that reports one both ask here, because when they each had
+// their own copy they stopped agreeing — the writer learned to keep the
+// identifier on an uncertain record and the reader kept refusing it, and a
+// queue holding one of those records could not be read at all.
+func (s State) MessageIDPolicy() MessageIDPolicy {
+	switch s {
+	case StateAccepted, StateSent:
+		return messageIDRequired
+	case StateUncertain:
+		return messageIDOptional
+	default:
+		return messageIDForbidden
+	}
 }
 
 // CanTransition reports whether the state machine allows a transition

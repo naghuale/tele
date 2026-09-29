@@ -102,6 +102,12 @@ type Deps struct {
 	// probe leaves it false: a diagnostic must keep working while a
 	// session is open, and must not block one either.
 	Exclusive bool
+
+	// Logger is told about the records a read could not report, and
+	// about the dispatcher's own diagnostics. A nil value discards: it
+	// never falls back to slog.Default(), whose destination is a terminal
+	// an interface may own.
+	Logger *slog.Logger
 }
 
 // Outbox is the assembled durable outbox.
@@ -268,7 +274,8 @@ func Open(
 	store, err := NewSQLiteStore(
 		ctx,
 		SQLiteStoreConfig{
-			Path: dbPath,
+			Path:   dbPath,
+			Logger: deps.Logger,
 		},
 		payloadCipher,
 	)

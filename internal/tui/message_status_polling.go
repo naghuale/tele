@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -337,7 +338,11 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 	statuses := m.messageStatuses
 	pending := m.pendingMessages
 	knownStatuses := m.deliveryStatuses
-	knownPending := m.pendingSnapshot
+	// The rows on the screen, not the rows the queue last listed. A row
+	// this session queued is in neither of the queue's two lists, and
+	// comparing only those two is how a read that would have moved it
+	// from Queued to Sent was called a read that changed nothing.
+	held := m.pending
 	ctx := m.ctx
 
 	return func() tea.Msg {
@@ -384,12 +389,23 @@ func (m *Model) loadMessageStatuses() tea.Cmd {
 			readPending = clonePendingMessages(listed)
 		}
 
-		// Nothing changed, so nothing is delivered. An idle program that
-		// redraws itself every two seconds is a program that a user with
-		// a battery is paying for, and a repaint that changes no pixels is
-		// a flicker a user can see.
+		// Nothing the screen would draw has changed, so nothing is
+		// delivered. An idle program that redraws itself every two
+		// seconds is a program that a user with a battery is paying for,
+		// and a repaint that changes no pixels is a flicker a user can
+		// see.
+		//
+		// The test is what the read WOULD draw, against what is drawn. It
+		// is deliberately not a comparison of the queue's two lists: those
+		// are both the queue's own account of the world, and a message
+		// this session queued is in neither until the queue takes it. So a
+		// read that carries the confirmation of a message the queue has
+		// already stopped listing compared equal to the last one, was
+		// dropped, and the row the submission drew stayed on Queued for as
+		// long as the program ran.
+		wouldDraw := mergePendingMessages(held, readPending, readStatuses)
 		if equalMessageStatuses(readStatuses, knownStatuses) &&
-			equalPendingMessages(readPending, knownPending) {
+			equalPendingMessages(wouldDraw, held) {
 			return nil
 		}
 
@@ -468,6 +484,18 @@ func (m Model) handleMessageStatusesLoaded(
 	m.messageStatusLoading = false
 	m.messageStatusErr = nil
 	m.deliveryStatuses = cloneMessageStatuses(msg.statuses)
+
+	// What the read found, in numbers.
+	//
+	// This is the line that would have answered the question the owner
+	// asked: a message on the screen saying Queued for an hour, and a log
+	// with nothing in it about the read that is supposed to change it. The
+	// counts are states and numbers — no entry identifier and no message
+	// text, because a read's payload is not this program's to print (§19).
+	m.reportDiagnostic(
+		"delivery states of chat %d: %s\n",
+		msg.chatID, countStatesByLabel(msg.statuses),
+	)
 
 	// Delivery happens BEFORE the pending list is replaced, and that
 	// order is the whole of point 2.
@@ -593,6 +621,18 @@ func (m Model) handleMessageStatusesFailed(
 
 	m.messageStatusErr = msg.err
 
+	// The cause goes to the log and not only to a field. A read of the
+	// delivery states fails for reasons that are invisible from the
+	// screen: the queue answered, but one record in it could not be read,
+	// and every message of the chat then keeps the state it was last
+	// drawn with. A field nobody shows and nothing writes out is a failure
+	// that can only be found by reading the source, which is the one thing
+	// a user reporting a stuck message cannot do.
+	//
+	// What is written is the error the queue returned, which names entries
+	// and states and carries no message text (§19).
+	m.reportDiagnostic("delivery states unavailable: %v\n", msg.err)
+
 	return m, nil
 }
 
@@ -685,6 +725,60 @@ func scheduleMessageStatusPoll() tea.Cmd {
 		messageStatusPollInterval,
 		func(time.Time) tea.Msg { return messageStatusPollTickMsg{} },
 	)
+}
+
+// countStatesByLabel is how many entries a read found in each state, as
+// "3 queued, 1 sending, 1 sent".
+//
+// The states are the ones the interface draws, which is what a reader of
+// the log is comparing against what they are looking at: a log that said
+// "on their way" and a screen that said "Sending" would be the same fact
+// in two words, and one of the queue's own names would not match either.
+func countStatesByLabel(statuses []MessageStatus) string {
+	if len(statuses) == 0 {
+		return "no records"
+	}
+
+	counts := make(map[MessageDeliveryState]int, len(statuses))
+	for _, status := range statuses {
+		counts[status.State]++
+	}
+
+	parts := make([]string, 0, len(counts))
+	for _, state := range orderedMessageDeliveryStates() {
+		if count := counts[state]; count > 0 {
+			// The words are the theme's, so the line says the same thing
+			// the screen says, including for a state this build cannot
+			// name: it is counted as unknown rather than as something it
+			// is not.
+			label := "of a state this build cannot name"
+			if themed, known := deliveryStateOf(state); known {
+				label = themed.Mark().Plain()
+			}
+
+			parts = append(parts, fmt.Sprintf("%d %s", count, label))
+		}
+	}
+
+	if len(parts) == 0 {
+		return "only states this build cannot name"
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// orderedMessageDeliveryStates is the order the states are counted in, so
+// two lines in a log are the same line to read.
+func orderedMessageDeliveryStates() []MessageDeliveryState {
+	return []MessageDeliveryState{
+		MessageDeliveryQueued,
+		MessageDeliverySending,
+		MessageDeliveryRetrying,
+		MessageDeliverySent,
+		MessageDeliveryFailed,
+		MessageDeliveryUncertain,
+		MessageDeliveryCanceled,
+	}
 }
 
 // equalMessageStatuses reports whether two snapshots are the same.

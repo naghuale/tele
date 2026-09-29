@@ -867,6 +867,26 @@
     what the submission said — Queued — until the next tick. The read
     supersedes one in flight (statusReadSeq++), because a read asked
     before the record existed cannot report it
+  - the rule about which state may hold a Telegram message id is ONE rule,
+    `State.MessageIDPolicy()`, and the writer and the reader both ask it.
+    They each had their own switch, and the writer learned to keep the
+    temporary id on a record a settlement gave up on while the reader kept
+    refusing it. So a queue holding one such record could not be read at
+    all: the read failed with `message id in uncertain status` on EVERY
+    message of that chat, which is a chat whose messages never change
+    state. The id is kept because it is the evidence TDLib took the
+    message and the only thing that separates an uncertain-by-settlement
+    from an uncertain-by-lost-lease, and it is a temporary id that is in
+    no history page
+  - one record a read cannot report no longer fails the read. It is logged
+    (entry id, chat id, state, reason — never the payload, which this
+    projection does not have) and the read answers with the rest. The
+    owner's account held 13 of them
+  - a read of the delivery states that fails writes the reason to the log
+    and not only to a field nobody shows, and a read that succeeds writes
+    what it found as counts per state, in the words the screen draws. Both
+    are how the next look at a stuck message is an answer instead of a
+    reading of the source
   - delivery happens BEFORE the pending list is replaced. The queue stops
     listing a record the moment it is sent, so after the merge there is
     nothing left to deliver, and the text of a confirmed record is here

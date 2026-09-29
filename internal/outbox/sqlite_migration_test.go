@@ -891,3 +891,101 @@ func TestARecordUncertainForAnotherReasonIsNotRechecked(t *testing.T) {
 		)
 	}
 }
+
+// A record main left accepted, then a settlement marked uncertain, is
+// readable without anything being done to it.
+//
+// The owner's queue holds thirteen of them right now, written by a build
+// that kept the identifier on the record when it gave up looking for the
+// message. They are not malformed, they are not a schema change, and
+// nothing about them needs doing: the rule that decides whether a record
+// may hold an identifier is in the model, and the reader asks the same
+// place the writer did. This is the round trip over main's own schema, so
+// the thirteen are covered by the same test as the record that was never
+// settled.
+func TestARecordSettledUncertainWithAnIdentifierIsReadableAsItStands(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "outbox.db")
+	db := openMainDatabase(t, path)
+	cipher := &fakeCipher{}
+	for _, row := range everyStateOnMain() {
+		writeLegacyRow(t, db, cipher, row)
+	}
+
+	// Exactly what a settlement's own write left on the owner's queue: the
+	// record is uncertain, it keeps the temporary identifier it was
+	// accepted with, and it keeps the accepted time.
+	if _, err := db.ExecContext(context.Background(), `
+UPDATE outbox_entries
+SET state = ?, last_error_message = ?
+WHERE id = ? AND state = ?
+`,
+		string(StateUncertain),
+		"no confirmation from the run that sent it; not found in the chat",
+		"m-accepted", string(StateAccepted),
+	); err != nil {
+		t.Fatalf("mark the record the way the settlement did: %v", err)
+	}
+
+	if err := applyMigrations(context.Background(), db); err != nil {
+		t.Fatalf("applyMigrations: %v", err)
+	}
+
+	store, err := NewSQLiteStore(
+		context.Background(), SQLiteStoreConfig{Path: path}, cipher,
+	)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if closer, ok := store.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	// The read of the chat's delivery states, which is the one that used to
+	// fail for every message in it.
+	statuses, err := store.(EntryStatusReader).ListEntryStatuses(
+		context.Background(),
+		ListEntryStatusesQuery{AccountKey: "account-1", ChatID: 44},
+	)
+	if err != nil {
+		t.Fatalf(
+			"the read of a chat holding thirteen settled records "+
+				"failed: %v. The owner's screen then showed every "+
+				"message on the state it was last drawn with, with "+
+				"nothing to read.", err,
+		)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %#v, want the one record", statuses)
+	}
+	if statuses[0].ID != "m-accepted" {
+		t.Fatalf("id = %q, want m-accepted", statuses[0].ID)
+	}
+	if statuses[0].State != StateUncertain {
+		t.Fatalf("state = %q, want uncertain", statuses[0].State)
+	}
+	if statuses[0].TelegramMessageID != 9001 {
+		t.Fatalf(
+			"message id = %d, want 9001: it is the evidence that TDLib "+
+				"took the message, and the re-check selects on it",
+			statuses[0].TelegramMessageID,
+		)
+	}
+
+	// And the record is still the one a re-check will look at, which is
+	// the other half of why the identifier is kept.
+	recheck, err := store.(UnsettledAcceptedStore).ListSettledUncertain(
+		context.Background(), "account-1",
+		"no confirmation from the run that sent it; not found in the chat",
+		0,
+	)
+	if err != nil {
+		t.Fatalf("ListSettledUncertain: %v", err)
+	}
+	if len(recheck) != 1 || recheck[0].ID != "m-accepted" {
+		t.Fatalf("recheck = %#v, want the one settled record", recheck)
+	}
+}

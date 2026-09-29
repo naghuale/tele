@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +28,20 @@ import (
 type sqliteStore struct {
 	db     *sql.DB
 	cipher PayloadCipher
+
+	// logger is told about the records a read could not report. It is nil
+	// when the store was opened without one, and then the reasons are
+	// dropped rather than written to a terminal nobody asked to write to.
+	logger *slog.Logger
+}
+
+// log is the logger this store reports a read problem through, discarding
+// when there is none.
+func (s *sqliteStore) log() *slog.Logger {
+	if s == nil || s.logger == nil {
+		return slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return s.logger
 }
 
 // SQLiteStoreConfig tunes the underlying database.
@@ -35,6 +51,20 @@ type SQLiteStoreConfig struct {
 
 	// BusyTimeout is applied as a PRAGMA. Zero selects 5 seconds.
 	BusyTimeout time.Duration
+
+	// Logger receives the reasons a read could not report every record.
+	//
+	// It is not the store's business to refuse a read because one row of
+	// it cannot be made sense of: a chat's delivery states are read as a
+	// set, and one unreadable record used to take the whole set with it —
+	// which is a chat whose messages never change state, with nothing on
+	// the screen or in the log to say why. A record it could not report is
+	// therefore reported here, by entry identifier and reason, and the
+	// read answers with the rest.
+	//
+	// A nil logger discards. It never falls back to slog.Default(), whose
+	// destination is a terminal an interface may own.
+	Logger *slog.Logger
 }
 
 // NewSQLiteStore opens (or creates) a SQLite-backed Store.
@@ -83,7 +113,12 @@ func NewSQLiteStore(
 		return nil, err
 	}
 
-	return &sqliteStore{db: db, cipher: cipher}, nil
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
+	return &sqliteStore{db: db, cipher: cipher, logger: logger}, nil
 }
 
 // sqliteDSN builds a DSN for modernc.org/sqlite.

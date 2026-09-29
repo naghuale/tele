@@ -8,7 +8,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -85,12 +84,21 @@ func TestTheFocusIsOneRuleUnderTheHeadingOfTheActivePanel(t *testing.T) {
 				t.Fatalf("the screen draws %d rules, want 1:\n%s", len(rules), m.View())
 			}
 
-			heading := lines[rules[0]-1]
-			if !strings.Contains(ansi.Strip(heading), chatListTitle) &&
-				!strings.Contains(ansi.Strip(heading), m.selected().Title) {
+			// The rule closes the header of the pane. A header is the
+			// title and the line under it, and the title is in one of the
+			// two rows the rule is under: the header of the conversation
+			// is two rows and the header of the list is three, the search
+			// line sitting between the title and the rule (the mockup of
+			// the owner).
+			above := []string{ansi.Strip(lines[rules[0]-1])}
+			if rules[0] > 1 {
+				above = append(above, ansi.Strip(lines[rules[0]-2]))
+			}
+			if !strings.Contains(strings.Join(above, "\n"), chatListTitle) &&
+				!strings.Contains(strings.Join(above, "\n"), m.selected().Title) {
 				t.Fatalf(
 					"the rule is under %q, which is not a panel heading",
-					ansi.Strip(heading),
+					strings.Join(above, "\n"),
 				)
 			}
 
@@ -171,38 +179,35 @@ func TestNoColorMarksTheSelectedChatWithAGlyphInItsOwnColumn(t *testing.T) {
 	}
 }
 
-// A chat is a name with a time and a preview with a badge, with half a row
-// of air above it and half a row below. Two chats with no gap between them
-// are one block of eight lines, and a user has to read them to tell them
-// apart — the air is what tells them apart, and on a row that is not
-// selected it is the background of the list, so the gap between two chats
-// is a gap of nothing and the names still have a row of their own.
+// A chat is a name with a time and a preview with a badge, and one blank
+// row under it. Two chats with no gap between them are one block of six
+// lines, and a user has to read them to tell them apart — the blank row is
+// what tells them apart, and it is blank whatever else is true of the chat
+// above it: a gap that changed colour with the selection would be a band
+// under the chosen one.
 func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
 	m := sizedModel(t, 120, 30)
 	layout := LayoutFor(m.width, m.height)
-	rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+	rows, _ := m.chatListRows(layout, chatListPaneWidth(layout))
 
 	if len(rows) < 2 {
 		t.Fatalf("the list draws %d rows, want at least 2", len(rows))
 	}
 
 	first := rows[0]
-	if len(first) != 4 {
+	if len(first) != 3 {
 		t.Fatalf(
-			"a chat takes %d rows, want air above, a name, a preview and air below",
+			"a chat takes %d rows, want a name, a preview and a gap",
 			len(first),
 		)
 	}
-	if !strings.Contains(plain(first[0]), termwidth.HalfBlockLower) {
-		t.Fatalf("the row of air above a chat is not there: %q", plain(first[0]))
+	if strings.TrimSpace(plain(first[0])) == "" {
+		t.Fatalf("the name of a chat is empty: %q", plain(first[0]))
 	}
-	if !strings.Contains(plain(first[3]), termwidth.HalfBlockUpper) {
-		t.Fatalf("the row of air below a chat is not there: %q", plain(first[3]))
+	if strings.TrimSpace(plain(first[2])) != "" {
+		t.Fatalf("the row under a chat is not blank: %q", plain(first[2]))
 	}
-	if strings.TrimSpace(plain(first[1])) == "" {
-		t.Fatalf("the name of a chat is empty: %q", plain(first[1]))
-	}
-	if rows[1][1] == first[1] {
+	if rows[1][0] == first[0] {
 		t.Fatal("two chats are drawn on the same line")
 	}
 }
@@ -291,12 +296,13 @@ func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
 		t.Fatalf("the message is not on the screen:\n%s", view)
 	}
 
-	// The band is the air under the block and the last row of the region
-	// the conversation is drawn in, so the text of the newest message is
-	// three rows above the prompt — the lower half block and the row the
-	// conversation ends on — and the empty rows of the feed are all above
-	// the name of whoever sent it.
-	if composer-text != 3 {
+	// The band of the composer opens with its own row of air, so the text
+	// of the newest message is the row directly above that band, with the
+	// empty rows of the feed all above the name of whoever sent it. A
+	// message does not carry a row of air of its own under it: the owner's
+	// Terminal draws its rows with a gap, so a row of half blocks under a
+	// block is a band of its own and not air.
+	if composer-text != 2 {
 		t.Fatalf(
 			"the text is on row %d and the composer on row %d, want them against the field:\n%s",
 			text,
@@ -361,7 +367,7 @@ func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
 	if !strings.Contains(view, "Anna") {
 		t.Fatalf("the sender is not named:\n%s", view)
 	}
-	if !strings.Contains(view, "✓ Sent 10:01") {
+	if !strings.Contains(view, "✓ sent 10:01") {
 		t.Fatalf("the outgoing message has no state under it:\n%s", view)
 	}
 }
@@ -385,7 +391,7 @@ func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
 	width := layout.ChatContentWidth()
 	limit := width * outgoingBubbleSharePercent / 100
 	block := m.messageBlockFor(
-		sideOutgoing, layout, width, strings.Repeat("long ", 60), "✓ Sent 10:01",
+		sideOutgoing, layout, width, strings.Repeat("long ", 60), "✓ sent 10:01",
 	)
 	if block.width > limit {
 		t.Fatalf("the block is %d columns, want at most %d", block.width, limit)
@@ -598,14 +604,18 @@ func TestTheScreenIsARectangleAtEverySize(t *testing.T) {
 // The tea key that carries the focus is Tab and it moves between the panes
 // the rule is on. A rule that did not move with the keys would be a
 // decoration rather than a claim.
+//
+// The cycle is the composer, the list, the conversation, and the rule of a
+// pane closes that pane's header — which is two rows for a conversation and
+// three for a list, so the two rules are a row apart.
 func TestTabMovesTheRuleBetweenThePanes(t *testing.T) {
-	m := focusedOn(openedProgramModel(t, theme.ProfileNoColor, 120, 30), FocusChatList)
-
-	m, _ = updateModel(t, m, press(tea.KeyTab))
-	assertPanelRule(t, m, conversationPane)
+	m := focusedOn(openedProgramModel(t, theme.ProfileNoColor, 120, 30), FocusComposer)
 
 	m, _ = updateModel(t, m, press(tea.KeyTab))
 	assertPanelRule(t, m, listPane)
+
+	m, _ = updateModel(t, m, press(tea.KeyTab))
+	assertPanelRule(t, m, conversationPane)
 }
 
 // Every cell of both rows of the selected chat carries the Selected
@@ -642,11 +652,11 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 			}
 
 			layout := LayoutFor(m.width, m.height)
-			rows, _ := m.chatListRows(layout, layout.SidebarContentWidth())
+			rows, _ := m.chatListRows(layout, chatListPaneWidth(layout))
 
-			if len(rows[0]) != 4 {
+			if len(rows[0]) != 3 {
 				t.Fatalf(
-					"a chat takes %d rows, want air above, a name, a preview and air below",
+					"a chat takes %d rows, want a name, a preview and a gap",
 					len(rows[0]),
 				)
 			}
@@ -656,7 +666,7 @@ func TestEveryCellOfTheSelectedChatIsOnItsBackground(t *testing.T) {
 					Render("x"),
 			)
 
-			for _, row := range rows[0][1:3] {
+			for _, row := range rows[0][:2] {
 				assertSelectedRow(t, m, background, badge, row)
 			}
 		})
@@ -806,7 +816,7 @@ func TestTheUnreadBadgeKeepsItsPillOnTheSelectedRow(t *testing.T) {
 		t.Skip("the theme gives the selection and the badge the same colour")
 	}
 
-	assertSelectedRow(t, m, selected, badge, rows[0][2])
+	assertSelectedRow(t, m, selected, badge, rows[0][1])
 }
 
 // The feed is chronological: the oldest message is on the first row of it

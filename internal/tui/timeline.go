@@ -150,6 +150,13 @@ func (m Model) anchoredAt(entryIndex int) (feedIndex, cutRows int) {
 	// takes: the view cuts an entry that is taller than the feed rather
 	// than leaving the feed empty, and a window that started below it
 	// would be a window with nothing in it.
+	//
+	// Every entry is measured whole, the blank row that separates two
+	// messages included, and the cut at the end is what takes the blank
+	// row off the topmost entry when it is the one that does not fit: the
+	// cut is measured from the top of that entry, and its top row is its
+	// gap. A walk that measured the topmost entry without the gap would
+	// count the gap as spent and stop one row early.
 	top := clampIndex(entryIndex, len(entries)-1)
 	used := m.entryRows(entries[top], layout, width, styles)
 

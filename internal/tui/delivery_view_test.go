@@ -169,7 +169,7 @@ func TestAnUnknownDeliveryStateIsNotDrawnAsAKnownOne(t *testing.T) {
 	if !strings.Contains(view, "текст") {
 		t.Fatalf("the message is not on the screen:\n%s", view)
 	}
-	for _, known := range []string{"Queued", "Sending", "Sent", "Failed"} {
+	for _, known := range []string{"queued", "sending", "sent", "failed"} {
 		if strings.Contains(view, known) {
 			t.Fatalf("an unknown state was drawn as %q:\n%s", known, view)
 		}

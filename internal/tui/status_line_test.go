@@ -593,7 +593,7 @@ func TestAReconnectingClientKeepsTheQueueStates(t *testing.T) {
 	if !strings.Contains(view, "текст сообщения") {
 		t.Fatal("the message is not on the screen")
 	}
-	if !strings.Contains(view, "Retrying at 14:35") {
+	if !strings.Contains(view, "retrying at 14:35") {
 		t.Fatalf("the message lost its delivery state: %q", viewLines(view))
 	}
 	if got := statusLineOf(t, model); got != "Waiting for network · 2 queued · 1 retrying" {

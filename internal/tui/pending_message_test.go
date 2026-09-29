@@ -124,17 +124,17 @@ func TestEveryDeliveryStateIsDrawnUnderItsMessage(t *testing.T) {
 		want     string
 		unwanted string
 	}{
-		"queued":   {state: MessageDeliveryQueued, want: "Queued"},
-		"sending":  {state: MessageDeliverySending, want: "Sending"},
-		"retrying": {state: MessageDeliveryRetrying, want: "Retrying"},
-		"sent":     {state: MessageDeliverySent, want: "Sent"},
-		"failed":   {state: MessageDeliveryFailed, want: "Failed", unwanted: "Retry"},
+		"queued":   {state: MessageDeliveryQueued, want: "queued"},
+		"sending":  {state: MessageDeliverySending, want: "sending"},
+		"retrying": {state: MessageDeliveryRetrying, want: "retrying"},
+		"sent":     {state: MessageDeliverySent, want: "sent"},
+		"failed":   {state: MessageDeliveryFailed, want: "failed", unwanted: "Retry"},
 		"uncertain": {
 			state:    MessageDeliveryUncertain,
-			want:     "Delivery uncertain",
+			want:     "delivery uncertain",
 			unwanted: "Failed",
 		},
-		"canceled": {state: MessageDeliveryCanceled, want: "Canceled"},
+		"canceled": {state: MessageDeliveryCanceled, want: "canceled"},
 	}
 
 	for name, testCase := range cases {
@@ -197,7 +197,7 @@ func TestTheStateLineIsUnderTheTextOfItsMessage(t *testing.T) {
 		t.Fatalf("the text is not on the screen:\n%s", view)
 	}
 
-	stateAt, ok := lineIndexWith(view, "Queued")
+	stateAt, ok := lineIndexWith(view, "queued")
 	if !ok {
 		t.Fatalf("the state is not on the screen:\n%s", view)
 	}
@@ -220,19 +220,19 @@ func TestUncertainAndFailedAreNotTheSameThing(t *testing.T) {
 	first := plain(deliveredFor(t, uncertain).View())
 	second := plain(deliveredFor(t, failed).View())
 
-	if !strings.Contains(first, "Delivery uncertain") {
+	if !strings.Contains(first, "delivery uncertain") {
 		t.Fatalf("an uncertain message says nothing about the uncertainty:\n%s", first)
 	}
 	if !strings.Contains(first, "Message may already have been sent") {
 		t.Fatalf("an uncertain message does not warn about the duplicate:\n%s", first)
 	}
-	if strings.Contains(first, "Failed") {
+	if strings.Contains(first, "failed") {
 		t.Fatalf("an uncertain message looks like a failed one:\n%s", first)
 	}
-	if !strings.Contains(second, "Failed") {
+	if !strings.Contains(second, "failed") {
 		t.Fatalf("a failed message does not say it failed:\n%s", second)
 	}
-	if strings.Contains(second, "Delivery uncertain") {
+	if strings.Contains(second, "delivery uncertain") {
 		t.Fatalf("a failed message looks like an uncertain one:\n%s", second)
 	}
 }
@@ -276,7 +276,7 @@ func TestAMessageQueuedInThisSessionAppearsAtOnce(t *testing.T) {
 	if !strings.Contains(view, "проверяю сборку") {
 		t.Fatalf("the message is not in the timeline:\n%s", view)
 	}
-	if !strings.Contains(view, "Queued") {
+	if !strings.Contains(view, "queued") {
 		t.Fatalf("the state of the message is not on the screen:\n%s", view)
 	}
 }
@@ -298,10 +298,10 @@ func TestTheStateOfAQueuedMessageFollowsTheQueue(t *testing.T) {
 	m, _ = updateModel(t, m, deliveryRefresh(t, m, source))
 
 	view := plain(m.View())
-	if !strings.Contains(view, "Sending") {
+	if !strings.Contains(view, "sending") {
 		t.Fatalf("the state did not follow the queue:\n%s", view)
 	}
-	if strings.Contains(view, "Queued") {
+	if strings.Contains(view, "queued") {
 		t.Fatalf("the old state is still on the screen:\n%s", view)
 	}
 }
@@ -333,7 +333,7 @@ func TestAnAcceptedMessageStaysUntilTheHistoryBringsItBack(t *testing.T) {
 	})
 
 	view := plain(m.View())
-	if !strings.Contains(view, "Sent") {
+	if !strings.Contains(view, "sent") {
 		t.Fatalf("an accepted message is not marked as sent:\n%s", view)
 	}
 	if !strings.Contains(view, "проверяю сборку") {
@@ -348,7 +348,7 @@ func TestAnAcceptedMessageStaysUntilTheHistoryBringsItBack(t *testing.T) {
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
 
 	view = plain(m.View())
-	if strings.Contains(view, "Sent") {
+	if strings.Contains(view, "sent") {
 		t.Fatalf("an accepted message is still drawn separately:\n%s", view)
 	}
 }
@@ -371,7 +371,7 @@ func TestAMessageFromAPreviousSessionIsInTheTimeline(t *testing.T) {
 	if !strings.Contains(view, "отправлено до перезапуска") {
 		t.Fatalf("the message of the previous session is not in the timeline:\n%s", view)
 	}
-	if !strings.Contains(view, "Queued") {
+	if !strings.Contains(view, "queued") {
 		t.Fatalf("its state is not on the screen:\n%s", view)
 	}
 }
@@ -530,7 +530,7 @@ func TestThereIsNoSeparateDeliveryBlock(t *testing.T) {
 			t.Fatalf("the delivery block is still on the screen (%q):\n%s", gone, view)
 		}
 	}
-	if !strings.Contains(view, "Queued") {
+	if !strings.Contains(view, "queued") {
 		t.Fatalf("the state of the message went with the block:\n%s", view)
 	}
 }
@@ -603,21 +603,21 @@ func stateSymbol(state MessageDeliveryState) string {
 // change to one of them is a change to a named thing.
 
 func TestQueuedUsesSymbolAndText(t *testing.T) {
-	assertStateLabel(t, MessageDeliveryQueued, "●", "Queued")
+	assertStateLabel(t, MessageDeliveryQueued, "●", "queued")
 }
 
 func TestRetryingUsesSymbolAndText(t *testing.T) {
-	assertStateLabel(t, MessageDeliveryRetrying, "↻", "Retrying")
+	assertStateLabel(t, MessageDeliveryRetrying, "↻", "retrying")
 }
 
 func TestFailedUsesSymbolAndText(t *testing.T) {
-	assertStateLabel(t, MessageDeliveryFailed, "!", "Failed")
+	assertStateLabel(t, MessageDeliveryFailed, "!", "failed")
 }
 
 // Uncertain carries a warning of its own, because the user has to decide
 // what to do with it and a state name does not tell them what.
 func TestUncertainUsesWarningText(t *testing.T) {
-	assertStateLabel(t, MessageDeliveryUncertain, "?", "Delivery uncertain")
+	assertStateLabel(t, MessageDeliveryUncertain, "?", "delivery uncertain")
 
 	view := plain(deliveredFor(t, &pendingSource{messages: []PendingMessage{{
 		EntryID: "entry-1", ChatID: 7, Text: "текст", State: MessageDeliveryUncertain,
@@ -636,13 +636,13 @@ func TestUncertainUsesWarningText(t *testing.T) {
 // place where the proof is worth anything.
 func TestStatusNeverDependsOnlyOnColor(t *testing.T) {
 	for state, word := range map[MessageDeliveryState]string{
-		MessageDeliveryQueued:    "Queued",
-		MessageDeliverySending:   "Sending",
-		MessageDeliveryRetrying:  "Retrying",
-		MessageDeliveryFailed:    "Failed",
-		MessageDeliveryUncertain: "Delivery uncertain",
-		MessageDeliverySent:      "Sent",
-		MessageDeliveryCanceled:  "Canceled",
+		MessageDeliveryQueued:    "queued",
+		MessageDeliverySending:   "sending",
+		MessageDeliveryRetrying:  "retrying",
+		MessageDeliveryFailed:    "failed",
+		MessageDeliveryUncertain: "delivery uncertain",
+		MessageDeliverySent:      "sent",
+		MessageDeliveryCanceled:  "canceled",
 	} {
 		t.Run(string(state), func(t *testing.T) {
 			view := plain(deliveredFor(t, &pendingSource{messages: []PendingMessage{{

@@ -348,27 +348,22 @@ func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
 		entries := timelineEntries(model.selected().Messages)
 		rows := model.entryLines(entries[0], layout, width, model.styles())
 
-		// A block is opened by a half row of air and carries the name of
-		// whoever sent it above its text (§4.4), so the name is on the
-		// third row and the text under it. The name is where the words of
-		// it start, which is past the column the marker of the message
-		// under the cursor stands in — the feed keeps a margin there, and
-		// the text starts with the name rather than beside it.
-		head := strings.Index(plain(rows[2]), messageAuthor(entries[0].message))
+		// A block carries the name of whoever sent it above its text
+		// (§4.4), and the blank row above the block is the gap between
+		// two messages, so the name is on the second row and the text
+		// under it. The name is where the words of it start, which is past
+		// the column the marker of the message under the cursor stands in
+		// — the feed keeps a margin there, and the text starts with the
+		// name rather than beside it.
+		head := strings.Index(plain(rows[1]), messageAuthor(entries[0].message))
 		if head < 0 {
-			t.Fatalf("the sender's name is not on the third row: %q", plain(rows[2]))
+			t.Fatalf("the sender's name is not on the second row: %q", plain(rows[1]))
 		}
-		for index, row := range rows[3:] {
-			// The half row of air under the text is a row of the block
-			// and has no words in it to line up with anything.
-			if isAirRow(renderedCells(t, model, row)) {
-				continue
-			}
-
+		for index, row := range rows[2:] {
 			if got := indentOf(row); got != head {
 				t.Fatalf(
 					"row %d starts at column %d, the sender's name at %d: %q",
-					index+3,
+					index+2,
 					got,
 					head,
 					plain(row),

@@ -197,12 +197,7 @@ func (m Model) pendingMessageRows(
 		))
 	}
 
-	// The air of §4.4 is on a message of this user that is still leaving
-	// the program too: it is the same block as every other message of the
-	// timeline and the same drawing, and a message that grew an air row
-	// the moment it was sent would be a block whose shape depended on how
-	// far along it was.
-	return m.withAirAround(sideOutgoing, false, styles, block, rows)
+	return rows
 }
 
 // deliveryStateLabel returns the words under a message of this user and the

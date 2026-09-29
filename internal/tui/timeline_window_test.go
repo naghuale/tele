@@ -137,6 +137,13 @@ func mixedConversation(t *testing.T, count int) Model {
 // The window is filled from the bottom by the heights the entries really
 // take, so the feed is full from its top row: no empty row above the first
 // message of the window, and the newest message on the last row.
+//
+// The one row that may be empty above the first message is the gap row of
+// that message: it separates it from the message above it, and the message
+// above the topmost one of the window is not on the screen, so the view
+// does not draw the gap for it (view_conversation.go). A feed that is
+// short by more than that row is a window placed by a guess, and a guess
+// leaves the rows above it empty.
 func TestAChatOpensWithTheFeedFullToItsTopRow(t *testing.T) {
 	m := mixedConversation(t, 40)
 
@@ -146,7 +153,7 @@ func TestAChatOpensWithTheFeedFullToItsTopRow(t *testing.T) {
 	}
 
 	rows := feedOf(t, m)
-	if len(rows) != m.feedRows() {
+	if gap := m.feedRows() - len(rows); gap > 1 {
 		t.Fatalf(
 			"the feed drew %d rows of the %d it has: the window is placed "+
 				"by a guess and a guess leaves the rows above it empty",
@@ -208,11 +215,11 @@ func TestTheAreaOfTheMessagesIsFullToItsFirstRow(t *testing.T) {
 	)
 
 	body := m.timelineBody(layout, width, rows)
-	if len(body) < rows {
+	if gap := rows - len(body); gap > 1 {
 		t.Fatalf(
 			"the messages take %d rows of the %d of the area: %d rows above "+
 				"the first message hold nothing\n%s",
-			len(body), rows, rows-len(body),
+			len(body), rows, gap,
 			strings.Join(viewLines(m.View()), "\n"),
 		)
 	}
@@ -318,7 +325,7 @@ func TestAChatWhoseHistoryArrivesInPagesEndsWithTheFeedFull(t *testing.T) {
 	}
 
 	rows := feedOf(t, m)
-	if len(rows) != m.feedRows() {
+	if gap := m.feedRows() - len(rows); gap > 1 {
 		t.Fatalf(
 			"the feed drew %d rows of the %d it has:\n%s",
 			len(rows), m.feedRows(),
@@ -433,7 +440,10 @@ func TestAResizeFillsTheWindowOfAConversationThatIsBeingFollowed(t *testing.T) {
 	} {
 		m, _ = updateModel(t, m, size)
 		rows := feedOf(t, m)
-		if len(rows) != m.feedRows() {
+		// The gap row of the topmost message is the one row the feed may
+		// be short by: it separates it from a message that is not on the
+		// screen, so the view does not draw it.
+		if gap := m.feedRows() - len(rows); gap > 1 {
 			t.Fatalf(
 				"a %dx%d feed drew %d rows of the %d it has",
 				size.Width, size.Height, len(rows), m.feedRows(),

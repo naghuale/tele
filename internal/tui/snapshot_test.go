@@ -1140,6 +1140,127 @@ func TestSnapshotOneRowBubbleRounded(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotOneRowBubbleRounded"))
 }
 
+// No golden draws a half block, and neither does the program: a half block
+// is a glyph in a row the terminal draws with a gap above the next one, so
+// the row of them above a block and the row of them below it do not meet
+// it — the owner's Terminal shows three layers of a shade where there is
+// one shape. The goldens are where that would be caught last, because they
+// are the record of what the program draws, so this is the test that reads
+// all of them.
+//
+// It is the plain text of a golden that is read, and not its escape
+// sequences: the glyphs are the same in both, and a golden that has one in
+// it has it on the screen.
+func TestNoGoldenDrawsAHalfBlock(t *testing.T) {
+	entries, err := os.ReadDir(snapshotDir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", snapshotDir, err)
+	}
+
+	goldens := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".txt") {
+			continue
+		}
+		goldens++
+
+		content, err := os.ReadFile(filepath.Join(snapshotDir, entry.Name()))
+		if err != nil {
+			t.Fatalf("reading %s: %v", entry.Name(), err)
+		}
+
+		for _, glyph := range []string{halfBlockLower, halfBlockUpper} {
+			if !strings.Contains(string(content), glyph) {
+				continue
+			}
+
+			t.Errorf(
+				"%s draws %q: the owner's Terminal draws its rows with a "+
+					"gap, so a row of them is a band of its own and not air "+
+					"around a block",
+				entry.Name(), glyph,
+			)
+		}
+	}
+
+	if goldens == 0 {
+		t.Fatalf("no goldens in %s, so nothing was proved", snapshotDir)
+	}
+}
+
+// A feed of one-line messages is three rows a message: the bubble is the
+// two rows of it — the name of whoever sent it and its text, or its text
+// and the state of the send — and the blank row between two messages
+// belongs to the one below the gap. The topmost message of the feed has no
+// message above it, so it has no gap row either, and N messages take 3N-1
+// rows.
+//
+// It is the number the whole of this change is about: the rows of half
+// blocks that used to be above and below every block were two rows a
+// message, and in a 168x43 window — the owner's — they took the feed from
+// seven messages to thirteen.
+func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
+	for _, count := range []int{1, 2, 5, 9, 13} {
+		t.Run(fmt.Sprintf("%d messages", count), func(t *testing.T) {
+			m := oneLineConversation(t, 120, 20+3*count, count)
+			rows := feedOf(t, m)
+
+			if want := 3*count - 1; len(rows) != want {
+				t.Fatalf(
+					"a feed of %d one-line messages took %d rows, want %d "+
+						"(two rows of bubble and one blank between)",
+					count, len(rows), want,
+				)
+			}
+			if last := plain(rows[len(rows)-1]); !strings.Contains(
+				last, fmt.Sprintf("message %d", count),
+			) {
+				t.Fatalf(
+					"the last row is %q, want the newest message",
+					last,
+				)
+			}
+			// And the blank row is where it belongs: the third row of
+			// every three, with a name and a text on the two above it. A
+			// second blank row, or a blank one somewhere else, is the
+			// "too much empty space vertically" the owner has a screenshot
+			// of.
+			for index, row := range rows {
+				blank := strings.TrimSpace(plain(row)) == ""
+				if want := index > 0 && index%3 == 2; blank != want {
+					t.Errorf(
+						"row %d is %q, want a blank gap row: %t",
+						index, plain(row), want,
+					)
+				}
+			}
+		})
+	}
+}
+
+// oneLineConversation opens a chat with count messages of one line each,
+// every one of them from the other side so that every one of them is the
+// two rows of a bubble: a name and a text.
+func oneLineConversation(t *testing.T, width, height, count int) Model {
+	t.Helper()
+
+	page := HistoryPage{}
+	for index := count; index >= 1; index-- {
+		page.Messages = append(page.Messages, Message{
+			ID:     int64(index),
+			Text:   fmt.Sprintf("message %d", index),
+			Time:   fmt.Sprintf("12:%02d", index%60),
+			Author: "Anna", AuthorID: 5,
+		})
+	}
+
+	source := &recordingChatSource{pages: []HistoryPage{page}}
+	m := openConversationWithHistory(t, source, 7, page)
+	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: width, Height: height})
+
+	return m
+}
+
 // ---- what every snapshot has to satisfy ----
 
 // The invariants of §20, checked over every snapshot at once rather than

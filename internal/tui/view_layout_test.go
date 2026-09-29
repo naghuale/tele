@@ -80,12 +80,15 @@ func panelRuleLines(lines []string) []int {
 	return found
 }
 
-// assertPanelRule fails unless the screen draws exactly one rule, and it
-// is the row under the heading of the pane that has the keys.
+// assertPanelRule fails unless the pane that has the keys closes its header
+// with a rule, on the row that header ends on.
 //
-// §5.2 is one focused region at a time, and the mark of a region is a
-// rule under its header. Two rules would be two claims on the keys, and a
-// user cannot choose between two regions that both say they have them.
+// §5.2 is one focused region at a time, and the mark of a region is a rule
+// at the end of its header. Each pane carries its own rule, because a pane
+// with no header under its title is a pane with no keys: the rule of the
+// pane that does not have them is the same line in the dim step of the text
+// ramp, and the two are a row apart because the header of the list is a row
+// taller than the header of a conversation.
 //
 // A screen with no conversation on it — the composer-only screen of §3.4,
 // which has no header to put a rule under — is the one case where there is
@@ -95,32 +98,36 @@ func assertPanelRule(t *testing.T, m Model, want pane) {
 
 	view := m.View()
 	lines := viewLines(view)
-	found := panelRuleLines(lines)
-
 	layout := LayoutFor(m.width, m.height)
+
 	if !layout.TwoPane() && layout.ComposerOnly() {
-		if len(found) != 0 {
+		if found := panelRuleLines(lines); len(found) != 0 {
 			t.Fatalf("a composer-only screen draws a panel rule:\n%s", view)
 		}
 
 		return
 	}
 
+	// The rule closes the header of its pane: the header of a
+	// conversation is a title and the rule, so its rule is the second row;
+	// the header of the list is a title, the line under it and the rule,
+	// so its rule is the third — or the fourth with the search region
+	// open above it.
+	wantRow := 1
+	if want == listPane {
+		wantRow = 2
+		if m.chatSearch.open {
+			wantRow += searchRegionHeight
+		}
+	}
+
+	found := panelRuleLines(lines)
 	if len(found) != 1 {
 		t.Fatalf("the screen draws %d panel rules, want 1:\n%s", len(found), view)
 	}
-
-	// The rule belongs to the pane the focus is in, and it sits on the row
-	// directly under that pane's heading, which is the first row of the
-	// screen. The search line is above the list's heading, so the list's
-	// rule is one row further down with it open.
-	wantRow := 1
-	if want == listPane && m.chatSearch.open {
-		wantRow = searchRegionHeight + 1
-	}
 	if found[0] != wantRow {
 		t.Fatalf(
-			"the rule is on row %d, want row %d under the heading of the %v pane:\n%s",
+			"the rule is on row %d, want row %d at the end of the header of the %v pane:\n%s",
 			found[0],
 			wantRow,
 			want,

@@ -510,8 +510,16 @@ func (m Model) entryRowsFrom(
 	for index := first; index < len(entries); index++ {
 		entry := entries[index]
 		block := m.entryLines(entry, layout, width, styles)
-		if index == first && cutRows > 0 {
+		switch {
+		case index == first && cutRows > 0:
 			block = block[minInt(cutRows, maxInt(len(block)-1, 0)):]
+
+		case index == first && len(block) > 0 && strings.TrimSpace(block[0]) == "":
+			// The blank row at the top of a block is the gap between it
+			// and the message above it, and the topmost message of the feed
+			// has none: a blank row there is a bar of nothing under the
+			// header, on a feed the owner reads as empty space.
+			block = block[1:]
 		}
 
 		// An entry taller than the rows that are left is cut at them, and
@@ -662,7 +670,7 @@ func (m Model) incomingMessageLines(
 		))
 	}
 
-	return m.withAirAround(sideIncoming, selected, styles, block, rows)
+	return rows
 }
 
 // authorLine returns the runs of the first row of the block of a message
@@ -786,7 +794,7 @@ func (m Model) outgoingMessageLines(
 		))
 	}
 
-	return m.withAirAround(sideOutgoing, selected, styles, block, rows)
+	return rows
 }
 
 // blockRun is one piece of a row of a block, in a colour of its own.
@@ -1139,59 +1147,6 @@ func (m Model) edgeStyle(
 	return styles.blockEdge(
 		m.blockSurface(side, selected), m.tokens().ChatBackground,
 	)
-}
-
-// withAirAround returns the rows of a block with a half row of air above
-// and below it: the lower half block and the upper half block, in the
-// colour of the block on the background of the feed.
-//
-// A block that is a rectangle of colour with its words pressed against the
-// edges of it is a band of colour, and the air inside it is what makes it
-// a message. One row at each end rather than a whole row each is the point:
-// the half blocks are drawn in the lower and the upper half of their cells,
-// so the block looks half a row taller on each side and the rows of the
-// feed above and below it are the rows they are in rather than rows taken
-// away from the conversation.
-//
-// The ends of a block drawn with a Nerd Font are square here on purpose.
-// The two halves beside the text already say that the block is rounded on
-// its left and its right; a row of them above and below would round it in
-// a second way and the message would stop being a block of text. They are
-// the same colour as the block, so the row reads as one more row of it.
-func (m Model) withAirAround(
-	side messageSide,
-	selected bool,
-	styles viewStyles,
-	block messageBlock,
-	rows []string,
-) []string {
-	above := m.airRow(selected, styles, block, termwidth.HalfBlockLower)
-	below := m.airRow(selected, styles, block, termwidth.HalfBlockUpper)
-
-	return append([]string{above}, append(rows, below)...)
-}
-
-// airRow draws one row of a half block across the width of a block.
-func (m Model) airRow(
-	selected bool,
-	styles viewStyles,
-	block messageBlock,
-	glyph string,
-) string {
-	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
-	air := halfRow(
-		m.edgeStyle(styles, block.side, selected),
-		m.blockSurface(block.side, selected).IsSet() &&
-			m.tokens().ChatBackground.IsSet(),
-		glyph,
-		block.width,
-	)
-
-	return m.painter(theme.Color{}).
-		own(feed, spaces(block.offset)).
-		own(feed, air).
-		own(feed, spaces(block.right)).
-		String()
 }
 
 // flushColumns returns how many columns of a block are not covered by the

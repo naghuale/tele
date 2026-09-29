@@ -221,6 +221,10 @@ func (m Model) chatTitleSegments(
 // fragments are the words that are actually on the screen. Every fragment
 // goes through the painter, so a selected row carries its background
 // across the name and not only across the first letter of it.
+//
+// The name is in bold: the mockup of the owner writes it so, and it is the
+// one run of the row a user reads before the preview under it, so it is the
+// one run that is loudest.
 func (m Model) chatTitle(
 	p *rowPainter,
 	title string,
@@ -230,9 +234,9 @@ func (m Model) chatTitle(
 	styles := p.styles
 
 	for _, segment := range m.chatTitleSegments(title, m.chatSearch.query, width) {
-		style := styles.rowText(selected)
+		style := styles.rowText(selected).Bold(true)
 		if segment.matched {
-			style = styles.matchRun()
+			style = styles.matchRun().Bold(true)
 		}
 
 		p = p.add(style, segment.text)

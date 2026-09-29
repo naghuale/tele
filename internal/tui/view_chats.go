@@ -33,9 +33,9 @@ const chatListTitle = "Chats"
 // are the ones the query left.
 func (m Model) chatListLines(layout Layout, width, height int) []string {
 	lines := []string{
-		m.panelHeading(chatListTitle, width, m.panelFocused(listPane)),
+		m.chatListHeadingLine(layout, width),
+		m.chatListSearchLine(layout, width),
 		m.styles().focusRule(width, m.panelFocused(listPane)),
-		m.chatListHeaderSecondLine(layout, width),
 	}
 
 	rows, selected := m.chatListRows(layout, width)
@@ -45,13 +45,54 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 
 	budget := height - layout.hintLines() - len(lines)
 
-	start, end := visibleHeights(chatListHeights(rows), selected, budget)
+	start, end := visibleRange(len(rows), selected, budget/m.chatListRowHeight(layout))
 
 	for index := start; index < end; index++ {
 		lines = append(lines, rows[index]...)
 	}
 
 	return lines
+}
+
+// chatListHeadingLine is the first line of the header: the title of the
+// pane at its left and how much of the list is unread at its right, both on
+// one row.
+//
+// They are one row because they are two halves of one question — what this
+// pane is and what is in it — and because the count is the one number on the
+// screen a user scans for: on a row of its own under the title it is a line
+// the eye has to find. The title is the panel heading, so it is in the
+// accent of the theme when the pane has the keys.
+func (m Model) chatListHeadingLine(layout Layout, width int) string {
+	summary := m.chatListSummaryLine(width)
+	air := maxInt(
+		width-m.widths.StringWidth(chatListTitle)-m.widths.StringWidth(summary),
+		1,
+	)
+
+	return m.painter(theme.Color{}).
+		add(m.panelHeadingStyle(m.panelFocused(listPane)), chatListTitle).
+		add(m.styles().unstyled(), spaces(air)).
+		add(m.styles().dimmed(m.tokens().MutedText), summary).
+		String()
+}
+
+// chatListRowHeight returns how many lines one chat of the list takes.
+//
+// A chat is a name, a preview and the blank line that separates it from the
+// next one, so that two chats are two blocks rather than four lines of one
+// column. On a screen too short for that (§3.4) the row is one line and the
+// preview and the blank line go.
+//
+// Every chat is the same height, the chosen one included: the chosen chat is
+// a card of its two rows of words and the air inside them, and the blank
+// line under it is the blank line every other chat has.
+func (m Model) chatListRowHeight(layout Layout) int {
+	if layout.Short() {
+		return 1
+	}
+
+	return 3
 }
 
 // panelHeading draws the title of a panel: the accent of the theme when
@@ -61,129 +102,56 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 // point: the rule is what a terminal with no colour shows, and the colour
 // is what a terminal with colour shows first.
 func (m Model) panelHeading(title string, width int, focused bool) string {
+	return m.panelHeadingStyle(focused).
+		Render(m.widths.Fit(title, width, ellipsis))
+}
+
+// panelHeadingStyle is how the title of a panel is written: the accent of
+// the theme when the panel has the keys, and the dim step of the text ramp
+// when it does not.
+func (m Model) panelHeadingStyle(focused bool) lipgloss.Style {
 	styles := m.styles()
-
-	style := styles.dimmed(m.tokens().MutedText)
 	if focused {
-		style = styles.text(m.tokens().Focus).Bold(true)
+		return styles.text(m.tokens().Focus).Bold(true)
 	}
 
-	return style.Render(m.widths.Fit(title, width, ellipsis))
+	return styles.dimmed(m.tokens().MutedText)
 }
 
-// chatListHeaderSecondLine is the second line of the chat list header.
-//
-// §4.1 puts a search and an unread count there, and §3.3 puts the status
-// block there on a narrow screen, where there is no conversation beside the
-// list to carry it. The status wins where it is drawn: a user who cannot
-// see whether telecli is connected needs that more than a count of unread
-// messages, and the count is still on every chat row.
-//
-// A list with no status to show keeps the unread count at every width, so
-// the line is never blank for a reason the user has to work out.
-func (m Model) chatListHeaderSecondLine(layout Layout, width int) string {
-	if !layout.TwoPane() {
-		if status := m.statusBlockLines(layout, width); len(status) > 0 {
-			return m.statusStyle().Render(status[0])
-		}
-	}
-
-	return m.chatListSummaryLine(width)
-}
-
-// chatListSummaryLine is the second line of the header where there is no
-// status: how to search the list, and how much of it is unread.
-//
-// §4.1 puts a search and an unread count there, and the key is in the line
-// rather than only in the hint bar because the header is what a user reads
-// before deciding to do anything at all, and a list that can be searched
-// has to say so somewhere that is not behind a key they have to know.
+// chatListSummaryLine is the unread count of the header, which is the words
+// alone: it shares its row with the title of the pane.
 func (m Model) chatListSummaryLine(width int) string {
 	unread := 0
 	for _, chat := range m.chats {
 		unread += chat.Unread
 	}
 
-	text := unreadBadge(unread) + " unread"
 	if unread == 0 {
-		text = "no unread"
+		return m.widths.Fit("no unread", width, ellipsis)
 	}
 
-	summary := chatListSearchHint + statusSeparator + text
+	return m.widths.Fit(unreadBadge(unread)+" unread", width, ellipsis)
+}
+
+// chatListSearchLine is how the list says that it can be searched.
+//
+// §4.1 puts the key in the header rather than only in the hint bar, because
+// the header is what a user reads before deciding to do anything at all, and
+// a list that can be searched has to say so somewhere that is not behind a
+// key they have to know.
+func (m Model) chatListSearchLine(layout Layout, width int) string {
+	if !layout.TwoPane() {
+		if status := m.statusBlockLines(layout, width); len(status) > 0 {
+			return m.statusStyle().Render(status[0])
+		}
+	}
 
 	return m.styles().dimmed(m.tokens().MutedText).
-		Render(m.widths.Fit(summary, width, ellipsis))
+		Render(m.widths.Fit(chatListSearchHint, width, ellipsis))
 }
 
 // chatListSearchHint is how the list says that it can be searched.
-const chatListSearchHint = "/ Search"
-
-// chatListHeights returns how many lines each chat of the list takes.
-//
-// The height is read back off the rows rather than computed beside them, so
-// the window of the list is placed against the rows that are drawn and not
-// against a number that has to be kept in step with them: a budget of three
-// for a chat drawn at four is a list whose window is a row below the rows
-// it is placed against.
-func chatListHeights(rows [][]string) []int {
-	heights := make([]int, len(rows))
-	for index, row := range rows {
-		heights[index] = len(row)
-	}
-
-	return heights
-}
-
-// visibleHeights returns the window of items to draw when they are of
-// heights of their own rather than all of one, with the selected item
-// inside it.
-//
-// It is visibleRange over lines instead of over items, and it is a
-// separate function because a list of rows that are not all the same height
-// cannot be windowed by dividing the budget: the selected chat is one line
-// taller than the others (§4.2), and a division that assumed otherwise
-// would either cut it off the bottom or leave a row of nothing under the
-// list.
-func visibleHeights(heights []int, selected, available int) (int, int) {
-	if len(heights) == 0 || available <= 0 {
-		return 0, 0
-	}
-
-	total := 0
-	for _, height := range heights {
-		total += height
-	}
-	if total <= available {
-		return 0, len(heights)
-	}
-
-	if selected < 0 {
-		selected = 0
-	}
-	if selected >= len(heights) {
-		selected = len(heights) - 1
-	}
-
-	// Half of the window goes above the selection and the rest below it,
-	// which is where visibleRange puts a selected item: a list that always
-	// scrolled to the top of its selection would show a message above the
-	// one the user moved to, and a list that always scrolled to the bottom
-	// would hide it.
-	half := available / 2
-	start, above := selected, 0
-	for start > 0 && above+heights[start-1] <= half {
-		above += heights[start-1]
-		start--
-	}
-
-	end, used := start+1, above+heights[selected]
-	for end < len(heights) && used+heights[end] <= available {
-		used += heights[end]
-		end++
-	}
-
-	return start, end
-}
+const chatListSearchHint = "/ search"
 
 // chatListRows renders every chat the list shows into its lines, and the
 // row the selection is on.
@@ -261,6 +229,11 @@ func (m Model) chatListRowLines(
 		background = m.tokens().Selected
 	}
 	onRow := styles.on(background, styles.unstyled())
+	// The blank row under a chat is the background of the list whatever
+	// else is true of the row above it: it is the gap between two chats,
+	// and a gap that changed colour with the selection would be a band
+	// under the chosen one.
+	separator := styles.on(m.tokens().SidebarBackground, styles.unstyled())
 	// inset is the air on each side, content the width of the words
 	// between the two of them, and every row of the list is fitted to
 	// width, which is content and the four columns of air.
@@ -325,7 +298,7 @@ func (m Model) chatListRowLines(
 		head := edge(badge.write(
 			air().
 				add(markStyle, markRun).
-				add(styles.rowText(selected),
+				add(styles.rowText(selected).Bold(true),
 					m.widths.TruncateMarked(title, short, ellipsis)),
 			width-inset,
 		))
@@ -374,60 +347,18 @@ func (m Model) chatListRowLines(
 	// is a glyph in the terminal's own foreground: on a dark theme that is
 	// a light stripe under every chat in the list, and the list is then a
 	// list of stripes with words in them.
-	if !selected {
-		return []string{head, detail, m.painter(theme.Color{}).own(onRow, spaces(width)).String()}
-	}
-
+	// The card of the chosen chat is its two rows of words and the air
+	// inside them: full cells, and nothing above or below. A half row of
+	// air at each end was tried and is gone — the owner's Terminal draws
+	// its rows with a gap, so the halves do not meet the block and the
+	// card comes out as three layers of a different shade instead of one
+	// shape. The blank row under it is the same blank row every other chat
+	// has, so the chosen one is a card in a list of the same density.
 	return []string{
-		m.chatListAirRow(styles, inset, content, termwidth.HalfBlockLower),
 		head,
 		detail,
-		m.chatListAirRow(styles, inset, content, termwidth.HalfBlockUpper),
+		m.painter(theme.Color{}).own(separator, spaces(width)).String(),
 	}
-}
-
-// chatListAirRow draws one row of a half block across the width of a chat
-// of the list, in the colour of its selection on the background of the
-// list beside it.
-//
-// The half block is drawn in the *foreground*: the colour of the selection
-// is the colour of the glyph and the background of the list is behind it,
-// which is what puts the selection in the lower half of one cell and the
-// upper half of the next — half a row of air above a row of words and half
-// a row below it, without either of them being a row of its own.
-//
-// Only the chosen chat has them, and it is the one thing this function
-// needs to be careful about: a half block is a glyph, so drawing one
-// without a foreground of its own hands the terminal its own foreground for
-// it, and a list of chats on a dark theme turns into a list of light
-// stripes. The glyph therefore always carries an explicit foreground (the
-// colour of the selection) and an explicit background (the list's), or it
-// is not drawn at all: a theme with no colours for either is a card with no
-// edges, which is what a theme with no colours draws everywhere else too.
-func (m Model) chatListAirRow(
-	styles viewStyles,
-	inset, content int,
-	glyph string,
-) string {
-	list := styles.on(m.tokens().SidebarBackground, styles.unstyled())
-	// behind is the colour the half block is drawn in, and drawn is
-	// whether there is one at all: halfRow turns a row of them into a row
-	// of spaces where there is not, so the card keeps its height on a
-	// screen with no colours without painting a glyph in the terminal's
-	// own foreground.
-	behind := m.tokens().Selected
-	drawn := behind.IsSet() && m.tokens().SidebarBackground.IsSet()
-
-	return m.painter(theme.Color{}).
-		own(list, spaces(inset)).
-		own(list, halfRow(
-			styles.blockEdge(behind, m.tokens().SidebarBackground),
-			drawn,
-			glyph,
-			content,
-		)).
-		own(list, spaces(inset)).
-		String()
 }
 
 // chatListBadgeGap is the air between the end of a preview and the badge

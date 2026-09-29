@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -592,4 +593,184 @@ func TestAnIncomingMessageInARecordedPageIsNotMatched(t *testing.T) {
 				"account received is not one this queue sent", counts,
 		)
 	}
+}
+
+// A re-checked record that still cannot be found does not fail the run.
+//
+// This is the owner's third start. The first run marked thirteen records
+// uncertain; the second run looked for them again, could not find them
+// either, and tried to write "uncertain" onto a record that was already
+// uncertain. The state machine refuses that — `uncertain -> uncertain` is
+// not a transition — so the write failed, the settlement reported a
+// failure, and every run after it did the same thing.
+//
+// Nothing about the records is wrong and nothing needed to change about
+// them: the record already says what it is going to say.
+func TestARecheckedRecordThatIsStillMissingDoesNotFailTheRun(t *testing.T) {
+	const chatID = int64(1000100)
+
+	path := newSettlementPath(t)
+	path.leaveAcceptedIn(
+		"record-1", "не найдётся", chatID,
+		time.Unix(1000000107, 0).UTC(),
+	)
+
+	// First run: cannot find it, so it becomes uncertain.
+	if _, err := path.settler(&emptyHistory{}).Settle(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("first settle: %v", err)
+	}
+	if got := path.state("record-1"); got != outbox.StateUncertain {
+		t.Fatalf("state = %q, want uncertain after the first run", got)
+	}
+
+	// Second run: looked for again, still not there.
+	counts, err := path.settler(&emptyHistory{}).Settle(
+		context.Background(),
+	)
+	if err != nil {
+		t.Fatalf(
+			"the second run failed: %v. A record that is already "+
+				"uncertain has nothing to write, and a write it cannot "+
+				"make is not a settlement failure.", err,
+		)
+	}
+	if counts.uncertain != 1 {
+		t.Fatalf("counts = %+v, want the record still uncertain", counts)
+	}
+
+	// And a third, because a failure that is sticky is the one that looks
+	// like a defect in the program rather than in the lookup.
+	if _, err := path.settler(&emptyHistory{}).Settle(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("the third run failed: %v", err)
+	}
+	if got := path.state("record-1"); got != outbox.StateUncertain {
+		t.Fatalf("state = %q, want uncertain", got)
+	}
+}
+
+// A wrapped failure names the step it happened at.
+//
+// The owner read `error="send failure type=*fmt.wrapError"` three times
+// and could not act on it, because that was the type of this package's own
+// wrapper rather than of anything that had failed. A diagnostic that
+// reports the shape of its plumbing is worse than one that reports
+// nothing, so the step and the kind are part of the failure and the
+// wrapper's own type is never what a reader is shown.
+func TestAFailedStepNamesItselfAndItsKind(t *testing.T) {
+	t.Parallel()
+
+	// The shape the owner's log hid: a history read that failed, wrapped
+	// once on the way out of the reader and once on the way out of the
+	// settlement.
+	cause := errors.New("dial tcp 1.2.3.4:443: connect: connection refused")
+	wrapped := fmt.Errorf("getChatHistory: %w", cause)
+	failure := settlementErrorf(stepReadHistory, wrapped)
+
+	if got := failure.Error(); !strings.Contains(got, stepReadHistory) {
+		t.Fatalf("error = %q, want it to name the step", got)
+	}
+
+	var typed *settlementFailure
+	if !errors.As(failure, &typed) {
+		t.Fatal("the failure is not recognisable as one")
+	}
+	if typed.step != stepReadHistory {
+		t.Fatalf("step = %q, want %q", typed.step, stepReadHistory)
+	}
+
+	// The kind walks to the cause, so it says what happened rather than
+	// what somebody wrapped it in.
+	if !strings.Contains(typed.kind, "connection refused") &&
+		!strings.Contains(typed.kind, "errors.errorString") {
+		t.Logf("kind = %q", typed.kind)
+	}
+
+	attrs := settlementErrorAttrs(failure)
+	if len(attrs) != 2 {
+		t.Fatalf("attrs = %v, want the step and the kind", attrs)
+	}
+
+	// And the reason is what the log will show, and it is not the type of
+	// this package's wrapper.
+	if strings.Contains(failure.Error(), "settlementFailure") &&
+		!strings.Contains(failure.Error(), stepReadHistory) {
+		t.Fatal("the error names the wrapper instead of the step")
+	}
+}
+
+// A TDLib answer is named by its code, and never by its message.
+//
+// TDLib's own text can carry anything it likes, including a fragment of
+// what the user wrote, and this is a file on the owner's disk.
+func TestATDLibAnswerIsNamedByItsCodeNotItsMessage(t *testing.T) {
+	t.Parallel()
+
+	failure := settlementErrorf(stepReadHistory, &telegram.TDLibError{
+		Code:    404,
+		Message: "Chat not found: the words the user typed",
+	})
+
+	var typed *settlementFailure
+	if !errors.As(failure, &typed) {
+		t.Fatal("the failure is not recognisable as one")
+	}
+	if typed.kind != "TDLib code=404" {
+		t.Fatalf("kind = %q, want the code", typed.kind)
+	}
+	if strings.Contains(typed.kind, "words the user typed") {
+		t.Fatal("TDLib's own text reached the reason")
+	}
+	if strings.Contains(failure.Error(), "words the user typed") {
+		t.Fatal("TDLib's own text reached the error")
+	}
+}
+
+// A read that cannot be done leaves its records alone and is not a
+// settlement failure, and the log says which step it was.
+func TestAChatThatCannotBeReadIsNotASettlementFailure(t *testing.T) {
+	const chatID = int64(1000100)
+
+	path := newSettlementPath(t)
+	accepted := path.leaveAcceptedIn(
+		"record-1", "проверяю сборку", chatID,
+		time.Unix(1000000107, 0).UTC(),
+	)
+
+	history := &failingHistory{err: fmt.Errorf("getChatHistory: %w",
+		context.DeadlineExceeded)}
+
+	counts, err := path.settler(history).Settle(context.Background())
+	if err != nil {
+		t.Fatalf(
+			"settle: %v. A chat that cannot be read leaves its records "+
+				"as they are; it is not a settlement failure.", err,
+		)
+	}
+	if counts.unreadable != 1 {
+		t.Fatalf("counts = %+v, want one unreadable", counts)
+	}
+
+	entry, err := path.store.Store.Get(context.Background(), accepted.ID)
+	if err != nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if entry.State != outbox.StateAccepted {
+		t.Fatalf(
+			"state = %q, want accepted: a history that could not be read "+
+				"is not evidence that the message is missing", entry.State,
+		)
+	}
+}
+
+// failingHistory is a chat that cannot be read.
+type failingHistory struct{ err error }
+
+func (f *failingHistory) GetChatHistory(
+	context.Context, telegram.ChatID, telegram.MessageID, int,
+) (telegram.HistoryPage, error) {
+	return telegram.HistoryPage{}, f.err
 }

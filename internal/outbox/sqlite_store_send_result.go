@@ -223,11 +223,17 @@ ORDER BY accepted_at_ns ASC, id ASC
 		}
 
 		var (
-			record      UnsettledAccepted
-			ciphertext  []byte
-			acceptedAt  int64
+			record UnsettledAccepted
+			// accepted_at_ns is nullable in the schema and scanning a
+			// NULL into an int64 fails the whole read. A row that is
+			// accepted and has no accepted time is a row this build
+			// cannot reason about, and the honest thing is to say which
+			// row it is rather than to hand back a scan error that names
+			// no column and no record.
+			acceptedAt  sql.NullInt64
 			accountText string
 			idText      string
+			ciphertext  []byte
 		)
 		if err := rows.Scan(
 			&idText,
@@ -244,7 +250,13 @@ ORDER BY accepted_at_ns ASC, id ASC
 
 		record.ID = ID(idText)
 		record.AccountKey = accountText
-		record.AcceptedAt = time.Unix(0, acceptedAt).UTC()
+		if !acceptedAt.Valid {
+			return nil, fmt.Errorf(
+				"%w: %s is %s without an accepted time",
+				ErrInvalidEntry, idText, StateAccepted,
+			)
+		}
+		record.AcceptedAt = time.Unix(0, acceptedAt.Int64).UTC()
 
 		plaintext, err := s.cipher.DecryptMessage(
 			ctx, record.ID, record.AccountKey, record.ChatID, ciphertext,
@@ -328,7 +340,7 @@ ORDER BY accepted_at_ns ASC, id ASC
 			idText        string
 			account       string
 			ciphertext    []byte
-			acceptedAt    int64
+			acceptedAt    sql.NullInt64
 			telegramIDRaw sql.NullInt64
 		)
 		if err := rows.Scan(
@@ -347,7 +359,14 @@ ORDER BY accepted_at_ns ASC, id ASC
 
 		record.ID = ID(idText)
 		record.AccountKey = account
-		record.AcceptedAt = time.Unix(0, acceptedAt).UTC()
+		if !acceptedAt.Valid {
+			return nil, fmt.Errorf(
+				"%w: %s is uncertain without an accepted time, so it was "+
+					"never accepted and is not a record to look at again",
+				ErrInvalidEntry, idText,
+			)
+		}
+		record.AcceptedAt = time.Unix(0, acceptedAt.Int64).UTC()
 		record.TelegramMessageID = telegramIDRaw.Int64
 
 		plaintext, err := s.cipher.DecryptMessage(

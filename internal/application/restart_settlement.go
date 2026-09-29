@@ -141,9 +141,7 @@ func (s *restartSettler) Settle(ctx context.Context) (settlementCounts, error) {
 
 	unsettled, err := s.store.ListUnsettledAccepted(ctx, s.accountKey, 0)
 	if err != nil {
-		return counts, fmt.Errorf(
-			"restart settlement: list accepted records: %w", err,
-		)
+		return counts, settlementErrorf(stepListAwaiting, err)
 	}
 
 	// And the records an earlier settlement of ours could not find.
@@ -159,10 +157,7 @@ func (s *restartSettler) Settle(ctx context.Context) (settlementCounts, error) {
 		ctx, s.accountKey, settlementUncertainReason, 0,
 	)
 	if err != nil {
-		return counts, fmt.Errorf(
-			"restart settlement: list records an earlier settlement "+
-				"could not find: %w", err,
-		)
+		return counts, settlementErrorf(stepListSettled, err)
 	}
 	unsettled = append(unsettled, previous...)
 
@@ -206,7 +201,10 @@ func (s *restartSettler) settleChat(
 	candidates, readErr := s.readCandidates(ctx, chatID, records)
 	if readErr != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			// The program is stopping, not the settlement failing. There
+			// is nobody left to read the log and the records are exactly
+			// where they were.
+			return nil
 		}
 		// A chat that cannot be read leaves its records as they are.
 		// The reason is safe: it is a transport error that has already
@@ -215,7 +213,8 @@ func (s *restartSettler) settleChat(
 			"restart settlement could not read a chat",
 			slog.Int64("chat_id", chatID),
 			slog.Int("records", len(records)),
-			slog.String("error", outbox.SafeReason(readErr)),
+			slog.String("step", stepReadHistory),
+			slog.String("kind", errorKind(readErr)),
 		)
 		counts.unreadable += len(records)
 		return nil
@@ -444,19 +443,37 @@ func (s *restartSettler) markSent(
 			// this wanted anyway.
 			return nil
 		}
-		return fmt.Errorf(
-			"restart settlement: mark %s sent: %w", record.ID, err,
-		)
+		return &settlementFailure{
+			step: stepMarkSent,
+			kind: errorKind(err),
+			err:  err,
+		}
 	}
 	return nil
 }
 
 // markUncertain records that the queue cannot say what became of the
 // message.
+//
+// A record that is already uncertain is left alone, and that is the whole
+// fix for a settlement that failed on every start. The record already
+// says "I do not know"; writing that sentence again is not a state change,
+// and the state machine refuses it — `uncertain -> uncertain` is not a
+// transition. So the second and third runs of a lookup that still cannot
+// find the message were failing on the write, and failing on the write
+// meant the whole settlement reported a failure, which meant the logs
+// said nothing about the reads that had already worked.
+//
+// The record is counted either way: it is uncertain, and the user is the
+// one who has to look.
 func (s *restartSettler) markUncertain(
 	ctx context.Context,
 	record outbox.UnsettledAccepted,
 ) error {
+	if record.PreviouslyUncertain {
+		return nil
+	}
+
 	_, err := s.entries.MarkUncertain(
 		ctx, record.ID, record.Version,
 		settlementUncertainReason, s.stamp(),
@@ -465,9 +482,11 @@ func (s *restartSettler) markUncertain(
 		if errors.Is(err, outbox.ErrVersionConflict) {
 			return nil
 		}
-		return fmt.Errorf(
-			"restart settlement: mark %s uncertain: %w", record.ID, err,
-		)
+		return &settlementFailure{
+			step: stepMarkUncertain,
+			kind: errorKind(err),
+			err:  err,
+		}
 	}
 	return nil
 }

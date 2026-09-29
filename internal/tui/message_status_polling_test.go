@@ -177,11 +177,7 @@ func TestMessageStatusPollingStartsWithSource(t *testing.T) {
 		t.Fatal("messageStatusLoading = false before command runs")
 	}
 
-	updated, _ := model.Update(cmd())
-	polling, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("model type = %T, want Model", updated)
-	}
+	polling := feedStatusResponse(t, model, cmd)
 	if calls.Load() != 1 {
 		t.Fatalf("source calls = %d, want 1", calls.Load())
 	}
@@ -297,11 +293,7 @@ func TestMessageStatusPollingPreservesSourceOrder(t *testing.T) {
 		t.Fatal("setMessageStatusTarget() = nil")
 	}
 
-	updated, _ := model.Update(cmd())
-	polling, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("model type = %T, want Model", updated)
-	}
+	polling := feedStatusResponse(t, model, cmd)
 
 	want := []string{"entry-newer", "entry-middle", "entry-older"}
 	if len(polling.deliveryStatuses) != len(want) {
@@ -944,11 +936,7 @@ func TestMessageStatusPollingClearsPreviousChatSnapshot(t *testing.T) {
 		t.Fatal("new target did not start a request")
 	}
 
-	updated, _ := model.Update(cmd())
-	polling, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("model type = %T, want Model", updated)
-	}
+	polling := feedStatusResponse(t, model, cmd)
 	if len(polling.deliveryStatuses) != 1 ||
 		polling.deliveryStatuses[0].EntryID != "entry-2" {
 		t.Fatalf(
@@ -1084,4 +1072,31 @@ func firstReadOf(t *testing.T, cmd tea.Cmd) tea.Msg {
 	}
 
 	return batch[0]()
+}
+
+// feedStatusResponse gives the model the answer a status read produced.
+//
+// Opening a target answers with two things now — the read, and the tick
+// that has to start alongside it, because that tick is the only thing that
+// makes the read the first of many — so the answer is inside a batch. A
+// test that hands the whole batch to Update is handing it something the
+// model does not understand, and it would conclude that the source was
+// never read.
+func feedStatusResponse(
+	t *testing.T,
+	model Model,
+	cmd tea.Cmd,
+) Model {
+	t.Helper()
+
+	for _, msg := range flattenBatch(t, cmd) {
+		updated, _ := model.Update(msg)
+		typed, ok := updated.(Model)
+		if !ok {
+			t.Fatalf("Update returned %T, want Model", updated)
+		}
+		model = typed
+	}
+
+	return model
 }

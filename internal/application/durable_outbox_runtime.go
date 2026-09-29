@@ -301,9 +301,17 @@ func openDurableOutboxRuntime(
 		}).Settle(ctx)
 		switch {
 		case settleErr != nil:
+			// The step and the kind, never the cause's text: a reason can
+			// name a file and a chat, and this is a file on the owner's
+			// disk. And never the type of this package's own wrapper,
+			// which is what the last three runs of this reported.
+			attrs := []any{
+				slog.String("summary", settlementSummary(counts)),
+			}
+			attrs = append(attrs, settlementErrorAttrs(settleErr)...)
 			deps.logger().Warn(
-				"startup settlement of earlier records failed",
-				slog.String("error", outbox.SafeReason(settleErr)),
+				"startup settlement of earlier records stopped",
+				attrs...,
 			)
 		case counts.considered > 0:
 			deps.logger().Info(

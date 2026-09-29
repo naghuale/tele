@@ -85,6 +85,25 @@ type sendPath struct {
 	sender *heldSender
 	data   string
 	cancel context.CancelFunc
+	newID  func() (outbox.ID, error)
+}
+
+// programIDs mints the entry identifiers a fixture hands out, so a test that
+// builds its own runtime over the same queue numbers the records the same
+// way the fixture did.
+type programIDs struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (i *programIDs) next() (outbox.ID, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	id := fmt.Sprintf("e%d", i.n)
+	i.n++
+
+	return outbox.ID(id), nil
 }
 
 func newSendPath(t *testing.T) *sendPath {
@@ -147,20 +166,11 @@ func newSendPathWithLogger(
 		_ = opened.Dispatcher.Run(ctx)
 	}()
 
-	var (
-		idMu sync.Mutex
-		idN  int
-	)
+	ids := &programIDs{}
 	queue, err := NewOutboxMessageSubmitter(
 		opened.Store,
 		outbox.SystemClock{},
-		func() (outbox.ID, error) {
-			idMu.Lock()
-			defer idMu.Unlock()
-			id := fmt.Sprintf("e%d", idN)
-			idN++
-			return outbox.ID(id), nil
-		},
+		ids.next,
 		opened.Dispatcher,
 		sendPathAccountKey,
 	)
@@ -176,6 +186,7 @@ func newSendPathWithLogger(
 		sender: sender,
 		data:   dataDir,
 		cancel: cancel,
+		newID:  ids.next,
 	}
 
 	// the real reconciler, in its own goroutine, as the runtime starts it

@@ -112,7 +112,13 @@ func (m *Model) resetMessageStatusPolling(
 	// session queued for another chat is not on this screen.
 	m.pending = nil
 
-	return m.loadMessageStatuses()
+	// A new target is a new reason to poll, so the loop starts here if it
+	// is not already running. The read below is the first one; the tick is
+	// what makes it the first of many.
+	read := m.loadMessageStatuses()
+	tick := m.armPollTick()
+
+	return tea.Batch(read, tick)
 }
 
 // invalidateMessageStatusPolling stops polling and discards in-flight
@@ -125,6 +131,10 @@ func (m *Model) invalidateMessageStatusPolling() {
 	m.messageStatusLoading = false
 	m.messageStatusAccountKey = ""
 	m.messageStatusChatID = 0
+	// The tick on its way belongs to a target the model has left, and it
+	// re-arms itself for whatever is current when it arrives. Saying so
+	// here means a target that comes back need not wait for it.
+	m.pollTickArmed = false
 }
 
 // loadStatusSummary starts one read of the status line's data.
@@ -277,6 +287,34 @@ func (m Model) reportDiagnostic(format string, args ...any) {
 // A nil command means that polling is disabled: direct delivery mode has no
 // status source, and an inactive or shutting-down model must not read
 // anything.
+// refreshMessageStatuses reads the queue again now, superseding a read
+// that is already in flight.
+//
+// The read it supersedes was asked before the record existed, so it cannot
+// report it: the answer to "what is the state of the message I just sent"
+// is a read issued after the queue took it. The sequence number is what
+// makes the older answer a no-op rather than a race — isCurrentMessage
+// StatusResponse compares it, so the superseded read lands and changes
+// nothing, and the one that replaces it is the one the screen is drawn
+// from.
+//
+// It is deliberately not the poll. The poll schedules the next tick, and
+// scheduling one here would give the loop a second heartbeat per message
+// sent, so a session that sends a hundred messages runs a hundred loops.
+func (m *Model) refreshMessageStatuses() tea.Cmd {
+	if m == nil {
+		return nil
+	}
+
+	// The in-flight read is abandoned rather than waited for: it predates
+	// the record, and waiting for it would delay the answer the user is
+	// looking at by however long a slow store takes.
+	m.statusReadSeq++
+	m.messageStatusLoading = false
+
+	return m.loadMessageStatuses()
+}
+
 func (m *Model) loadMessageStatuses() tea.Cmd {
 	if m == nil {
 		return nil
@@ -430,16 +468,29 @@ func (m Model) handleMessageStatusesLoaded(
 	m.messageStatusLoading = false
 	m.messageStatusErr = nil
 	m.deliveryStatuses = cloneMessageStatuses(msg.statuses)
+
+	// Delivery happens BEFORE the pending list is replaced, and that
+	// order is the whole of point 2.
+	//
+	// A record Telegram has confirmed is no longer pending: the queue
+	// stops listing it the moment it is sent, because a message Telegram
+	// holds is not a message this program is waiting to send. The text of
+	// such a record is here and nowhere else — the status list is
+	// payload-free on purpose, and the history is a request away. So the
+	// message is put into the conversation while the pending row that
+	// still holds its text is on the screen, and merging afterwards
+	// takes that row away.
+	//
+	// Delivering after the merge was the bug: the row was gone, there was
+	// nothing to deliver, and a message the user had just written left
+	// the feed. Switching chats made it permanent, because opening a chat
+	// clears the pending list and a sent record is not in it.
+	delivered := m.deliverSentMessages()
+
 	m.pendingSnapshot = clonePendingMessages(msg.pending)
 	m.mergePendingMessages(msg.pending, m.deliveryStatuses)
 
-	// A message Telegram has confirmed is no longer pending: it is a
-	// message of the conversation now, and leaving it drawn as one that is
-	// still going out is what made it disappear from the feed the moment
-	// the user looked at another chat. It is merged rather than dropped so
-	// that it stays in the timeline, under its final identifier, which is
-	// the one the history comes back with.
-	if delivered := m.deliverSentMessages(); delivered {
+	if delivered {
 		return m, withRepaint(m, nil)
 	}
 
@@ -464,6 +515,8 @@ func (m *Model) deliverSentMessages() bool {
 		return false
 	}
 
+	// The statuses are the only place a final identifier is, and they were
+	// set by the caller before this runs.
 	delivered := m.pendingSentByID()
 	if len(delivered) == 0 {
 		return false
@@ -501,7 +554,12 @@ func (m *Model) deliverSentMessages() bool {
 // apart.
 func (m Model) pendingSentByID() map[string]Message {
 	confirmed := make(map[string]Message)
-	for _, message := range m.pending {
+	// The state of a drawn row comes from the status, read fresh here
+	// rather than from whatever the row was last given: a read that lands
+	// while another one is in flight must still deliver.
+	statuses := m.deliveryStatuses
+	for _, drawn := range m.pending {
+		message := drawn.withStateFrom(statuses)
 		if message.State != MessageDeliverySent || message.MessageID == 0 {
 			continue
 		}
@@ -566,6 +624,10 @@ func (m Model) handleMessageStatusPollTick(
 	// tick after that one.
 	m.messageStatusLoading = false
 	m.summaryLoading = false
+	// This tick has arrived, so the loop is open until the next one is
+	// armed. Clearing it here rather than in the reader is what lets a
+	// poll that decides not to read still leave the loop able to restart.
+	m.pollTickArmed = false
 
 	return m, m.pollDeliverySources()
 }
@@ -600,9 +662,22 @@ func (m *Model) pollDeliverySources() tea.Cmd {
 	if cmd := m.loadMessageStatuses(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
-	cmds = append(cmds, scheduleMessageStatusPoll())
+	if tick := m.armPollTick(); tick != nil {
+		cmds = append(cmds, tick)
+	}
 
 	return tea.Batch(cmds...)
+}
+
+// armPollTick schedules the next tick, unless one is already on its way or
+// there is nothing to poll.
+func (m *Model) armPollTick() tea.Cmd {
+	if m == nil || m.pollTickArmed || !m.deliveryPolling() {
+		return nil
+	}
+	m.pollTickArmed = true
+
+	return scheduleMessageStatusPoll()
 }
 
 func scheduleMessageStatusPoll() tea.Cmd {

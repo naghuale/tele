@@ -853,6 +853,34 @@
     (`outbox.UnsettledAcceptedStore`) rather than the payload-free
     `SendResultStore`. It is compared as a SHA-256 digest, never logged
     and never counted
+  - the delivery poll is armed by OPENING A CHAT, not by starting the
+    program. At startup there is no chat, `deliveryPolling` is false, and
+    the command that would have armed the tick answers with nothing;
+    opening a chat then did one read and no tick, so that read was the
+    last read of the session. The owner's report — a message that stayed
+    on Queued while the queue said sent, and a screen that no amount of
+    waiting would move — was a loop that was never started.
+    `pollTickArmed` is what keeps it to one loop: arming on every chat
+    change without it would leave a tick per chat opened
+  - a submission reads the queue again at once and asks for a redraw.
+    `updateComposerSubmission` returned a nil command, so the feed sat on
+    what the submission said — Queued — until the next tick. The read
+    supersedes one in flight (statusReadSeq++), because a read asked
+    before the record existed cannot report it
+  - delivery happens BEFORE the pending list is replaced. The queue stops
+    listing a record the moment it is sent, so after the merge there is
+    nothing left to deliver, and the text of a confirmed record is here
+    and nowhere else — the status list is payload-free and the history is
+    a request away. Delivering after the merge was a message the user had
+    just written leaving the feed
+  - opening a conversation re-reads its newest page, and merges it with the
+    cache by identifier. It used to read only when the chat held no
+    messages, on the reasoning that the messages it held were therefore
+    the ones it knew about; a record confirmed while another chat was open
+    has neither a row nor a place in the cache, and Telegram is the only
+    thing that still has it. The merge keeps the pages a user has
+    scrolled back through, so pagination still continues from the cached
+    boundary
   - the reconciler counts what it saw: seen, matched, named-no-record and
     window gaps, written to `send-results.json` beside the queue and
     printed by `telecli doctor`

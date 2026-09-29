@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"io"
+	"sort"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -111,6 +112,21 @@ type Model struct {
 	// chat, replaced as a whole on every successful poll.
 	deliveryStatuses []MessageStatus
 
+	// pollTickArmed says a delivery tick is on its way.
+	//
+	// The loop is armed where polling becomes possible rather than at
+	// startup: at startup there is no chat, deliveryPolling is false, and
+	// the command that would have armed the tick returns nothing. Opening
+	// a chat then did one read and no tick, so the read that answered it
+	// was the last read of the session — which is the owner's report, a
+	// message that stayed on Queued while the queue said sent, and a
+	// screen that no amount of waiting would move.
+	//
+	// The flag is what keeps it to one loop. Arming on every chat change
+	// without it would leave a tick per chat opened, each re-arming the
+	// next.
+	pollTickArmed bool
+
 	messageStatusLoading    bool
 	messageStatusErr        error
 	messageStatusGeneration uint64
@@ -157,6 +173,13 @@ type Model struct {
 	// the repeat below.
 	historyFillRequests int
 	historyFillMessages int
+
+	// historyRefresh says the first page on arrival is a refresh of a chat
+	// this program has drawn before, so it is merged rather than
+	// replacing. Opening a conversation always asks for its newest page,
+	// because a message Telegram holds and this program never learned
+	// about is never asked for any other way.
+	historyRefresh bool
 
 	// historyMoreLoading reports that an older page request is in flight,
 	// so repeated ↓ presses do not start a second request.
@@ -624,9 +647,15 @@ func (m Model) updateHistoryLoaded(msg historyLoadedMsg) (tea.Model, tea.Cmd) {
 	// A page crosses into the model here, and it is cleaned on the way:
 	// the text of a message is the only text anybody else in a chat can
 	// put on the screen. See screen_text.go.
-	m.chats[m.selectedChat].Messages = chronological(
-		safeMessages(msg.page.Messages),
-	)
+	page := chronological(safeMessages(msg.page.Messages))
+	if m.historyRefresh {
+		m.chats[m.selectedChat].Messages = mergeMessages(
+			m.chats[m.selectedChat].Messages, page,
+		)
+	} else {
+		m.chats[m.selectedChat].Messages = page
+	}
+	m.historyRefresh = false
 
 	// A new first page re-opens the history: nothing is known to be
 	// missing from it yet.
@@ -841,6 +870,75 @@ const (
 // round (§8.3, and divergence 1 of the specification), so the order is
 // reversed here rather than in the source. The source is what it is, and
 // the interface is what the specification describes.
+// ConversationMessageIDs returns the identifiers of the messages the open
+// conversation is holding, oldest first.
+//
+// It is exported for one reason: a message this program sent has to end up
+// in a conversation under the identifier Telegram gave it, and that is a
+// claim about the identifiers rather than about the drawing. A test inside
+// this package can read the messages directly; the composition root, which
+// is where the whole path from a key press to a delivered message is driven
+// end to end, cannot.
+//
+// It is a read of a slice the model already holds: no copy is made and
+// nothing is fetched.
+func (m Model) ConversationMessageIDs() []int64 {
+	if m.selectedChat < 0 || m.selectedChat >= len(m.chats) {
+		return nil
+	}
+
+	messages := m.chats[m.selectedChat].Messages
+	ids := make([]int64, 0, len(messages))
+	for _, message := range messages {
+		ids = append(ids, message.ID)
+	}
+
+	return ids
+}
+
+// mergeMessages folds a page into what is already held, by identifier.
+//
+// It is what a refresh does rather than a replacement: a page that arrives
+// on a chat this program has drawn before brings whatever Telegram has that
+// the program did not know about, and the messages it already had are still
+// true. Replacing would throw away the pages a user has scrolled back
+// through and make every visit to a chat re-read them.
+//
+// The order is by identifier, ascending, because that is the order the rest
+// of the file keeps a conversation in: the cache is oldest first, a page
+// arrives newest first, and the boundary older pages are asked from is
+// Messages[0].
+func mergeMessages(held, page []Message) []Message {
+	if len(held) == 0 {
+		return chronological(page)
+	}
+	if len(page) == 0 {
+		return held
+	}
+
+	byID := make(map[int64]Message, len(held)+len(page))
+	ids := make([]int64, 0, len(held)+len(page))
+	for _, message := range append(
+		append(make([]Message, 0, len(held)+len(page)), held...), page...,
+	) {
+		if _, seen := byID[message.ID]; !seen {
+			ids = append(ids, message.ID)
+		}
+		// The page wins for a message both hold: it is what Telegram says
+		// now, and it is a request away.
+		byID[message.ID] = message
+	}
+
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	merged := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		merged = append(merged, byID[id])
+	}
+
+	return merged
+}
+
 func chronological(messages []Message) []Message {
 	if len(messages) < 2 {
 		return messages
@@ -1057,7 +1155,16 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 	m.composerCursor = 0
 	submission := msg.submission
 	m.lastSubmission = &submission
-	return m, nil
+
+	// The screen is asked to redraw, and the queue is asked again at once.
+	//
+	// Without this the model returned a nil command and the feed sat on
+	// what the submission said — Queued — until the next tick, which is
+	// two seconds away and needs no key to arrive but does need the tick
+	// loop to still be running. The read is the immediate half: the
+	// submission's own answer predates the dispatch, and the state the
+	// user is watching is whatever the queue says a moment later.
+	return m, withRepaint(m, m.refreshMessageStatuses())
 }
 
 // deliveryStateOfSubmission maps what the queue answered onto the state the
@@ -1321,29 +1428,41 @@ func (m Model) openSelectedChat(
 	}
 
 	if m.source != nil {
-		if len(m.chats[m.selectedChat].Messages) == 0 {
-			m.historyState = loadStateLoading
-			m.loadErr = nil
-
-			// A conversation opens at its end, and the page is on its way:
-			// the cursor waits at the newest message it knows of and the
-			// view fills from there (§8.3).
-			return m.scrollToNewest(), withRepaint(m, tea.Batch(
-				loadHistoryCmd(
-					m.source,
-					m.chats[m.selectedChat].ID,
-					0,
-					historyPageSize,
-					m.historyOperation,
-				),
-				statusCmd,
-			))
-		}
-		// The messages are already cached, so this chat is loaded even
-		// though nothing was requested. Without this the previous
-		// chat's loadStateError would block pagination here.
-		m.historyState = loadStateLoaded
+		// A conversation asks for its newest page every time it is opened.
+		//
+		// It used to ask only when the chat held no messages, on the
+		// reasoning that the messages it held were therefore the ones it
+		// knew about. That reasoning is wrong about a message this program
+		// has never learned about and never will: the queue stops listing a
+		// record the moment Telegram confirms it, and a record confirmed
+		// while this chat was closed — or while another chat was open,
+		// which clears the pending list — has no row on the screen and no
+		// place in the cache. Its text is here, though. Telegram holds the
+		// message, and the newest page is where Telegram keeps what it
+		// holds, so this is the request that brings it back.
+		//
+		// Re-reading replaces the cache, which is the right shape here: a
+		// conversation opens at its end, so the older messages are about
+		// to be asked for again by the same fill that asks for them the
+		// first time.
+		m.historyState = loadStateLoading
 		m.loadErr = nil
+		// A chat that already holds messages is being refreshed, not
+		// opened cold, so the page merges with what is there.
+		m.historyRefresh = len(m.chats[m.selectedChat].Messages) > 0
+
+		// The cursor waits at the newest message it knows of and the view
+		// fills from there (§8.3).
+		return m.scrollToNewest(), withRepaint(m, tea.Batch(
+			loadHistoryCmd(
+				m.source,
+				m.chats[m.selectedChat].ID,
+				0,
+				historyPageSize,
+				m.historyOperation,
+			),
+			statusCmd,
+		))
 	}
 
 	// A conversation opens at its end however it was loaded: the newest

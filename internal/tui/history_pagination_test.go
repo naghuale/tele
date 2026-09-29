@@ -100,7 +100,7 @@ func openConversationWithHistory(
 	if cmd == nil {
 		t.Fatal("Enter did not start a history load")
 	}
-	m, _ = updateModel(t, m, runCmd(t, cmd))
+	m = feedAnswers(t, m, cmd)
 
 	if m.historyState != loadStateLoaded {
 		t.Fatalf("historyState = %s, want loaded", m.historyState)
@@ -574,9 +574,15 @@ func TestOlderPageFromAPriorEntryIntoTheSameChatIsIgnored(t *testing.T) {
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m.selectedChat = 0
 	m, cmd = updateModel(t, m, press(tea.KeyEnter))
-	if cmd != nil {
-		t.Fatal("re-entering a chat with messages loaded must not refetch history")
+	if cmd == nil {
+		t.Fatal(
+			"re-entering a chat must ask for its newest page: a message " +
+				"Telegram holds and this program never learned about is " +
+				"never asked for any other way",
+		)
 	}
+	// The refresh is deliberately not fed. The subject of this test is the
+	// page from the previous entry, which has to change nothing at all.
 	m, _ = updateModel(t, m, stale)
 
 	if len(m.selected().Messages) != 2 {
@@ -681,7 +687,22 @@ func TestReentryIntoCachedChatRequestsFromTheOldestCachedMessage(t *testing.T) {
 	}
 
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
-	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, refresh := updateModel(t, m, press(tea.KeyEnter))
+	if refresh == nil {
+		t.Fatal("re-entry must ask for the newest page")
+	}
+	// The refresh merges into the cache rather than replacing it, so the
+	// page a user had scrolled back to is still here afterwards. That is
+	// the thing this test is about, and it is why the refresh is fed
+	// before the pagination is measured.
+	m, _ = updateModel(t, m, runCmd(t, refresh))
+	if got := messageIDs(m.selected().Messages); len(got) != 4 {
+		t.Fatalf(
+			"messages = %v, want the four the cache held: a refresh "+
+				"brings what is new and keeps what was there", got,
+		)
+	}
+
 	m = selectOldestMessage(t, m)
 	m, cmd = updateModel(t, m, press(tea.KeyUp))
 	if cmd == nil {
@@ -725,7 +746,11 @@ func TestReentryAfterAFailedFirstLoadInAnotherChatCanPaginate(t *testing.T) {
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m.selectedChat = 1
-	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, refresh := updateModel(t, m, press(tea.KeyEnter))
+	if refresh == nil {
+		t.Fatal("re-entry must ask for the newest page")
+	}
+	m, _ = updateModel(t, m, runCmd(t, refresh))
 
 	if m.historyState != loadStateLoaded {
 		t.Fatalf(

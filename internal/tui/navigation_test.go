@@ -2,6 +2,7 @@ package tui
 
 import (
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -452,4 +453,100 @@ func TestViewAfterQuitIsEmpty(t *testing.T) {
 	if v := mm.View(); v != "" {
 		t.Fatalf("expected empty view, got %q", v)
 	}
+}
+
+// feedAnswers runs a command and gives the model every message it answers
+// with, so a command that is a batch of two — a history load and the
+// delivery tick that has to start alongside it — is fed whole.
+//
+// updateModel gives the model one message and returns what it answered
+// with, which is the right shape for a test that already knows what it is
+// waiting for. Opening a conversation now answers with two things, and a
+// test that fed only the first would leave the second to a poll that never
+// comes.
+func feedAnswers(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+
+	for _, msg := range flattenBatch(t, cmd) {
+		updated, _ := updateModel(t, model, msg)
+		model = updated
+	}
+
+	return model
+}
+
+// flattenBatch is what a command answers with, with a batch expanded.
+func flattenBatch(t *testing.T, cmd tea.Cmd) []tea.Msg {
+	t.Helper()
+
+	if cmd == nil {
+		return nil
+	}
+
+	// The command is run once. A history load is the call that reaches the
+	// source, so running it twice to look at its answer twice is two
+	// requests, and the test's own call count is the thing that notices.
+	answer := cmd()
+	if answer == nil {
+		return nil
+	}
+
+	batch, isBatch := answer.(tea.BatchMsg)
+	if !isBatch {
+		return []tea.Msg{answer}
+	}
+
+	var flattened []tea.Msg
+	for _, inner := range batch {
+		flattened = append(flattened, flattenOne(t, inner)...)
+	}
+
+	return flattened
+}
+
+// flattenOne is what one command of a batch answers with.
+//
+// A tick is dropped rather than waited for. It is a timer two seconds out,
+// it is not a message the test is waiting for, and a test that waited for
+// it would take two seconds per key press. A test that wants the loop to
+// run says so by handing the tick to the model itself.
+//
+// The command runs on its own goroutine and is given a deadline, because a
+// tick that is called is a two-second sleep: even dropping its answer costs
+// the two seconds unless nothing waits for it.
+func flattenOne(t *testing.T, cmd tea.Cmd) []tea.Msg {
+	t.Helper()
+
+	if cmd == nil {
+		return nil
+	}
+
+	answers := make(chan tea.Msg, 1)
+	go func() { answers <- cmd() }()
+
+	var answer tea.Msg
+	select {
+	case answer = <-answers:
+	case <-time.After(100 * time.Millisecond):
+		// Still running: a timer, or a read this test does not need. Its
+		// answer is dropped, which is what the program does with a read
+		// that lands after the user has moved on.
+		return nil
+	}
+
+	if answer == nil {
+		return nil
+	}
+	if _, isTick := answer.(messageStatusPollTickMsg); isTick {
+		return nil
+	}
+	if batch, isBatch := answer.(tea.BatchMsg); isBatch {
+		var flattened []tea.Msg
+		for _, inner := range batch {
+			flattened = append(flattened, flattenOne(t, inner)...)
+		}
+		return flattened
+	}
+
+	return []tea.Msg{answer}
 }

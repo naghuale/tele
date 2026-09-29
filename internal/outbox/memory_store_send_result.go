@@ -130,3 +130,54 @@ func applySendResultTo(
 }
 
 var _ SendResultStore = (*MemoryStore)(nil)
+
+// ListUnsettledAccepted implements UnsettledAcceptedStore.
+func (s *MemoryStore) ListUnsettledAccepted(
+	ctx context.Context,
+	accountKey string,
+	limit int,
+) ([]UnsettledAccepted, error) {
+	if s == nil {
+		return nil, fmt.Errorf("outbox unsettled accepted: nil memory store")
+	}
+	account, err := normalizeAccountKey(accountKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	result := make([]UnsettledAccepted, 0, len(s.entries))
+	for _, entry := range s.entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if entry.State != StateAccepted || entry.AccountKey != account {
+			continue
+		}
+		unsettled, err := unsettledFromEntry(entry)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"outbox unsettled accepted: entry %q: %w",
+				entry.ID, err,
+			)
+		}
+		result = append(result, unsettled)
+	}
+
+	sortUnsettled(result)
+	if limit > 0 && len(result) > limit {
+		result = result[:limit]
+	}
+	return result, nil
+}
+
+var _ UnsettledAcceptedStore = (*MemoryStore)(nil)

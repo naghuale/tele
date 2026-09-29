@@ -36,6 +36,20 @@ type DurableOutboxRuntimeDeps struct {
 	// never logged; error strings go through outbox.SafeReason. A nil
 	// value uses slog.Default().
 	Logger *slog.Logger
+
+	// History reads a chat's recent messages so that records a
+	// previous process left accepted can be settled at startup. It is
+	// optional: without it the settlement reports that it could not run
+	// rather than guessing, and the records stay as they are.
+	History TelegramHistoryReader
+}
+
+// logger is the logger the dependency block falls back to.
+func (d DurableOutboxRuntimeDeps) logger() *slog.Logger {
+	if d.Logger == nil {
+		return slog.Default()
+	}
+	return d.Logger
 }
 
 type DurableOutboxRuntime struct {
@@ -55,6 +69,13 @@ type DurableOutboxRuntime struct {
 	// be read after shutdown.
 	reconcilerCancel context.CancelFunc
 	reconcilerDone   chan struct{}
+
+	// reconciler is kept so the counters can be flushed when the
+	// runtime stops. The reconciler flushes them itself on the way out,
+	// and this is the belt to that pair of braces: a runtime that is
+	// closed with the goroutine already gone still leaves a reading for
+	// the doctor that follows.
+	reconciler *sendResultReconciler
 
 	available atomic.Bool
 
@@ -241,6 +262,40 @@ func openDurableOutboxRuntime(
 	}
 	runtime.submitter = composer
 
+	// Records a previous process left accepted are settled before
+	// anything new is dispatched.
+	//
+	// It runs first, and synchronously, because the whole point is that
+	// no live update is coming for them: this is the only moment at
+	// which the queue can still ask the chat what became of a message
+	// whose confirmation was delivered to a process that is gone.
+	//
+	// A failure here is logged and not fatal. The program can send, and
+	// a queue whose old records are unresolved is still better than a
+	// program that refuses to start.
+	if settler, ok := opened.Store.(outbox.UnsettledAcceptedStore); ok {
+		counts, settleErr := (&restartSettler{
+			store:      settler,
+			entries:    opened.Store,
+			history:    deps.History,
+			accountKey: accountKey,
+			clock:      deps.Clock,
+			logger:     deps.Logger,
+		}).Settle(ctx)
+		switch {
+		case settleErr != nil:
+			deps.logger().Warn(
+				"startup settlement of earlier records failed",
+				slog.String("error", outbox.SafeReason(settleErr)),
+			)
+		case counts.considered > 0:
+			deps.logger().Info(
+				"startup settlement of earlier records",
+				slog.String("summary", settlementSummary(counts)),
+			)
+		}
+	}
+
 	dispatcherCtx, cancel := context.WithCancel(ctx)
 	runtime.dispatcherCancel = cancel
 	runtime.available.Store(true)
@@ -281,12 +336,22 @@ func openDurableOutboxRuntime(
 			accountKey: accountKey,
 			clock:      deps.Clock,
 			logger:     deps.Logger,
+			counters:   &sendResultCounters{},
+		}
+
+		// The counters are written next to the queue so that a later
+		// `telecli doctor` can read them. A user whose messages are
+		// stuck cannot attach a debugger to a running program, and a
+		// number is the whole of what doctor is allowed to print.
+		if dataDir := strings.TrimSpace(cfg.Outbox.DataDir); dataDir != "" {
+			reconciler.sink = newSendResultCounterFile(dataDir)
 		}
 
 		reconcilerCtx, cancelReconciler :=
 			context.WithCancel(ctx)
 		runtime.reconcilerCancel = cancelReconciler
 		runtime.reconcilerDone = make(chan struct{})
+		runtime.reconciler = reconciler
 		go runtime.runReconciler(
 			reconcilerCtx, runtime.reconcilerDone, reconciler,
 		)
@@ -480,6 +545,9 @@ func (r *DurableOutboxRuntime) Close() error {
 		}
 		if r.reconcilerDone != nil {
 			<-r.reconcilerDone
+		}
+		if r.reconciler != nil {
+			r.reconciler.flushCounters()
 		}
 
 		var openedCloseErr error

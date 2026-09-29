@@ -126,11 +126,43 @@ func reportOutboxStatus(
 	if err == nil && opened != nil {
 		writeOutboxChain(out, ctx, opened)
 		_ = opened.Close()
+		writeSendResultCounters(out, dataDir)
 		fmt.Fprintf(out, "Message queue: OK (data_dir=%s)\n", dataDir)
 		return
 	}
 
 	fmt.Fprint(out, DescribeSendingPaused(err, dataDir))
+}
+
+// writeSendResultCounters prints what the last run's reconciler saw.
+//
+// This is the line that answers "my message says it is on its way out and
+// it has said so for an hour". Seen is how many confirmations Telegram
+// delivered, matched is how many moved a record, named-nothing is how
+// many arrived for a record the queue did not hold, and window-gap is how
+// many times the window could not be read at all — the one way a
+// confirmation is delivered and never acted on.
+//
+// It is numbers only, and no identifier of any kind: the file it reads
+// holds counters and nothing else (§19).
+func writeSendResultCounters(out io.Writer, dataDir string) {
+	report, ok := readSendResultCounters(dataDir)
+	if !ok {
+		fmt.Fprintln(out,
+			"  Send results: not recorded yet (they are counted while the program runs)")
+		return
+	}
+
+	fmt.Fprintf(
+		out,
+		"  Send results: %d seen, %d matched, %d named no record, "+
+			"%d window gaps, over %d passes\n",
+		report.Seen,
+		report.Matched,
+		report.NoEntry,
+		report.WindowGap,
+		report.Passes,
+	)
 }
 
 // writeOutboxChain prints how many entries are in each state.

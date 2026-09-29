@@ -1188,9 +1188,18 @@ conversation — запрашивает полную перерисовку ок
 - [ ] Каждый outbox state имеет текстовый label.
 - [ ] `uncertain` содержит warning о duplicate.
 - [ ] `failed_permanent` не получает automatic retry.
-- [ ] `accepted` — terminal-success.
+- [ ] `accepted` показывается как `Sending`, а не `Sent`: это ответ
+      TDLib, а не подтверждение Telegram.
+- [ ] `sent` показывается как `Sent`.
+- [ ] `accepted`-запись предыдущего процесса разрешается при старте:
+      найдена в чате — `sent`, не найдена — `uncertain`, никогда не
+      остаётся `accepted`.
+- [ ] Chat подтверждений доступен в `telecli doctor` числами: seen,
+      matched, named no record, window gaps.
 - [ ] `canceled` — не critical error.
 - [ ] `dispatching` показывается как `Sending`.
+- [ ] Pending-сообщения — часть ленты: та же колонка, та же прокрутка,
+      те же высоты; очередь не вытесняет историю.
 - [ ] Queued не превращается в Failed при временном disconnect.
 - [ ] Sent / FailedPermanent / Canceled — terminal states.
 - [ ] Uncertain требует явного решения.

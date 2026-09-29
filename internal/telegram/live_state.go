@@ -119,6 +119,23 @@ func NewLiveState() *LiveState {
 	}
 }
 
+// ApplyUpdate applies one raw TDLib update to the store and reports
+// whether anything changed.
+//
+// It is the store's only entry point for a raw update, and the session
+// pump goes through it so that there is exactly one place where an
+// update is routed. It is exported because the send-result reconciler
+// has to be proved against recorded TDLib payloads and a store that can
+// only be fed from inside this package could not be: a fake window that
+// a test fills directly proves the reconciler, not the chain.
+//
+// An update the store does not model is not an error. TDLib sends
+// updates this program has no use for, and one of them must not stop the
+// pump or fail a caller that only wanted the rest of the update applied.
+func (l *LiveState) ApplyUpdate(raw RawMessage) (bool, error) {
+	return l.apply(raw)
+}
+
 // Changed returns the coalesced change signal.
 //
 // Capacity is one and the send is non-blocking, so a full channel already

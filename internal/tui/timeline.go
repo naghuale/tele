@@ -67,20 +67,25 @@ func (m Model) timelineRows(layout Layout, width int) int {
 // takes: the name of the chat and the rule under it.
 const conversationHeaderRows = 2
 
-// historyFeedRows returns how many rows the entries of the history take on
-// the screen: the rows of the region less the heading, the status block
-// under it, the line an older page occupies and the rows the pending
-// messages below take.
+// historyFeedRows returns how many rows the feed takes on the screen: the
+// rows of the region less the heading, the status block under it and the
+// line an older page occupies.
 //
-// This is the number the window is placed against *and* the number the view
-// draws the feed into, and that is the whole of why the placement is right:
-// a window measured against one budget and drawn into another is a window
-// with empty rows above it or a message cut in half at the top.
+// The messages that are still going out are part of the feed and are
+// measured out of this budget by the same heights as the history. Their
+// rows used to be subtracted here and drawn as a block underneath, which
+// meant a queue with a few messages in it took the conversation off the
+// screen to make room for the state of messages the user had just
+// written — and the more of them there were, the less history was left.
+//
+// This is the number the window is placed against *and* the number the
+// view draws the feed into, and that is the whole of why the placement is
+// right: a window measured against one budget and drawn into another is a
+// window with empty rows above it or a message cut in half at the top.
 func (m Model) historyFeedRows(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
 	rows -= len(m.statusBlockLines(layout, width))
 	rows -= m.olderPageLineCount()
-	rows -= m.pendingMessageRowCount(layout, width)
 
 	return maxInt(rows, 0)
 }
@@ -129,16 +134,16 @@ func (m Model) entryRows(
 // cut is the blank row that separates the message from the one above it,
 // and at worst its author line; the newest message is never the one cut,
 // because the walk starts from it.
-func (m Model) anchoredAt(entryIndex int) (messageIndex, cutRows int) {
-	messages := m.selected().Messages
-	if len(messages) == 0 {
+func (m Model) anchoredAt(entryIndex int) (feedIndex, cutRows int) {
+	total := m.timelineTotal()
+	if total == 0 {
 		return 0, 0
 	}
 
 	layout := LayoutFor(m.width, m.height)
 	width := layout.ChatContentWidth()
 	rows := m.historyFeedRows(layout, width)
-	entries := timelineEntries(messages)
+	entries := m.feedEntries()
 	styles := m.styles()
 
 	// The entry the cursor is on is always in the window, whatever it
@@ -173,14 +178,14 @@ func (m Model) anchorAt(entryIndex int) Model {
 // a conversation opened at its end, a message sent, and a page of older
 // messages arriving at somebody who is reading the newest thing.
 func (m Model) anchorAtNewest() Model {
-	messages := m.selected().Messages
-	if len(messages) == 0 {
+	entries := m.feedEntries()
+	if len(entries) == 0 {
 		m.timelineTop, m.timelineCut = 0, 0
 
 		return m
 	}
 
-	return m.anchorAt(len(timelineEntries(messages)) - 1)
+	return m.anchorAt(len(entries) - 1)
 }
 
 // rowsFromTopTo returns how many rows the entries from first up to and
@@ -351,28 +356,24 @@ func (m Model) moveTimelineCursor(delta int) Model {
 // is what makes reading a conversation feel like reading and not like
 // chasing the cursor.
 //
-// A cursor on a pending message is only on screen when the history is
-// scrolled to its end, because the pending messages are drawn below the
-// history and not inside its window. So that is where the window goes.
+// A cursor on a pending message is inside the window like any other, so
+// nothing special is done for it: the same walk by the same real heights
+// brings it into view.
 //
 // Both ends of the walk are measured by the heights the entries really
 // take, so the cursor is never left on a row the view is not drawing and
 // the window never ends with empty rows in it.
 func (m Model) scrollCursorIntoView() Model {
-	messages := m.selected().Messages
-	if len(messages) == 0 {
+	total := m.timelineTotal()
+	if total == 0 {
 		return m
-	}
-
-	if m.selectedMsg >= m.historyTotal() {
-		return m.anchorAtNewest().normalizeTimeline()
 	}
 
 	layout := LayoutFor(m.width, m.height)
 	width := layout.ChatContentWidth()
-	entries := timelineEntries(messages)
-	cursor := entryIndexOfMessage(entries, clampIndex(m.selectedMsg, len(messages)-1))
-	top := entryIndexOfMessage(entries, clampIndex(m.timelineTop, len(messages)-1))
+	entries := m.feedEntries()
+	cursor := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
+	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
 
 	if cursor < top {
 		// The cursor is the top of the window now, and a message the
@@ -410,10 +411,11 @@ func (m Model) normalizeTimeline() Model {
 	}
 
 	m.selectedMsg = minInt(maxInt(m.selectedMsg, 0), total-1)
-	anchor := minInt(
-		maxInt(m.timelineTop, 0),
-		maxInt(m.historyTotal()-1, 0),
-	)
+	// The anchor is a feed index, so it may point at a message that is
+	// still going out. It used to be clamped to the history, because a
+	// pending message was never inside the window; now that it is, the
+	// clamp is the whole feed.
+	anchor := minInt(maxInt(m.timelineTop, 0), total-1)
 	if anchor != m.timelineTop {
 		// The anchor was pointing at a message that is not there, so the
 		// cut belongs to a window that is gone with it.

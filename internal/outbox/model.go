@@ -215,8 +215,8 @@ func (e Entry) Validate() error {
 		}
 	}
 
-	// accepted and sent are the two states in which Telegram holds the
-	// message. accepted carries the temporary identifier sendMessage
+	// accepted and sent are the states in which Telegram definitely holds
+	// the message. accepted carries the temporary identifier sendMessage
 	// returned and sent the final one, so a record in either state has a
 	// message id and the moment TDLib took it; only sent says when
 	// Telegram confirmed it.
@@ -230,16 +230,35 @@ func (e Entry) Validate() error {
 			return fmt.Errorf("%w: %s without accepted time",
 				ErrInvalidEntry, e.State)
 		}
+
+	case StateUncertain:
+		// Uncertain has two origins and they do not look alike. A lost
+		// lease leaves a record that was dispatching: TDLib may or may
+		// not have taken the message, and there is no identifier
+		// because there was no answer. A record settled by a later run
+		// was accepted: TDLib did take it, and the identifier is what it
+		// is uncertain *about*.
+		//
+		// So both are optional, and they are required together: half of
+		// the pair is a record that claims Telegram named a message at a
+		// moment, or took a message at a moment, and not the other.
+		if (e.TelegramMessageID == 0) != e.AcceptedAt.IsZero() {
+			return fmt.Errorf(
+				"%w: uncertain with only one of message id and accepted time",
+				ErrInvalidEntry,
+			)
+		}
+
 	default:
 		if e.TelegramMessageID != 0 {
 			return fmt.Errorf(
-				"%w: message id outside accepted and sent states",
+				"%w: message id outside accepted, sent and uncertain",
 				ErrInvalidEntry,
 			)
 		}
 		if !e.AcceptedAt.IsZero() {
 			return fmt.Errorf(
-				"%w: accepted time outside accepted and sent states",
+				"%w: accepted time outside accepted, sent and uncertain",
 				ErrInvalidEntry,
 			)
 		}
@@ -275,11 +294,18 @@ func (e Entry) Validate() error {
 // The two-step path failed_retryable -> queued -> dispatching would
 // introduce an extra concurrency window without adding safety.
 //
-// The two transitions out of accepted are the only ones a send result
-// makes. TDLib has already taken the message, so the entry is never
-// sent again: updateMessageSendSucceeded replaces the temporary
+// The two transitions a send result makes out of accepted are sent and
+// failed_permanent. TDLib has already taken the message, so the entry is
+// never sent again: updateMessageSendSucceeded replaces the temporary
 // identifier with the final one, and updateMessageSendFailed ends the
 // attempt without a retry, because Telegram itself will not try again.
+//
+// accepted -> uncertain is the third, and no send result makes it. It is
+// what a process that was not running when the result was delivered
+// resolves an entry with: the confirmation is gone with the process that
+// received it, and rather than leave the record looking like a message
+// still on its way out, the next run either finds the message in the
+// chat and marks it sent or admits it does not know.
 func (e Entry) CanTransition(next State) bool {
 	if !next.Valid() {
 		return false
@@ -293,7 +319,16 @@ func (e Entry) CanTransition(next State) bool {
 			next == StateFailedPermanent ||
 			next == StateUncertain
 	case StateAccepted:
-		return next == StateSent || next == StateFailedPermanent
+		// sent and failed_permanent are what a send result makes, and
+		// uncertain is what a restart makes: the confirmation for this
+		// entry was delivered to a process that is gone, and TDLib does
+		// not send it again, so nothing will ever move this record on by
+		// itself. Leaving it accepted would draw it as "on its way out"
+		// for as long as the program runs, which is a claim about
+		// Telegram that the queue cannot support.
+		return next == StateSent ||
+			next == StateFailedPermanent ||
+			next == StateUncertain
 	case StateFailedRetryable:
 		return next == StateDispatching ||
 			next == StateQueued ||
@@ -568,7 +603,14 @@ func (e Entry) MarkPermanentFailure(
 	return out, nil
 }
 
-// MarkUncertain transitions a dispatching entry into uncertain.
+// MarkUncertain transitions a dispatching or accepted entry into
+// uncertain.
+//
+// A dispatching entry becomes uncertain when its lease was lost: the
+// send may or may not have reached TDLib. An accepted entry becomes
+// uncertain when a later run could not find out what became of a message
+// TDLib had already taken. Both are the same claim: the queue cannot
+// say, and only the user can resolve it.
 //
 // reason must be non-blank and must not contain the message text. The
 // entry is not retried automatically.

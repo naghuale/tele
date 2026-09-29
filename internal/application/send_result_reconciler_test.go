@@ -23,11 +23,19 @@ import (
 // decodes out of recorded TDLib payloads, so what this file moves the
 // queue with is what a real session delivers.
 
-// recordedMessageEvents is a window holding the message events of one
-// chat, as the live store hands them out.
+// recordedMessageEvents is a window holding the message events of the
+// chats it is given, as the live store hands them out.
+//
+// It is partitioned by chat exactly as the real window is. An earlier
+// version of this fake ignored the chat id it was asked about and
+// answered with every event it held, which meant no test of the
+// reconciler could ever notice a confirmation filed under the wrong chat
+// — the one way a result can be delivered and never matched. The real
+// wiring is proved end to end in send_result_runtime_test.go; this fake
+// is for the cases that do not need a whole runtime.
 type recordedMessageEvents struct {
 	mu     sync.Mutex
-	events []telegram.MessageEvent
+	events map[telegram.ChatID][]telegram.MessageEvent
 
 	changed chan struct{}
 }
@@ -35,29 +43,49 @@ type recordedMessageEvents struct {
 func newRecordedMessageEvents(
 	events ...telegram.MessageEvent,
 ) *recordedMessageEvents {
-	return &recordedMessageEvents{
-		events:  events,
+	// Events handed to the constructor are treated as belonging to the
+	// only chat these fixtures use, so a test that does not care about
+	// the partition still reads naturally.
+	record := &recordedMessageEvents{
+		events:  make(map[telegram.ChatID][]telegram.MessageEvent),
 		changed: make(chan struct{}, 1),
 	}
+	if len(events) > 0 {
+		record.events[recordedMessageEventsChat] = events
+	}
+	return record
 }
 
+// recordedMessageEventsChat is the chat the reconciler fixtures send to.
+const recordedMessageEventsChat = telegram.ChatID(7)
+
 func (r *recordedMessageEvents) MessageEventsSince(
-	telegram.ChatID,
-	uint64,
+	chatID telegram.ChatID,
+	_ uint64,
 ) ([]telegram.MessageEvent, uint64, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	out := make([]telegram.MessageEvent, len(r.events))
-	copy(out, r.events)
-	return out, uint64(len(r.events)), false
+	held := r.events[chatID]
+	out := make([]telegram.MessageEvent, len(held))
+	copy(out, held)
+	return out, uint64(len(held)), false
 }
 
 func (r *recordedMessageEvents) Changed() <-chan struct{} { return r.changed }
 
 func (r *recordedMessageEvents) deliver(events ...telegram.MessageEvent) {
+	r.deliverTo(recordedMessageEventsChat, events...)
+}
+
+// deliverTo files events under one chat, so a test can put a
+// confirmation in the wrong window on purpose.
+func (r *recordedMessageEvents) deliverTo(
+	chatID telegram.ChatID,
+	events ...telegram.MessageEvent,
+) {
 	r.mu.Lock()
-	r.events = append(r.events, events...)
+	r.events[chatID] = append(r.events[chatID], events...)
 	r.mu.Unlock()
 
 	select {
@@ -488,7 +516,6 @@ func TestAWindowThatCannotAnswerIsReportedAndChangesNothing(t *testing.T) {
 	fixture := newReconcilerFixture(t)
 	accepted := fixture.enqueueAndDispatch(t, 7, "моё")
 
-	fixture.events.events = nil
 	fixture.events.deliver(telegram.MessageReplaced{
 		OldID:   telegram.MessageID(accepted.TelegramMessageID),
 		Message: telegram.Message{ID: 501, ChatID: 7, Outgoing: true},
@@ -643,5 +670,217 @@ func TestAResultForAnEntryThatMovedOnIsNotAnError(t *testing.T) {
 	)
 	if !errors.Is(err, outbox.ErrNoAcceptedEntry) {
 		t.Fatalf("error = %v, want ErrNoAcceptedEntry", err)
+	}
+}
+
+// A confirmation filed under another chat is delivered, counted, and
+// matched to nothing.
+//
+// The window is partitioned by chat, so this is the case where TDLib
+// names a temporary identifier this queue holds while the window is not
+// the one the queue would look in. The entry must not move, and the fact
+// must be counted — it is the difference between "Telegram never
+// confirmed" and "the confirmation was delivered and nobody matched it".
+func TestAConfirmationFiledUnderAnotherChatMatchesNothingAndIsCounted(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fixture := newReconcilerFixture(t)
+	accepted := fixture.enqueueAndDispatch(t, 7, "моё")
+
+	fixture.events.deliverTo(4242, telegram.MessageReplaced{
+		OldID:   telegram.MessageID(accepted.TelegramMessageID),
+		Message: telegram.Message{ID: 501, ChatID: 4242, Outgoing: true},
+	})
+
+	moved, err := fixture.reconciler.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if moved != 0 {
+		t.Fatalf("moved = %d, want 0", moved)
+	}
+
+	untouched, err := fixture.store.Store.Get(context.Background(), accepted.ID)
+	if err != nil {
+		t.Fatalf("get entry: %v", err)
+	}
+	if untouched.State != outbox.StateAccepted {
+		t.Fatalf("state = %q, want accepted", untouched.State)
+	}
+
+	// The entry's own chat is empty, so nothing was seen at all: the
+	// confirmation is in a window the queue never reads.
+	report := fixture.reconciler.counters.report()
+	if report.Seen != 0 {
+		t.Fatalf("seen = %d, want 0: nothing was read", report.Seen)
+	}
+}
+
+// A confirmation this queue already applied is counted once, not once per
+// pass.
+//
+// The window is read from the beginning on every pass, so a result that
+// is still in it is read again and again. Counting it every time would
+// make `named no record` climb for a queue that is working perfectly, and
+// the owner reading that number would go looking for a fault that is not
+// there.
+func TestAMatchedConfirmationIsCountedOnceAndNotOnEveryPass(t *testing.T) {
+	t.Parallel()
+
+	fixture := newReconcilerFixture(t)
+	accepted := fixture.enqueueAndDispatch(t, 7, "моё")
+
+	fixture.events.deliver(telegram.MessageReplaced{
+		OldID:   telegram.MessageID(accepted.TelegramMessageID),
+		Message: telegram.Message{ID: 501, ChatID: 7, Outgoing: true},
+	})
+
+	// A pass that applies it, and then a run of passes that find the
+	// result again in the window and find nothing to apply it to.
+	for pass := 0; pass < 5; pass++ {
+		if _, err := fixture.reconciler.ReconcileOnce(
+			context.Background(),
+		); err != nil {
+			t.Fatalf("pass %d: %v", pass, err)
+		}
+	}
+
+	report := fixture.reconciler.counters.report()
+	if report.Matched != 1 {
+		t.Fatalf("matched = %d, want 1", report.Matched)
+	}
+	if report.NoEntry != 0 {
+		t.Fatalf(
+			"noEntry = %d: a confirmation this queue applied is counted "+
+				"again as naming no record, which is the number the owner "+
+				"reads to decide whether Telegram's results are arriving",
+			report.NoEntry,
+		)
+	}
+	// The result is read exactly once: after the first pass there is no
+	// accepted record left, and a pass with nothing to match against does
+	// not read the window at all. So the dedup above is the belt to that
+	// pair of braces, for the passes that do read a window with several
+	// records in it.
+	if report.Seen != 1 {
+		t.Fatalf("seen = %d, want the result read once", report.Seen)
+	}
+}
+
+// A confirmation for a record this queue does not hold is reported — but
+// only once it is certain.
+//
+// Two things are being kept apart here. Several messages sent in a row are
+// all confirmed before the queue has written a single acceptance, so for a
+// moment the window holds confirmations that match nothing, and counting
+// them at once would tell the owner that a working queue is full of
+// results it cannot place. And a confirmation for a message this queue
+// never sent — another client, another account, a record already resolved
+// — really is one that will never match, and is worth saying so.
+func TestAConfirmationForARecordThisQueueDoesNotHoldIsReportedOnce(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fixture := newReconcilerFixture(t)
+	// One record is waiting, so the window is read; the confirmation in
+	// it names a different temporary identifier.
+	fixture.enqueueAndDispatch(t, 7, "моё")
+	fixture.events.deliver(telegram.MessageReplaced{
+		OldID:   telegram.MessageID(999999999),
+		Message: telegram.Message{ID: 501, ChatID: 7, Outgoing: true},
+	})
+
+	if _, err := fixture.reconciler.ReconcileOnce(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("first ReconcileOnce: %v", err)
+	}
+	if got := fixture.reconciler.counters.report().NoEntry; got != 0 {
+		t.Fatalf(
+			"noEntry = %d on the first sight of the confirmation: it is "+
+				"too soon to say it matches nothing", got,
+		)
+	}
+
+	// Time passes and it is still matching nothing. Now it is a fact.
+	fixture.clock.setNow(
+		fixture.clock.Now().Add(unmatchedGrace + time.Second),
+	)
+	if _, err := fixture.reconciler.ReconcileOnce(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("second ReconcileOnce: %v", err)
+	}
+	if got := fixture.reconciler.counters.report().NoEntry; got != 1 {
+		t.Fatalf("noEntry = %d, want 1 once the grace has passed", got)
+	}
+
+	// And it is counted once, not on every pass afterwards.
+	fixture.clock.setNow(
+		fixture.clock.Now().Add(unmatchedGrace + time.Second),
+	)
+	if _, err := fixture.reconciler.ReconcileOnce(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("third ReconcileOnce: %v", err)
+	}
+	if got := fixture.reconciler.counters.report().NoEntry; got != 1 {
+		t.Fatalf("noEntry = %d, want it counted exactly once", got)
+	}
+}
+
+// A confirmation whose record has not been written yet is not reported.
+//
+// This is the ordering a real client produces when messages are sent in a
+// row: Telegram confirms each one before the queue has finished recording
+// the acceptance it belongs to. Counted at once, those would appear as
+// results the queue could not place.
+func TestConfirmationsForRecordsNotYetAcceptedAreNotReported(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fixture := newReconcilerFixture(t)
+	accepted := fixture.enqueueAndDispatch(t, 7, "моё")
+
+	// Three records in flight: only the first has an acceptance written,
+	// and only its confirmation is in the window so far.
+	fixture.events.deliver(
+		telegram.MessageReplaced{
+			OldID: telegram.MessageID(accepted.TelegramMessageID),
+			Message: telegram.Message{
+				ID: 501, ChatID: 7, Outgoing: true,
+			},
+		},
+		telegram.MessageReplaced{
+			OldID: telegram.MessageID(-2000000001),
+			Message: telegram.Message{
+				ID: 502, ChatID: 7, Outgoing: true,
+			},
+		},
+	)
+
+	if _, err := fixture.reconciler.ReconcileOnce(
+		context.Background(),
+	); err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+
+	report := fixture.reconciler.counters.report()
+	if report.Matched != 1 {
+		t.Fatalf("matched = %d, want 1", report.Matched)
+	}
+	if report.Seen != 2 {
+		t.Fatalf("seen = %d, want both confirmations read", report.Seen)
+	}
+	if report.NoEntry != 0 {
+		t.Fatalf(
+			"noEntry = %d: a confirmation for a record the queue is "+
+				"still being told about is reported as one it will "+
+				"never be able to place", report.NoEntry,
+		)
 	}
 }

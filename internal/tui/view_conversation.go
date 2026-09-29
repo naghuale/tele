@@ -141,12 +141,11 @@ func anchorTimelineToBottom(body []string, rows int) []string {
 // still leaving the program looks like every other message of the
 // conversation.
 func (m Model) timelineBody(layout Layout, width, rows int) []string {
-	lines := make([]string, 0, rows)
 	if history := m.historyFeedRows(layout, width); history > 0 {
-		lines = append(lines, m.timelineLines(layout, width, history)...)
+		return m.timelineLines(layout, width, history)
 	}
 
-	return append(lines, m.pendingMessageLines(layout, width)...)
+	return nil
 }
 
 // popupOpen reports whether a sheet or a question is on the screen.
@@ -208,15 +207,31 @@ const conversationBackMarker = "< Chats"
 // feed that shows them as three messages is a feed of nine lines for one
 // picture.
 type timelineEntry struct {
-	// first is the index in the message list of the first message of the
-	// run, and last the index of the last one.
+	// first is the index in the feed of the first message of the run, and
+	// last the index of the last one.
 	first   int
 	last    int
 	message Message
+
+	// pending is set when the entry stands for a message that is still
+	// leaving the program.
+	//
+	// The feed is one column of messages and a message that is going out
+	// is one of them: it takes its place in the run, it is scrolled to
+	// with the rest and it is measured by the same heights. It used to be
+	// a block drawn under the history whose rows were subtracted from the
+	// history's own budget, and a queue that had a few messages going out
+	// emptied the conversation above them — the user lost the history to
+	// see the state of messages they had just written.
+	pending *PendingMessage
 }
 
 // count returns how many parts the entry stands for.
 func (e timelineEntry) count() int { return e.last - e.first + 1 }
+
+// isPending reports whether the entry stands for a message that is still
+// going out.
+func (e timelineEntry) isPending() bool { return e.pending != nil }
 
 // timelineEntries collapses the runs of an album into single entries.
 //
@@ -257,6 +272,38 @@ func timelineEntries(messages []Message) []timelineEntry {
 	return entries
 }
 
+// feedEntries is every entry the conversation draws, oldest first: the
+// history of the open chat and then the messages that are still going out.
+//
+// The two are one list because they are one conversation. A pending
+// message is the newest thing in it — it was written after everything the
+// history holds — so it belongs after the history and scrolls with it.
+//
+// The indices are the feed's: the history of a chat of n messages runs
+// from 0 to n-1 and the pending messages continue from there, which is the
+// same space the cursor and the anchor already count in.
+func (m Model) feedEntries() []timelineEntry {
+	messages := m.selected().Messages
+	entries := timelineEntries(messages)
+
+	if len(m.pending) == 0 {
+		return entries
+	}
+
+	base := len(messages)
+	grown := make([]timelineEntry, 0, len(entries)+len(m.pending))
+	grown = append(grown, entries...)
+	for index := range m.pending {
+		grown = append(grown, timelineEntry{
+			first:   base + index,
+			last:    base + index,
+			pending: &m.pending[index],
+		})
+	}
+
+	return grown
+}
+
 // sameSender reports whether two messages came from the same person.
 //
 // A channel's messages come from the channel and carry its name, so the
@@ -268,6 +315,17 @@ func sameSender(one, other Message) bool {
 
 // entryIndexOfMessage returns the entry a message index belongs to, or the
 // last entry when the index is past the end of the list.
+// entryIndexOfFeed returns the entry the feed index falls in.
+func entryIndexOfFeed(entries []timelineEntry, feedIndex int) int {
+	for index, entry := range entries {
+		if feedIndex <= entry.last {
+			return index
+		}
+	}
+
+	return maxInt(len(entries)-1, 0)
+}
+
 func entryIndexOfMessage(entries []timelineEntry, messageIndex int) int {
 	for index, entry := range entries {
 		if messageIndex <= entry.last {
@@ -285,18 +343,18 @@ func entryIndexOfMessage(entries []timelineEntry, messageIndex int) int {
 // is: the model decides when the view scrolls, and the view refuses to
 // draw a cursor it is not showing.
 func (m Model) timelineLines(layout Layout, width, rows int) []string {
-	messages := m.selected().Messages
-	if len(messages) == 0 {
+	total := m.timelineTotal()
+	if total == 0 {
 		return m.timelineEmptyLines(layout, width)
 	}
 
 	styles := m.styles()
-	entries := timelineEntries(messages)
-	top := entryIndexOfMessage(entries, clampIndex(m.timelineTop, len(messages)-1))
+	entries := m.feedEntries()
+	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
 
 	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles, m.timelineCut)
 
-	selected := entryIndexOfMessage(entries, clampIndex(m.selectedMsg, len(messages)-1))
+	selected := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
 	if selected < top || selected >= top+drawn {
 		// The cursor is not in the window the model placed, and the message
 		// it is on is drawn whole: the cut belongs to a window that is not
@@ -391,6 +449,18 @@ func (m Model) entryLines(
 	width int,
 	styles viewStyles,
 ) []string {
+	// A message that is still going out is drawn the way it is measured:
+	// by the rows it really takes, in the same column, with the state of
+	// the send under the text. The window and the view have to agree about
+	// that, so both go through here.
+	if entry.isPending() {
+		rows := m.pendingMessageRows(*entry.pending, layout, width, styles)
+		if layout.Short() {
+			return rows
+		}
+		return append([]string{""}, rows...)
+	}
+
 	var block []string
 
 	switch {

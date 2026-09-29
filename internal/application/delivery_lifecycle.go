@@ -168,7 +168,27 @@ func productionDurableRuntimeDeps(
 		// that Telegram sent it, which is the whole chain this runtime
 		// exists to carry out.
 		MessageEvents: live,
+		// The session is also how a record a previous process left
+		// accepted is settled at startup: its confirmation was delivered
+		// to a process that no longer exists, and the chat is the only
+		// place left that can say what became of the message.
+		History: sessionHistoryReader(session),
 	}
+}
+
+// sessionHistoryReader returns the session as a history reader, or nil
+// when it is not one.
+//
+// A typed nil in this interface would read as "a history reader that
+// cannot read anything", which is worse than no reader at all: the
+// settlement would ask and be answered with an error, once per chat,
+// instead of saying up front that it cannot run.
+func sessionHistoryReader(session TelegramSender) TelegramHistoryReader {
+	reader, ok := session.(TelegramHistoryReader)
+	if !ok {
+		return nil
+	}
+	return reader
 }
 
 func prepareDeliveryAuthResult(

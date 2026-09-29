@@ -119,36 +119,6 @@ func (m *Model) noteQueuedMessage(
 	})
 }
 
-// pendingMessageRowCount returns how many rows the pending messages take
-// on the screen.
-//
-// They are the newest messages of the conversation and they are below the
-// history, so the history takes what is left. A screen with no room for
-// both is the screen of §3.4, and the composer comes first there.
-func (m Model) pendingMessageRowCount(layout Layout, width int) int {
-	if len(m.pending) == 0 {
-		return 0
-	}
-
-	return len(m.pendingMessageLines(layout, width))
-}
-
-// pendingMessageLines returns the rows of every pending message, oldest
-// first, each with the state of the message under its text.
-func (m Model) pendingMessageLines(layout Layout, width int) []string {
-	styles := m.styles()
-	rows := make([]string, 0, len(m.pending))
-
-	for _, message := range m.pending {
-		rows = append(
-			rows,
-			m.pendingMessageRows(message, layout, width, styles)...,
-		)
-	}
-
-	return rows
-}
-
 // pendingMessageRows returns the rows of one pending message: its text in
 // the block on the right, and the time and the state of the send under it
 // (§4.4).

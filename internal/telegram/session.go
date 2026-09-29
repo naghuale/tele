@@ -396,7 +396,7 @@ func (s *AuthorizedSession) applyLiveUpdate(raw RawMessage) {
 	if s.live == nil {
 		return
 	}
-	if _, err := s.live.apply(raw); err != nil {
+	if _, err := s.live.ApplyUpdate(raw); err != nil {
 		s.recordError(fmt.Errorf("session: apply live update: %w", err))
 	}
 }

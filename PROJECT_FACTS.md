@@ -352,6 +352,15 @@
 
 ## Application and TUI
 - Send-result reconciler: internal/application/send_result_reconciler.go
+  - the send path is proved end to end over the real wiring in
+    internal/application/send_result_runtime_test.go: a real durable
+    queue, the real dispatcher goroutine, the real reconciler goroutine
+    and a real LiveState fed with recorded TDLib payloads through
+    `telegram.LiveState.ApplyUpdate`, the same entry point the session
+    pump uses. The confirmation is delivered before the acceptance, while
+    it races it, and after it, for several messages in a row. The earlier
+    suite drove the reconciler with a hand-built window, and a window
+    that answers whenever it is asked cannot show that the real one does
   - the consumer ADR-0003 §6 called for and that nothing implemented:
     the live store decoded `updateMessageSendSucceeded` and
     `updateMessageSendFailed` into the same window as everything else
@@ -536,9 +545,18 @@
     rows of the feed are full, and timelineCut holds how much of the top
     of the first entry is left off so the last row is used
   - the row budget is historyFeedRows: the region's height less the
-    heading, the status block, the line an older page takes and the rows
-    the pending messages below take. The view draws the feed into it and
-    the window is placed against it, so the two cannot disagree
+    heading, the status block and the line an older page takes. The view
+    draws the feed into it and the window is placed against it, so the two
+    cannot disagree
+  - the messages that are still going out are ENTRIES of the feed, not a
+    block drawn under it: `feedEntries` appends one entry per pending
+    message after the entries of the history, and `entryLines` renders it
+    through the same `pendingMessageRows` the window is measured with.
+    Their rows used to be subtracted from the history's own budget and
+    drawn underneath, which left the history with no rows at all — a
+    queue with anything in it emptied the conversation above it, and
+    scrolling up could not reach the history because the history window
+    had nothing in it
   - the window is placed again when the conversation is being followed —
     a chat opened, a message sent, a page of older messages arriving at
     a user at the end, a resize — and left exactly where it is when a
@@ -793,6 +811,29 @@
     history page
   - the dispatcher never touches `accepted`: it is terminal FOR THE
     DISPATCHER, and only a send result moves it on
+  - `accepted -> uncertain` is the third way out of `accepted`, and no
+    send result makes it: it is what a process that was NOT running when
+    the result was delivered resolves a record with. TDLib delivers a
+    send result once and does not repeat it, so a record left accepted by
+    a process that is gone has no future event at all
+  - Restart settlement: internal/application/restart_settlement.go runs
+    once at startup, before the dispatcher takes anything new. It lists
+    the records an earlier process left accepted, reads one history page
+    per chat, and matches on the message text digest plus a time window
+    of five minutes around the moment TDLib took the message. Found
+    becomes `sent` with the identifier the history will come back with;
+    not found becomes `uncertain`. A chat that cannot be read leaves its
+    records accepted, because a history that could not be fetched is not
+    evidence that a message is missing
+  - the text is the reason settlement needs its own store capability
+    (`outbox.UnsettledAcceptedStore`) rather than the payload-free
+    `SendResultStore`. It is compared as a SHA-256 digest, never logged
+    and never counted
+  - the reconciler counts what it saw: seen, matched, named-no-record and
+    window gaps, written to `send-results.json` beside the queue and
+    printed by `telecli doctor`. The owner's report of a message stuck on
+    "on its way out" is answered by that line without a debugger on a
+    running program
   - a confirmed message is not purged while the outcome is unknown:
     `PurgeFinished` deletes `sent` and `canceled` past retention and
     keeps `accepted`, `failed_permanent` and `uncertain`, the last two

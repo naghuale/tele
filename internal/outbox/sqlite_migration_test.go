@@ -595,3 +595,149 @@ func TestMigrationRefusesANewerDatabase(t *testing.T) {
 		t.Fatalf("error = %v, want a newer-database refusal", err)
 	}
 }
+
+// A record main left accepted is readable by the restart settlement.
+//
+// The settlement is the answer to "my message says it is on its way out
+// and it has said so since yesterday". It works by asking the chat what
+// became of the message, and it can only do that if the text of a record
+// written by the last release is still there to compare. So the migration
+// has to leave a main record readable as a settlement record, not merely
+// as a queue entry.
+func TestMigratedAcceptedEntryIsSettleable(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "outbox.db")
+	db := openMainDatabase(t, path)
+	cipher := &fakeCipher{}
+	for _, row := range everyStateOnMain() {
+		writeLegacyRow(t, db, cipher, row)
+	}
+	if err := applyMigrations(context.Background(), db); err != nil {
+		t.Fatalf("applyMigrations: %v", err)
+	}
+
+	store, err := NewSQLiteStore(
+		context.Background(),
+		SQLiteStoreConfig{Path: path},
+		cipher,
+	)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if closer, ok := store.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	unsettled, err := store.(UnsettledAcceptedStore).ListUnsettledAccepted(
+		context.Background(), "account-1", 0,
+	)
+	if err != nil {
+		t.Fatalf("ListUnsettledAccepted: %v", err)
+	}
+	if len(unsettled) != 1 {
+		t.Fatalf("unsettled = %#v, want the one accepted entry", unsettled)
+	}
+
+	record := unsettled[0]
+	if record.ID != "m-accepted" {
+		t.Fatalf("id = %q, want m-accepted", record.ID)
+	}
+	// The text is the whole point: without it there is nothing to match
+	// against the chat, and the record could only ever be called
+	// uncertain.
+	if record.Text != "accepted payload" {
+		t.Fatalf("text = %q, want the payload main wrote", record.Text)
+	}
+	if record.ChatID != 44 {
+		t.Fatalf("chat id = %d, want 44", record.ChatID)
+	}
+	if record.AcceptedAt.IsZero() {
+		t.Fatal("no accepted time to anchor the match window to")
+	}
+
+	// And the record can still be settled: the identifier the chat
+	// reports is written where the history will find it.
+	if _, err := store.MarkSent(
+		context.Background(),
+		record.ID,
+		record.Version,
+		5001,
+		record.AcceptedAt.Add(time.Minute),
+	); err != nil {
+		t.Fatalf("MarkSent: %v", err)
+	}
+
+	settled, err := store.Get(context.Background(), record.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if settled.State != StateSent || settled.TelegramMessageID != 5001 {
+		t.Fatalf("settled = %#v, want sent with the chat's id", settled)
+	}
+}
+
+// A record main left accepted that cannot be found in its chat becomes
+// uncertain rather than staying accepted for ever.
+//
+// This is the state the owner saw on screen: the confirmation was
+// delivered to a process that is gone, so nothing will ever move the
+// record, and leaving it accepted draws "on its way out" for as long as
+// the program runs.
+func TestMigratedAcceptedEntryCanBeMadeUncertain(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "outbox.db")
+	db := openMainDatabase(t, path)
+	cipher := &fakeCipher{}
+	for _, row := range everyStateOnMain() {
+		writeLegacyRow(t, db, cipher, row)
+	}
+	if err := applyMigrations(context.Background(), db); err != nil {
+		t.Fatalf("applyMigrations: %v", err)
+	}
+
+	store, err := NewSQLiteStore(
+		context.Background(),
+		SQLiteStoreConfig{Path: path},
+		cipher,
+	)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore: %v", err)
+	}
+	if closer, ok := store.(io.Closer); ok {
+		defer func() { _ = closer.Close() }()
+	}
+
+	unsettled, err := store.(UnsettledAcceptedStore).ListUnsettledAccepted(
+		context.Background(), "account-1", 0,
+	)
+	if err != nil {
+		t.Fatalf("ListUnsettledAccepted: %v", err)
+	}
+	if len(unsettled) != 1 {
+		t.Fatalf("unsettled = %#v, want one", unsettled)
+	}
+
+	marked, err := store.MarkUncertain(
+		context.Background(),
+		unsettled[0].ID,
+		unsettled[0].Version,
+		"no confirmation from the run that sent it",
+		unsettled[0].AcceptedAt.Add(time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("MarkUncertain: %v", err)
+	}
+	if marked.State != StateUncertain {
+		t.Fatalf("state = %q, want uncertain", marked.State)
+	}
+	// The temporary identifier is kept: it is what the record is
+	// uncertain about, and it names nothing outside this queue.
+	if marked.TelegramMessageID != 9001 {
+		t.Fatalf(
+			"temporary id = %d, want the one main recorded",
+			marked.TelegramMessageID,
+		)
+	}
+}

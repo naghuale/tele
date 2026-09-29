@@ -179,3 +179,99 @@ func scanAwaitingSendResult(row rowScanner) (AwaitingSendResult, error) {
 }
 
 var _ SendResultStore = (*sqliteStore)(nil)
+
+// ListUnsettledAccepted implements UnsettledAcceptedStore.
+func (s *sqliteStore) ListUnsettledAccepted(
+	ctx context.Context,
+	accountKey string,
+	limit int,
+) ([]UnsettledAccepted, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf(
+			"outbox unsettled accepted: nil sqlite store",
+		)
+	}
+	account, err := normalizeAccountKey(accountKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// The text is decrypted here and nowhere else on this path: the
+	// settlement compares it with what the chat holds, and the
+	// comparison is the last thing in the program that sees it.
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, account_key, chat_id, encrypted_text, accepted_at_ns, version
+FROM outbox_entries
+WHERE state = ? AND account_key = ?
+ORDER BY accepted_at_ns ASC, id ASC
+`, string(StateAccepted), account)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"outbox unsettled accepted query: %w", err,
+		)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var entries []UnsettledAccepted
+	for rows.Next() {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		var (
+			record      UnsettledAccepted
+			ciphertext  []byte
+			acceptedAt  int64
+			accountText string
+			idText      string
+		)
+		if err := rows.Scan(
+			&idText,
+			&accountText,
+			&record.ChatID,
+			&ciphertext,
+			&acceptedAt,
+			&record.Version,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"outbox unsettled accepted scan: %w", err,
+			)
+		}
+
+		record.ID = ID(idText)
+		record.AccountKey = accountText
+		record.AcceptedAt = time.Unix(0, acceptedAt).UTC()
+
+		plaintext, err := s.cipher.DecryptMessage(
+			ctx, record.ID, record.AccountKey, record.ChatID, ciphertext,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"outbox: decrypt message %s: %w", record.ID, err,
+			)
+		}
+		record.Text = string(plaintext)
+
+		normalized, err := normalizeUnsettled(record)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, normalized)
+
+		if limit > 0 && len(entries) >= limit {
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf(
+			"outbox unsettled accepted rows: %w", err,
+		)
+	}
+
+	return entries, nil
+}
+
+var _ UnsettledAcceptedStore = (*sqliteStore)(nil)

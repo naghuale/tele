@@ -396,27 +396,6 @@ const (
 	nerdHalfWidth = 1
 )
 
-// HalfBlockLower and HalfBlockUpper are the two halves a block of a
-// message is rounded with when the terminal has no Nerd Font.
-//
-// The lower half opens a block and the upper half closes it, and the row of
-// the feed under them is the background of the feed, so a block drawn with
-// them looks half a row taller than it is without taking a row to say so.
-// They are the same drawing as the two halves above and they are here for
-// the same reason: both are "ambiguous width" characters, and a terminal
-// that resolves ambiguity as two columns turns every one of them into a
-// row a column over the width of the feed.
-const (
-	// HalfBlockLower rounds the top edge of a block.
-	HalfBlockLower = "▄"
-
-	// HalfBlockUpper rounds the bottom edge of a block.
-	HalfBlockUpper = "▀"
-
-	// halfBlockWidth is how many columns either of them takes.
-	halfBlockWidth = 1
-)
-
 // fixedWidth is the glyphs whose width this package states rather than
 // counts, and what it states.
 //
@@ -427,10 +406,8 @@ const (
 // drawing it is a part of is sized for the one column the interface
 // promised.
 var fixedWidth = map[string]int{
-	NerdHalfLeft:   nerdHalfWidth,
-	NerdHalfRight:  nerdHalfWidth,
-	HalfBlockLower: halfBlockWidth,
-	HalfBlockUpper: halfBlockWidth,
+	NerdHalfLeft:  nerdHalfWidth,
+	NerdHalfRight: nerdHalfWidth,
 }
 
 // The code points that join a cluster together without taking a column of

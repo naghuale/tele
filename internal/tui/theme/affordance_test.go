@@ -9,14 +9,17 @@ import "testing"
 func TestStatusMarkCarriesSymbolAndWords(t *testing.T) {
 	// The marks and words of §14, so the interface says one thing about a
 	// delivery state everywhere it shows it.
+	// The words are in lower case: a state is a word inside a row of a
+	// conversation and not a heading, and the mockup of the owner writes
+	// them that way.
 	cases := map[StatusState]StatusMark{
-		StatusQueued:    {Symbol: "●", Text: "Queued"},
-		StatusSending:   {Symbol: "◐", Text: "Sending"},
-		StatusRetrying:  {Symbol: "↻", Text: "Retrying"},
-		StatusSent:      {Symbol: "✓", Text: "Sent"},
-		StatusFailed:    {Symbol: "!", Text: "Failed"},
-		StatusUncertain: {Symbol: "?", Text: "Delivery uncertain"},
-		StatusCanceled:  {Symbol: "⊘", Text: "Canceled"},
+		StatusQueued:    {Symbol: "●", Text: "queued"},
+		StatusSending:   {Symbol: "◐", Text: "sending"},
+		StatusRetrying:  {Symbol: "↻", Text: "retrying"},
+		StatusSent:      {Symbol: "✓", Text: "sent"},
+		StatusFailed:    {Symbol: "!", Text: "failed"},
+		StatusUncertain: {Symbol: "?", Text: "delivery uncertain"},
+		StatusCanceled:  {Symbol: "⊘", Text: "canceled"},
 	}
 
 	for state, want := range cases {

@@ -787,16 +787,25 @@ func TestAPasteGoesIntoTheQueryWhole(t *testing.T) {
 
 // ---- The header and the hint bar ----
 
-// §4.1 puts the search and the unread count in the header of the list.
+// §4.1 puts the search and the unread count in the header of the list: the
+// title and the count share the first row, and the key is on the second.
 // The key is there because a list that can be searched has to say so
 // before anybody goes looking for the key, and a line that names a key
 // that does nothing is a promise the interface cannot keep.
 func TestTheHeaderNamesTheSearchAndTheUnreadCount(t *testing.T) {
 	m := sizedModel(t, 120, 24)
 
-	header := strings.Join(chatListHeaderLines(t, m), " ")
-	if !strings.Contains(header, "/ Search") {
+	lines := chatListHeaderLines(t, m)
+	header := strings.Join(lines, " ")
+	if !strings.Contains(header, "/ search") {
 		t.Fatalf("the header = %q, want the search", header)
+	}
+	if !strings.Contains(lines[0], chatListTitle) ||
+		!strings.Contains(lines[0], "7 unread") {
+		t.Fatalf(
+			"the first line of the header = %q, want the title and the count on it",
+			lines[0],
+		)
 	}
 	if !strings.Contains(header, "7 unread") {
 		t.Fatalf("the header = %q, want the unread count", header)

@@ -580,22 +580,28 @@
   - a message of this user is a block on the right on the composer's
     own surface, inset two columns on each side, at most 70% of the feed,
     with the time and the state of the send under the text at the block's
-    right edge in the colour of the state itself ("✓ Sent 14:30", "● Queued
-    14:30", "↻ Retrying at 14:35") and no author line: the block being
+    right edge in the colour of the state itself ("✓ sent 14:30", "● queued
+    14:30", "↻ retrying at 14:35") and no author line: the block being
     on the right already says whose it is
   - a block is as wide as its widest line and never narrower than
     bubbleMinTextColumns (16) of text, insets and ends apart, so a
     one-word message is a bubble and not a sliver; the name and the state
     are as wide as they are whatever that floor is
-  - a block is opened by a half row of air and closed by one: a row of
-    U+2584 in the colour of the block above it and a row of U+2580 below
-    it, both on the background of the feed and both half a row high, so
-    the block looks half a row taller at each end without taking the rows
-    away from the conversation. They are square: a row of half blocks
-    beside the text already says where the block is rounded
-  - the air is not drawn on a screen below the short layout height, where
-    two rows of twenty are two rows of the conversation a reader cannot do
-    without, and where a block of one row is a pill of its own
+  - a block is its own full cells: there is no air drawn above or below
+    it, and no half block (U+2584, U+2580) is drawn anywhere. Both were
+    tried and both are gone, because the owner's Terminal draws its rows
+    with a gap: a row of half blocks above a block and a row of them
+    below it do not meet it, and what the screen showed was three layers
+    of a shade where there is one shape. A bubble of one line of words is
+    two rows of it, and a feed of N such bubbles takes 3N-1 rows: the
+    bubble and one blank row between two messages, with no gap row above
+    the topmost one because there is no message above it on the screen
+    (that row is what the owner has a screenshot of as an empty bar at
+    the top of the feed). In a 168x43 window that is thirteen one-line
+    messages where the half blocks left room for seven
+  - the words of a delivery state are in lower case ("✓ sent", "●
+    queued"), as the mockup of the owner writes them: a state is a word
+    inside a row of a conversation and not a heading
   - a blank row separates two messages, and it is the first thing to go
     on a screen shorter than 20 rows
   - a run of consecutive messages from one sender that share a
@@ -812,35 +818,28 @@
     belong to on the background behind it: on BOTH sides of a
     conversation, since both are blocks. The halves are one row tall, so
     they belong to a block of ONE row of words — the pill — and a block
-    of more than one row is a rectangle with square sides and a half row
-    of air at each end (U+2584 below the top of it, U+2580 above the
-    bottom), which is the roundness a multi-row block carries instead. A
-    message with a name or a state in it has a row for each and is
-    therefore a rectangle; the one-row block is a message on a screen
-    below the short layout height, where a message is its text and
-    nothing else. The same two halves round the pill of the unread count
-    in the chat list, and the selected chat, which is a card (a half row
-    of air, the name and its time, the preview and its badge, a half row
-    of air) with two columns of the list's background inside each side of
-    the highlight, takes no halves of its own. It is off by default
+    of more than one row is a rectangle with square sides, since there is
+    nothing left to round it with: the half blocks are gone (see the
+    timeline above). A message with a name or a state in it has a row for
+    each and is therefore a rectangle; the one-row block is a message on
+    a screen below the short layout height, where a message is its text
+    and nothing else. The same two halves round the pill of the unread
+    count in the chat list, and the selected chat, which is a card of two
+    rows with two columns of air inside each side of it and nothing above
+    or below, takes no halves of its own. It is off by default
     because a terminal without the font draws them as empty squares, and
     a terminal does not report its font, so the user is the only party
     that can say. Reported by telecli doctor and resolved by the
     composition root like the theme and the width rule; under the
-    no-colour profile neither the ends, nor the air around a block or a
-    row of the list, nor the background of a block is drawn, because
-    there is no colour for the half to be the colour of
-  - a half block is a GLYPH and not a patch of colour, so it is only ever
-    drawn where the program has an explicit foreground for it: the colour
-    of the block it belongs to. A chat of the list that is not selected
-    has no air rows at all and keeps the blank line the list had before,
-    because a half block in the background of the list and in the
-    terminal's own foreground is a light stripe under every chat of the
-    list on a dark theme — and because it would cost the list a quarter
-    of its chats. Only the selected chat is a card. The rows of the list
-    are therefore of two heights, and the window of the list is placed by
-    the heights of the rows that were drawn (chatListHeights,
-    visibleHeights) rather than by dividing the budget by one of them
+    no-colour profile neither the ends nor the background of a block is
+    drawn, because there is no colour for the half to be the colour of
+  - the chosen chat of the list is a card of two rows of words and the air
+    inside them, and nothing above or below it: a half row of air at each
+    end was tried and is gone, because a row of half blocks is a band of
+    another shade rather than the edge of a card, and because the blank
+    line under the card is the same blank line every other chat has. Every
+    chat of the list is three rows, so the window is placed by dividing the
+    budget by chatListRowHeight
   - every row of the chat list keeps air inside it: two columns on each
     side on a two-pane screen, one in Narrow (Layout.ChatListInset). The
     name, the preview, the time and the count are all strictly inside it,
@@ -849,7 +848,7 @@
     the Selected: the card is a band of colour with words in it, and a
     band that stopped two columns short on each side is the stripe #59
     removed. The air of the two air rows of the card is the background of
-    the list instead, because the edge of the card is the half block and
+    the list instead, because the edge of the card is the row of its own
     not a stripe of colour at the end of it
   - the count is the last cells of the second row and its right edge is
     the right edge of the time in the first row, at any length of preview;
@@ -1208,7 +1207,7 @@
     chat list stopped having, and the air is there to keep the words off
     the edges of the pane rather than to cut the band short. Only the two
     air rows of the card are on the background of the list instead, since
-    the edge of the card is the half block and not a stripe of colour
+    the edge of the card is its own two rows and not a stripe of colour
   - OutgoingBubble is the surface of the block of a message of this user,
     and ComposerBackground is the surface of the block of a message of the
     other side: two roles because two colours, so that the two sides of a

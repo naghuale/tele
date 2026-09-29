@@ -377,30 +377,6 @@ func (s viewStyles) blockEdge(block, behind theme.Color) lipgloss.Style {
 		Background(lipgloss.Color(behind.Print()))
 }
 
-// halfRow is one row of a half block drawn in a style, or one row of
-// spaces where the style has no colour to draw the half in.
-//
-// The half blocks above and below a block of a message, and the ones above
-// and below a row of the list, are drawn in the colour of what they belong
-// to. A screen with no colours has no such colour — the same reason
-// blockEdge is an empty style there and the background of a block is not
-// drawn — and a half block with no colour is a glyph: a quarter of a
-// rectangle the user did not ask for, sitting on a line of words they are
-// reading, in the middle of a screen that was asked to be plain. So the
-// row is blank, and the air it was drawn with is the space it always was.
-//
-// drawn is the caller's answer to whether the colour is there, because
-// that is a question about the tokens of the theme and not about a style:
-// the style is empty exactly where the tokens are unset, and a caller
-// that asked the style would be asking a map for its own contents.
-func halfRow(style lipgloss.Style, drawn bool, glyph string, width int) string {
-	if !drawn {
-		return spaces(width)
-	}
-
-	return style.Render(strings.Repeat(glyph, width))
-}
-
 // pill is the badge of an unread count: a count on a background of its
 // own, in the colour the surface is behind it.
 //

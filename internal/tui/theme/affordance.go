@@ -154,16 +154,17 @@ func (m StatusMark) Plain() string {
 
 // The marks and words are the ones §14 lists, so the interface says the
 // same thing everywhere it shows a delivery state. The words are English
-// because that is the vocabulary of the specification; the screens keep
-// their own labels until PR-10A.4 rewrites them.
+// because that is the vocabulary of the specification, and they are in
+// lower case because that is how the mockup of the owner writes them and
+// the state of a message is a word inside a row rather than a heading.
 var statusMarks = map[StatusState]StatusMark{
-	StatusQueued:    {Symbol: "●", Text: "Queued"},
-	StatusSending:   {Symbol: "◐", Text: "Sending"},
-	StatusRetrying:  {Symbol: "↻", Text: "Retrying"},
-	StatusSent:      {Symbol: "✓", Text: "Sent"},
-	StatusFailed:    {Symbol: "!", Text: "Failed"},
-	StatusUncertain: {Symbol: "?", Text: "Delivery uncertain"},
-	StatusCanceled:  {Symbol: "⊘", Text: "Canceled"},
+	StatusQueued:    {Symbol: "●", Text: "queued"},
+	StatusSending:   {Symbol: "◐", Text: "sending"},
+	StatusRetrying:  {Symbol: "↻", Text: "retrying"},
+	StatusSent:      {Symbol: "✓", Text: "sent"},
+	StatusFailed:    {Symbol: "!", Text: "failed"},
+	StatusUncertain: {Symbol: "?", Text: "delivery uncertain"},
+	StatusCanceled:  {Symbol: "⊘", Text: "canceled"},
 }
 
 // Mark returns the symbol and words of a state.

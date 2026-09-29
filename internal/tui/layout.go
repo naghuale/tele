@@ -96,7 +96,37 @@ const (
 	// they are whatever this is, so the floor never cuts a name or a state
 	// short to reach it.
 	bubbleMinTextColumns = 16
+
+	// chatListInset is the air inside a row of the chat list on each side
+	// of its words, and chatListInsetNarrow the same on a single-pane
+	// screen.
+	//
+	// A name, a preview, a time and a count that touch the edge of the
+	// pane are a list the pane is wearing rather than a list of chats: the
+	// words have nothing between them and the edge, and the eye reads the
+	// edge of the window as part of the text. Two columns is that air on a
+	// two-pane screen, which has room for it, and one on a single-pane one,
+	// where the list is the whole screen and a column of air is a fifth of
+	// a name.
+	//
+	// The air is inside the row rather than outside it, so the Selected of
+	// a chosen chat covers it: the card is a band of colour with words in
+	// it, and a band that stops two columns short on each side is a stripe
+	// with an outline.
+	chatListInset       = 2
+	chatListInsetNarrow = 1
 )
+
+// ChatListInset returns the air inside a row of the chat list on each side
+// of its words, which is two columns on a two-pane screen and one on a
+// single-pane one.
+func (l Layout) ChatListInset() int {
+	if l.Kind == LayoutNarrow {
+		return chatListInsetNarrow
+	}
+
+	return chatListInset
+}
 
 // focusColumnWidth is the single column a focus marker occupies, and
 // contentInsetWidth the space between it and the text of a region.

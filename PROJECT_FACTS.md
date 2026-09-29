@@ -878,6 +878,33 @@
     message and the only thing that separates an uncertain-by-settlement
     from an uncertain-by-lost-lease, and it is a temporary id that is in
     no history page
+  - the settlement read ONE message of a chat and called that the end of
+    it. Its end-of-chat test was `len(messages) < limit`, which is the
+    `len(messages) == limit` heuristic telegram.HistoryPage had already
+    been taken out of, in the comment that says a real account answers the
+    first request with what it has under its hand. The owner's own numbers:
+    `GetChatHistory(from=0, limit=100)` returned got=1 for BOTH chats, so
+    the read stopped at the newest message, and all 13 records — sent
+    28.09, 09:40-22:49 UTC, every one of them in the chat — were settled
+    uncertain with sameText=0. A chat ends at an EMPTY page. NextFrom that
+    does not move is the other end, and the page budget (10) is what bounds
+    a chat that has none
+  - a queue row is drawn at its own time, not at the foot of the feed. The
+    feed interleaves the history and the rows of the queue by the moment
+    Telegram dated the message and the moment the queue recorded the row,
+    and the cursor's index space is that order rather than
+    [history..., pending...]. TUI_SPEC says pending messages are part of
+    the feed — same column, same scroll, same heights, "the queue does not
+    displace history" — and does NOT put them at the end; the arrangement
+    assumed "a message that has not gone out is newer than every message of
+    the history", which is true of what a user has just typed and false of
+    a record an earlier run left. The owner's "Delivery uncertain" rows
+    from 28.09 21:22-21:35 were drawn under today's sent messages and held
+    the foot of the chat. `tui.Message.At` carries the moment: `Time` stays
+    a string and is still what is drawn, so this touches no timezone (#62)
+  - the feed does not lose messages. The owner's first report said the
+    conversation had gone; it had not. The pending rows were pinned below
+    today's messages and the conversation was pushed up out of the chat
   - one record a read cannot report no longer fails the read. It is logged
     (entry id, chat id, state, reason — never the payload, which this
     projection does not have) and the read answers with the rest. The

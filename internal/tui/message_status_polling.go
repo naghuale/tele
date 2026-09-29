@@ -596,6 +596,7 @@ func (m Model) pendingSentByID() map[string]Message {
 			Outgoing: true,
 			Text:     message.Text,
 			Time:     formatMessageTime(message.CreatedAt),
+			At:       message.CreatedAt,
 		}
 	}
 	if len(confirmed) == 0 {

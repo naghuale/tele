@@ -303,6 +303,10 @@ func (s *TelegramChatService) messageOf(
 		Outgoing: message.Outgoing,
 		Text:     message.Text,
 		Time:     message.Timestamp.Format("15:04"),
+		// The moment itself, so a message of the queue can be placed at
+		// its own time among these. What is drawn is still Time above;
+		// that is #62.
+		At:       message.Timestamp,
 		Author:   s.authorOf(ctx, chat, message),
 		AuthorID: message.Sender.ID,
 		Media:    message.Media,

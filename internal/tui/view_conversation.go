@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"sort"
 	"strconv"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -273,35 +275,139 @@ func timelineEntries(messages []Message) []timelineEntry {
 }
 
 // feedEntries is every entry the conversation draws, oldest first: the
-// history of the open chat and then the messages that are still going out.
+// history of the open chat and the messages that have not gone out yet, in
+// the order they were written.
 //
-// The two are one list because they are one conversation. A pending
-// message is the newest thing in it — it was written after everything the
-// history holds — so it belongs after the history and scrolls with it.
+// The two are one list because they are one conversation, and a message
+// that has not gone out is a message like any other: it takes its place in
+// the order, it is scrolled to with the rest, and it is measured by the
+// same heights. It used to be drawn after the whole of the history, on the
+// assumption that whatever has not gone out is newer than everything that
+// has. That is true of a message this session wrote and false of a record
+// an earlier run left behind, and a "Delivery uncertain" row is nothing but
+// that: the owner's two of yesterday evening were drawn under today's sent
+// messages, held the foot of the chat, and pushed the conversation up out
+// of it.
 //
-// The indices are the feed's: the history of a chat of n messages runs
-// from 0 to n-1 and the pending messages continue from there, which is the
-// same space the cursor and the anchor already count in.
+// So the order is the order the conversation was written in: the moment
+// Telegram dated a message, and the moment the queue recorded the row. A
+// row is placed by that, and not by which of the two sources it arrived in.
+//
+// The indices are the conversation's: they count every message in the order
+// above, and they are the space the cursor and the anchor already count in.
 func (m Model) feedEntries() []timelineEntry {
 	messages := m.selected().Messages
-	entries := timelineEntries(messages)
-
 	if len(m.pending) == 0 {
-		return entries
+		// Nothing to interleave, and the history is already in order, so
+		// its own indices are the conversation's.
+		return timelineEntries(messages)
 	}
 
-	base := len(messages)
-	grown := make([]timelineEntry, 0, len(entries)+len(m.pending))
-	grown = append(grown, entries...)
+	slots := make([]feedSlot, 0, len(messages)+len(m.pending))
+	for index, message := range messages {
+		slots = append(slots, feedSlot{at: message.At, message: index, pending: -1})
+	}
 	for index := range m.pending {
-		grown = append(grown, timelineEntry{
-			first:   base + index,
-			last:    base + index,
-			pending: &m.pending[index],
+		slots = append(slots, feedSlot{
+			at: m.pending[index].CreatedAt, message: -1, pending: index,
 		})
 	}
 
-	return grown
+	// Stable, so two messages of the same instant keep the order they came
+	// in rather than swapping places under the user's eyes.
+	sort.SliceStable(slots, func(i, j int) bool {
+		if !slots[i].at.Equal(slots[j].at) {
+			return slots[i].at.Before(slots[j].at)
+		}
+		// One instant, two sources: what Telegram has already put in the
+		// chat is drawn before what the queue has only just recorded, so a
+		// message this session sent still lands under the ones already
+		// there.
+		//
+		// A rank and not a flag, because a comparison has to be a strict
+		// order: "is this one of the history" answers yes for both of two
+		// history messages, and a sort given that shuffles them.
+		return feedRank(slots[i]) < feedRank(slots[j])
+	})
+
+	entries := make([]timelineEntry, 0, len(slots))
+	for position := 0; position < len(slots); {
+		slot := slots[position]
+		if slot.pending >= 0 {
+			entries = append(entries, timelineEntry{
+				first:   position,
+				last:    position,
+				pending: &m.pending[slot.pending],
+			})
+			position++
+			continue
+		}
+
+		// A run of an album, which a row of the queue standing in the
+		// middle of it breaks: the parts are no longer consecutive in the
+		// conversation, and one entry for them would put the row inside
+		// somebody's album.
+		run := position
+		if albumID := messages[slot.message].AlbumID; albumID != 0 {
+			for run+1 < len(slots) &&
+				continuesAlbumRun(messages, slots, run+1, slot.message, albumID) {
+				run++
+			}
+		}
+
+		entry := timelineEntry{
+			first: position, last: run, message: messages[slot.message],
+		}
+		for part := position; part <= run; part++ {
+			if entry.message.Caption == "" {
+				entry.message.Caption = messages[slots[part].message].Caption
+			}
+		}
+
+		entries = append(entries, entry)
+		position = run + 1
+	}
+
+	return entries
+}
+
+// feedSlot is one row of the conversation before the parts of an album are
+// put together: a message of the history or a message of the queue, with
+// the moment it is placed by. A slot carries one of the two indexes and -1
+// for the other.
+type feedSlot struct {
+	at      time.Time
+	message int
+	pending int
+}
+
+// feedRank orders two messages of the same instant by which source they
+// came from, so the sort has a strict order to work with.
+func feedRank(slot feedSlot) int {
+	if slot.pending < 0 {
+		return 0
+	}
+
+	return 1
+}
+
+// continuesAlbumRun reports whether the slot at next is the part after
+// first of one album: the next message of the history, the same album, the
+// same sender.
+func continuesAlbumRun(
+	messages []Message,
+	slots []feedSlot,
+	next, first int,
+	albumID int64,
+) bool {
+	if slots[next].message != first+1 {
+		return false
+	}
+	if messages[slots[next].message].AlbumID != albumID {
+		return false
+	}
+
+	return sameSender(messages[slots[next].message], messages[first])
 }
 
 // sameSender reports whether two messages came from the same person.

@@ -1,5 +1,7 @@
 package tui
 
+import "time"
+
 // This file holds the two projections the interface draws from: a chat and
 // a message. They are the whole vocabulary of the screen, and every field
 // here is a thing a user can be shown.
@@ -68,6 +70,19 @@ type Message struct {
 	Outgoing bool
 	Text     string
 	Time     string
+
+	// At is when Telegram dated the message, and it is what a message of
+	// the queue is placed by.
+	//
+	// Time above is the same moment written out, and it is what the screen
+	// draws. It is a string, so it cannot be compared: "09:40" and "21:35"
+	// of two different days are both clock times, and a message that goes
+	// by them can only be placed by guessing which day it is. So the moment
+	// itself is kept as well, and it is used for one thing only — where the
+	// row goes in the conversation.
+	//
+	// What is written on screen is Time, and changing that is #62.
+	At time.Time
 
 	// Author is the name shown above an incoming message: the name of the
 	// other person in a private chat, the channel's own name in a channel,

@@ -300,13 +300,26 @@ func (s *restartSettler) readCandidates(
 			return candidates, nil
 		}
 
-		// The boundary is the oldest message of the page, and a page that
-		// returned less than it asked for is the end of the chat: TDLib
-		// answers with what it has, and asking again for the same boundary
-		// answers with the same messages.
-		if len(history.Messages) < settlementHistoryLimit ||
-			history.NextFrom == 0 ||
-			history.NextFrom == from {
+		// The end of a chat is an empty page and nothing else.
+		//
+		// It used to also be a page shorter than the request, which is the
+		// same len(messages) == limit heuristic telegram.HistoryPage had
+		// and had already been taken out of, in the very comment that
+		// describes what a real account answers: TDLib serves the first
+		// request for a chat's history with what it has under its hand,
+		// and on the owner's account that was one message, for both
+		// chats, for a limit of a hundred. So the read took one page, and
+		// one message, as the whole conversation — and settled all
+		// thirteen records, sent the day before and every one of them in
+		// the chat, as uncertain with sameText=0, which is not a failed
+		// match but a match that was never attempted.
+		//
+		// NextFrom is the boundary to ask for next, and it is zero only
+		// for a page that was empty. A boundary that does not move would
+		// ask for the same page again and be answered with the same
+		// page, so that is the other end of the chat. What bounds a chat
+		// that has no end is the page budget.
+		if history.NextFrom == 0 || history.NextFrom == from {
 			return candidates, nil
 		}
 		from = history.NextFrom

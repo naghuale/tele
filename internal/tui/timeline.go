@@ -223,37 +223,55 @@ func (m Model) olderPageLineCount() int {
 }
 
 // timelineTotal returns how many messages the timeline holds: the history
-// of the open chat and the pending messages below it.
+// of the open chat and the messages that have not gone out, which is one
+// conversation and so one count.
 func (m Model) timelineTotal() int {
 	return len(m.selected().Messages) + len(m.pending)
-}
-
-// historyTotal returns how many messages of the timeline are history, which
-// is the boundary a pending message's index starts at.
-func (m Model) historyTotal() int {
-	return len(m.selected().Messages)
 }
 
 // selectedPending returns the pending message under the cursor, if the
 // cursor is on one.
 func (m Model) selectedPending() (PendingMessage, bool) {
-	index := m.selectedMsg - m.historyTotal()
-	if index < 0 || index >= len(m.pending) {
+	entry, ok := m.selectedFeedEntry()
+	if !ok || !entry.isPending() {
 		return PendingMessage{}, false
 	}
 
-	return m.pending[index], true
+	return *entry.pending, true
 }
 
 // selectedHistory returns the message of the history under the cursor, if
 // the cursor is on one.
 func (m Model) selectedHistory() (Message, bool) {
-	messages := m.selected().Messages
-	if m.selectedMsg < 0 || m.selectedMsg >= len(messages) {
+	entry, ok := m.selectedFeedEntry()
+	if !ok || entry.isPending() {
 		return Message{}, false
 	}
 
-	return messages[m.selectedMsg], true
+	return entry.message, true
+}
+
+// selectedFeedEntry is the entry the cursor is on.
+//
+// It is asked of the feed rather than of the two lists, because the cursor
+// is an index of the conversation and a message of the queue is a message
+// of the conversation wherever its own time puts it. Resolving it by
+// arithmetic on the two lists — a pending row being at history length plus
+// its own — is what pinned the queue's own records to the foot of the
+// chat.
+func (m Model) selectedFeedEntry() (timelineEntry, bool) {
+	total := m.timelineTotal()
+	if total == 0 {
+		return timelineEntry{}, false
+	}
+
+	entries := m.feedEntries()
+	index := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
+	if index < 0 || index >= len(entries) {
+		return timelineEntry{}, false
+	}
+
+	return entries[index], true
 }
 
 // pendingMessageOf returns the delivery state of a pending message the

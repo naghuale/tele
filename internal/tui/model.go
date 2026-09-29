@@ -1092,7 +1092,11 @@ func (m Model) updateMessageSent(msg messageSentMsg) (tea.Model, tea.Cmd) {
 	// watching this conversation for what is new in it. A reader who has
 	// scrolled up to read something older is left where they are, because
 	// a message arriving is not a reason to lose their place.
-	atNewest := m.selectedMsg >= len(m.chats[m.selectedChat].Messages)-1
+	// Whether the reader is at the newest thing in the conversation, which
+	// is the feed's own question and not the history's: a row of the queue
+	// from yesterday is not the newest message of the chat, and asking the
+	// history alone would have answered about the wrong list.
+	atNewest := m.timelineFollowsNewest()
 
 	m.chats[m.selectedChat].Messages = appendMessageByID(
 		m.chats[m.selectedChat].Messages,

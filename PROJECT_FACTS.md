@@ -782,8 +782,54 @@
     the shared lock directory, not in the data folder
 - TDLib database directory: ~/.local/share/telecli/tdlib/database
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
-- Config file: os.UserConfigDir()/telecli/config.toml, overridden by
-  --config or TELECLI_CONFIG
+- Config file: $XDG_CONFIG_HOME/telecli/config.toml, and
+  ~/.config/telecli/config.toml when that variable is not set, on macOS
+  and on Linux alike; a relative $XDG_CONFIG_HOME is ignored as the XDG
+  specification says. Overridden by --config or TELECLI_CONFIG, and the
+  old path os.UserConfigDir()/telecli/config.toml is read and moved out
+  of the way on the first start (below). The owner decided this on
+  29.09.2026: os.UserConfigDir puts the file under ~/Library/Application
+  Support on macOS, a path with a space in a hidden folder that is hard
+  to find and to type, and gh, git, opencode and crewflow keep theirs in
+  ~/.config. This is the one place where telecli follows ~/.config
+  instead of the platform directory, and it is the exception that the
+  XDG variable exists for, not a rule the rest of the storage may use
+- Moving the settings file (internal/config/migrate.go):
+  - when the new file is absent and the old one is there, the file is
+    copied to the new path (directory 0700, file 0600), read back and
+    compared value by value with the old file, and only then is the old
+    file renamed to config.toml.moved-<date>. It is never deleted
+  - the move is all or nothing: a failure at any step removes the copy
+    and leaves the old file exactly as it was, telecli keeps reading
+    that old file (PathSourceLegacy), and one line says the move did
+    not happen and why. The next start tries again
+  - every run that resolves the path prints one line when the file
+    moved; `telecli doctor` reports it as a warning, and
+    `telecli configure status` shows the source and the line
+  - a file in both places at once is a refusal naming both paths, and
+    telecli does not start: the two may disagree, and choosing either
+    one silently is how a machine ends up with settings nobody picked
+  - the paths inside the file are not rewritten: the TDLib data, the
+    outbox and the key it is encrypted with do not move
+- `telecli configure set <key> <value>` and `telecli configure get
+  <key>`: one value in the file, changed in place, every other byte left
+  as the person wrote it; the section and the file are created when they
+  are missing, an unknown key or a value the key cannot hold is refused
+  before anything is written, and the result is parsed before it is
+  written. The reason is 29.09.2026: the owner was told to run
+  `printf ... > config.toml`, which would have replaced the TDLib
+  directories, the Telegram login and the message queue along with the
+  one line they meant to change
+- `telecli configure reset` names the file and the credential profile
+  before it removes either of them and takes the word `delete`; `y` is
+  not a confirmation. `--yes` is for an unattended run. The reason is
+  29.09.2026: the owner ran it to reset one line, said `y`, and lost the
+  file
+- An unknown key in [tui] is a warning that names it and the rest of the
+  file is read; in every other section it is still an error. The reason
+  is 29.09.2026: the owner had already added `nerd_font` to [tui] before
+  the build knew the setting, and every command stopped working,
+  `telecli configure status` included
 - Interface configuration: [tui] theme, [tui] color and [tui] width
   - theme: a built-in theme name, default catppuccin-mocha; an unknown
     name is a configuration error that lists the names there are

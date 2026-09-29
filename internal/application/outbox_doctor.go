@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -20,6 +21,26 @@ func writeConfigWarnings(out io.Writer, warnings []string) {
 	for _, warning := range warnings {
 		fmt.Fprintf(out, "warning: %s\n", warning)
 	}
+}
+
+// doctorWarnings are the notes `telecli doctor` prints: the ones the
+// configuration produced while loading, and the one about a settings file
+// that is still in the old place.
+//
+// A file that has not moved is a warning and not an error: telecli reads
+// it, so a person is not blocked, but the doctor is where they find out
+// that their settings are in the place this build no longer keeps them.
+func doctorWarnings(
+	cfg config.Config,
+	resolved config.ResolvedPath,
+) []string {
+	if resolved.Notice == "" {
+		return cfg.Warnings
+	}
+
+	// The copy comes first: the warnings belong to the configuration
+	// that was loaded, and doctor must not write into it.
+	return append(slices.Clip(cfg.Warnings), resolved.Notice)
 }
 
 // OutboxProbe opens the durable outbox just far enough to learn whether it

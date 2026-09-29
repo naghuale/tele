@@ -88,14 +88,19 @@ type ConfigureResult struct {
 	TDLib TDLibProbeResult
 	// Config is the written configuration.
 	Config config.Config
+	// Notice is the one line about the settings file when it moved
+	// while this run resolved it. It is empty when it did not.
+	Notice string
 }
 
 // defaultDataDirectory returns the platform data directory for the
 // application.
 //
-// It follows the same convention as config.Default: the per-user
-// application support directory on macOS and the per-user data
-// directory elsewhere.
+// It follows the platform convention: the per-user application support
+// directory on macOS and the per-user data directory elsewhere. It is
+// deliberately not the place the settings file moved to on 29.09.2026:
+// that decision was about a file a person edits, and the session data of
+// TDLib and the message queue stay where the platform keeps them.
 //
 // It returns "" when no absolute home directory is available: a relative
 // fallback would be written into the configuration file and resolved from
@@ -148,7 +153,21 @@ func RunConfigure(
 		req.Probe = newNativeTDLibProbe()
 	}
 
-	configPath, err := configureConfigPath(req)
+	// The settings file may still be in the place this build used
+	// before 29.09.2026. Resolving it is what moves it, and it is also
+	// what refuses a machine that has the file in both places: setup
+	// must not write a second one and leave the next start of telecli
+	// with a pair it cannot choose between.
+	resolved, err := resolveForConfigure(req)
+	if err != nil {
+		return ConfigureResult{}, fmt.Errorf(
+			"%w: %w",
+			ErrConfigureInput,
+			err,
+		)
+	}
+
+	configPath, err := configureConfigPath(req, resolved)
 	if err != nil {
 		return ConfigureResult{}, err
 	}
@@ -245,17 +264,51 @@ func RunConfigure(
 		ProfileReplaced: replaced,
 		TDLib:           probe,
 		Config:          next,
+		Notice:          resolved.Notice,
 	}, nil
 }
 
+// resolveForConfigure resolves the settings file for setup.
+//
+// A path that was asked for by name and does not exist is not a
+// failure: setup is how a configuration file comes into being, and
+// refusing a missing file would leave a first run with no way out.
+func resolveForConfigure(
+	req ConfigureRequest,
+) (config.ResolvedPath, error) {
+	resolved, err := config.ResolvePath(req.Options.ConfigPath)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigNotFound) {
+			return config.ResolvedPath{Source: config.PathSourceNone}, nil
+		}
+
+		return config.ResolvedPath{}, err
+	}
+
+	return resolved, nil
+}
+
 // configureConfigPath resolves where the configuration will live.
-func configureConfigPath(req ConfigureRequest) (string, error) {
+//
+// With nothing asked for by name the file telecli reads is the file
+// setup writes: after a successful move that is the new place, and while
+// the old file is still in use it stays the target, because writing a
+// new file beside it would leave a pair of them for every later start to
+// refuse.
+func configureConfigPath(
+	req ConfigureRequest,
+	resolved config.ResolvedPath,
+) (string, error) {
 	if req.Options.ConfigPath != "" {
 		return req.Options.ConfigPath, nil
 	}
 
 	if fromEnv := envValue(req.Environ, "TELECLI_CONFIG"); fromEnv != "" {
 		return fromEnv, nil
+	}
+
+	if resolved.Found() {
+		return resolved.Path, nil
 	}
 
 	path, err := config.DefaultPath()
@@ -837,6 +890,9 @@ func zeroBytes(value []byte) {
 func writeConfigureReport(w io.Writer, result ConfigureResult) {
 	fmt.Fprintf(w, "\n  Setup complete\n\n")
 	fmt.Fprintf(w, "  Configuration  %s\n", result.ConfigPath)
+	if result.Notice != "" {
+		fmt.Fprintf(w, "  Notice         %s\n", result.Notice)
+	}
 	fmt.Fprintf(w, "  TDLib          %s\n", result.TDLib.Path)
 	fmt.Fprintf(
 		w,

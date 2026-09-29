@@ -39,6 +39,15 @@ func WriteFile(path string, cfg Config) error {
 		return err
 	}
 
+	return WriteRaw(path, encoded)
+}
+
+// WriteRaw writes an already rendered configuration to path atomically.
+//
+// It is the same write WriteFile does, without the rendering, for the
+// commands that change one value in a file a person wrote: the bytes
+// around that value are theirs, and only the value may change.
+func WriteRaw(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, ConfigDirMode); err != nil {
 		return fmt.Errorf("%w: create %s: %w", ErrConfigWrite, dir, err)
@@ -63,7 +72,7 @@ func WriteFile(path string, cfg Config) error {
 		return fmt.Errorf("%w: chmod temporary file: %w", ErrConfigWrite, err)
 	}
 
-	if _, err := temp.Write(encoded); err != nil {
+	if _, err := temp.Write(data); err != nil {
 		cleanup()
 		return fmt.Errorf("%w: write temporary file: %w", ErrConfigWrite, err)
 	}

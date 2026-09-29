@@ -23,6 +23,10 @@ func runConfigure(args []string, env Environment) int {
 			return runConfigureStatus(args[1:], env)
 		case "reset":
 			return runConfigureReset(args[1:], env)
+		case "set":
+			return runConfigureSet(args[1:], env)
+		case "get":
+			return runConfigureGet(args[1:], env)
 		}
 	}
 
@@ -130,8 +134,19 @@ func runConfigureStatus(args []string, env Environment) int {
 	out := env.Stdout
 
 	fmt.Fprintf(out, "Configuration\n")
-	writeStatusLine(out, "File", resolved.Path)
-	writeStatusLine(out, "Source", string(resolved.Source))
+	writeStatusLine(out, "File", statusFile(resolved))
+	writeStatusLine(out, "Source", statusSource(resolved))
+	if resolved.Notice != "" {
+		writeStatusLine(out, "Notice", resolved.Notice)
+	}
+	if !resolved.Found() {
+		createPath, err := config.WriteTarget(*configPath)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "configure error: %v\n", err)
+			return 1
+		}
+		writeStatusLine(out, "Create at", createPath)
+	}
 	writeStatusLine(out, "Delivery mode", string(cfg.MessageDelivery.Mode))
 	writeStatusLine(out, "Data directory", "configured")
 
@@ -198,6 +213,34 @@ func runConfigureStatus(args []string, env Environment) int {
 // whitespace on empty values.
 const statusLabelWidth = 18
 
+// statusFile is the file line: where the settings were read from, or
+// that there are none and the built-in defaults apply.
+func statusFile(resolved config.ResolvedPath) string {
+	if !resolved.Found() {
+		return "none, the built-in defaults apply"
+	}
+
+	return resolved.Path
+}
+
+// statusSource is the source line: which rule picked the file, so a
+// person looking for it knows whether to look in ~/.config, in the
+// variable they exported, or in the argument they passed.
+func statusSource(resolved config.ResolvedPath) string {
+	switch resolved.Source {
+	case config.PathSourceExplicit:
+		return "explicit, --config"
+	case config.PathSourceEnvironment:
+		return "environment, TELECLI_CONFIG"
+	case config.PathSourceDefault:
+		return "the default file"
+	case config.PathSourceLegacy:
+		return "the file this build used before 29.09.2026"
+	default:
+		return "none"
+	}
+}
+
 func writeStatusLine(w io.Writer, label, value string) {
 	if value == "" {
 		value = "-"
@@ -217,20 +260,42 @@ func readyWord(
 	return "yes"
 }
 
+// resetConfirmation is the word a person has to type before
+// `telecli configure reset` removes anything.
+//
+// It is a whole word and not a y because the command removes the
+// settings file and the Telegram login in one step. The owner ran it to
+// reset one line, said y after a question he had not read closely, and
+// lost the file: every other setting in it went with the one line he
+// meant to change. A word cannot be typed by a hand that is already
+// moving.
+const resetConfirmation = "delete"
+
+// resetDeclined is printed when the confirmation is not the word.
+const resetDeclined = "Nothing was removed."
+
 // runConfigureReset implements `telecli configure reset`.
 //
-// It removes the configuration file and the credential profile. The
-// durable outbox database and its Keychain key are left untouched,
-// because deleting the key would make an existing database permanently
-// unreadable.
+// It removes the configuration file and the credential profile, and it
+// says which of the two it is about to remove before it removes
+// anything. The durable outbox database and its Keychain key are left
+// untouched, because deleting the key would make an existing database
+// permanently unreadable.
 func runConfigureReset(args []string, env Environment) int {
 	fs := flag.NewFlagSet("configure reset", flag.ContinueOnError)
 	fs.SetOutput(env.Stderr)
 
-	configPath := fs.String(
-		"config",
-		"",
-		"path to the configuration file",
+	var (
+		configPath = fs.String(
+			"config",
+			"",
+			"path to the configuration file",
+		)
+		assumeYes = fs.Bool(
+			"yes",
+			false,
+			"remove without asking, for an unattended run",
+		)
 	)
 
 	if err := fs.Parse(args); err != nil {
@@ -247,30 +312,28 @@ func runConfigureReset(args []string, env Environment) int {
 		return 1
 	}
 
-	prompter := &terminalPrompter{
-		out:     env.Stdout,
-		scanner: newLineScanner(env.Stdin),
-	}
+	out := env.Stdout
+	writeResetSummary(out, resolved.Path, cfg.Auth.CredentialProfile)
 
-	confirmed, err := prompter.Confirm(
-		"Remove configuration and Telegram credential profile? [y/N]: ",
-	)
-	if err != nil {
-		fmt.Fprintf(env.Stderr, "configure error: %v\n", err)
-		return 1
-	}
+	if !*assumeYes {
+		confirmed, err := askResetConfirmation(out, env.Stdin)
+		if err != nil {
+			fmt.Fprintf(env.Stderr, "configure error: %v\n", err)
+			return 1
+		}
 
-	if !confirmed {
-		fmt.Fprintf(env.Stdout, "Nothing was removed.\n")
-		return 0
+		if !confirmed {
+			fmt.Fprintf(out, "%s\n", resetDeclined)
+			return 0
+		}
 	}
 
 	if cfg.Auth.CredentialProfile != "" {
-		store := authstore.NewPlatformStore()
-		if err := store.Delete(
+		err := env.credentialProfileDeleter()(
 			context.Background(),
 			cfg.Auth.CredentialProfile,
-		); err != nil &&
+		)
+		if err != nil &&
 			!errors.Is(err, authstore.ErrProfileUnavailable) {
 			fmt.Fprintf(
 				env.Stderr,
@@ -293,13 +356,78 @@ func runConfigureReset(args []string, env Environment) int {
 		}
 	}
 
-	fmt.Fprintf(env.Stdout, "Configuration removed.\n")
+	fmt.Fprintf(out, "Configuration removed.\n")
 	fmt.Fprintf(
-		env.Stdout,
+		out,
 		"The durable outbox database and its key were left in place.\n",
 	)
 
 	return 0
+}
+
+// writeResetSummary names what the command is about to remove.
+//
+// A question that says only "are you sure" is a question about something
+// the person has to remember, and the answer they are thinking about is
+// usually one line of a file they have open. The paths and the profile
+// name are here so the answer can be about this run instead.
+func writeResetSummary(
+	w io.Writer,
+	configPath string,
+	profile string,
+) {
+	fmt.Fprintf(w, "This removes:\n")
+
+	if configPath == "" {
+		fmt.Fprintf(
+			w,
+			"  the settings file    none: there is no configuration file\n",
+		)
+	} else {
+		fmt.Fprintf(w, "  the settings file    %s\n", configPath)
+	}
+
+	if profile == "" {
+		fmt.Fprintf(
+			w,
+			"  the Telegram login   none: no credential profile is set\n",
+		)
+	} else {
+		fmt.Fprintf(w, "  the Telegram login   %s\n", profile)
+	}
+
+	fmt.Fprintf(
+		w,
+		"  the message queue and its key are left in place.\n\n",
+	)
+}
+
+// askResetConfirmation prints the question and reports whether the word
+// was typed.
+//
+// A line that is not the word, and an input that ends before an answer,
+// are both a refusal: nothing is removed and the summary stays where the
+// person can read it and run the command again.
+func askResetConfirmation(out io.Writer, in io.Reader) (bool, error) {
+	if _, err := io.WriteString(
+		out,
+		`Type "`+resetConfirmation+`" to remove them: `,
+	); err != nil {
+		return false, err
+	}
+
+	scanner := newLineScanner(in)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return false, err
+		}
+
+		return false, nil
+	}
+
+	answer := strings.TrimSpace(scanner.Text())
+
+	return strings.EqualFold(answer, resetConfirmation), nil
 }
 
 // loadConfigForStatus loads the configuration for a read-only command.

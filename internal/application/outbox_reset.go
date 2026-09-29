@@ -219,6 +219,12 @@ func (c *outboxResetCommand) prepare(
 			err,
 		), false
 	}
+	// Resolving the settings file may have moved it to the place this
+	// build keeps it, and a file that moved has to be said out loud
+	// here too: the queue identity is written into that file a few
+	// lines below, and a person who cannot find it has no way to check
+	// what was recorded.
+	writeConfigNotice(c.out, resolved)
 	if !resolved.Found() {
 		return c.refuse(
 			"No configuration file was found, so there is no "+

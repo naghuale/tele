@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"telecli/internal/authstore"
 	"telecli/internal/buildinfo"
 	"telecli/internal/config"
 	"telecli/internal/outbox"
@@ -108,6 +109,13 @@ type Environment struct {
 	// real Keychain item is read or written.
 	NewTelegramCredentialStore func() TelegramCredentialStore
 
+	// DeleteCredentialProfile removes one Telegram credential profile.
+	//
+	// A nil value uses the platform store. Tests inject a fake so that
+	// `telecli configure reset` can be exercised without deleting a
+	// real Keychain item on the machine that runs the suite.
+	DeleteCredentialProfile func(context.Context, string) error
+
 	// ProbeOutbox is the message-queue probe used by telecli doctor.
 	//
 	// A nil value uses the production probe, which opens the real
@@ -139,6 +147,21 @@ func (e Environment) telegramCredentialStore() TelegramCredentialStore {
 	}
 
 	return NewTelegramCredentialStore()
+}
+
+// credentialProfileDeleter returns the function that removes one
+// credential profile for this run.
+func (e Environment) credentialProfileDeleter() func(
+	context.Context,
+	string,
+) error {
+	if e.DeleteCredentialProfile != nil {
+		return e.DeleteCredentialProfile
+	}
+
+	store := authstore.NewPlatformStore()
+
+	return store.Delete
 }
 
 var errMissingTUIRunner = errors.New("TUI runner is not configured")
@@ -459,14 +482,23 @@ Usage:
   telecli version
   telecli configure [--config path] [--mode durable]
   telecli configure status
-  telecli configure reset
+  telecli configure get <key>
+  telecli configure set <key> <value>
+  telecli configure reset [--config path] [--yes]
   telecli outbox reset [--config path] [--yes]
   telecli doctor [--config path] [--no-color]
   telecli tui    [--config path] [--no-color]
 
-Configuration is read from --config, then TELECLI_CONFIG, then
-`+"`$XDG_CONFIG_HOME/telecli/config.toml`"+` (or the platform equivalent),
-then built-in defaults.
+The settings live in ~/.config/telecli/config.toml, or in
+`+"`$XDG_CONFIG_HOME/telecli/config.toml`"+` when that variable is set,
+and are read from --config, then TELECLI_CONFIG, then there, then the
+built-in defaults.
+
+Change one setting with
+
+  telecli configure set tui.theme gruvbox
+
+It edits that one line and leaves the rest of the file as you wrote it.
 `)
 }
 
@@ -476,13 +508,25 @@ then built-in defaults.
 // Precedence is --config, then TELECLI_CONFIG, then the per-user config
 // file, then the built-in defaults. An explicit or environment path that
 // does not exist is an error rather than a silent fallback.
-func loadCommandConfig(explicitPath string) (config.Config, error) {
+//
+// The resolution is returned with the configuration, because the place
+// the file was read from is part of what a run has to report: a file
+// that is still in the old place is a file the person has to move, and
+// the one line about it is the whole report.
+func loadCommandConfig(
+	explicitPath string,
+) (config.Config, config.ResolvedPath, error) {
 	resolved, err := config.ResolvePath(explicitPath)
 	if err != nil {
-		return config.Config{}, err
+		return config.Config{}, config.ResolvedPath{}, err
 	}
 
-	return config.LoadResolved(resolved)
+	cfg, err := config.LoadResolved(resolved)
+	if err != nil {
+		return config.Config{}, resolved, err
+	}
+
+	return cfg, resolved, nil
 }
 
 // writeAuthStatus prints the authentication readiness of the current
@@ -531,7 +575,7 @@ func runDoctor(args []string, env Environment) int {
 		return 2
 	}
 
-	cfg, err := loadCommandConfig(*cfgPath)
+	cfg, settings, err := loadCommandConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -558,7 +602,7 @@ func runDoctor(args []string, env Environment) int {
 		runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(env.Stdout, "Config: OK (data_dir=%s, log_level=%s)\n",
 		cfg.DataDir, cfg.LogLevel)
-	writeConfigWarnings(env.Stdout, cfg.Warnings)
+	writeConfigWarnings(env.Stdout, doctorWarnings(cfg, settings))
 	writeInterfaceStatus(env.Stdout, interfaceTheme, profile)
 	writeWidthStatus(env.Stdout, widthMode)
 	reportOutboxStatus(
@@ -606,11 +650,16 @@ func runTUI(args []string, env Environment) int {
 		return 2
 	}
 
-	cfg, err := loadCommandConfig(*cfgPath)
+	cfg, settings, err := loadCommandConfig(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
 	}
+
+	// The line about the settings file goes to the diagnostics rather
+	// than to the terminal: it is a note about the machine, and the
+	// interface owns the screen from here.
+	writeConfigNotice(env.Stderr, settings)
 
 	interfaceTheme, colorProfile, err := resolveInterfaceTheme(cfg, *noColor)
 	if err != nil {

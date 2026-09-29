@@ -518,6 +518,32 @@ func (m Model) handleMessageStatusesLoaded(
 	m.pendingSnapshot = clonePendingMessages(msg.pending)
 	m.mergePendingMessages(msg.pending, m.deliveryStatuses)
 
+	// The merge changed the shape of the feed, so the window is placed
+	// again.
+	//
+	// A window is placed against a walk of the entries above it, and that
+	// walk is over the feed as it was when the window was placed. A read
+	// that takes a row out of the middle of the feed — an uncertain record
+	// the queue has stopped listing, a row delivered into the
+	// conversation — leaves the window pointing at a place that is no
+	// longer there, and it is placed too low: the feed is drawn from
+	// further down than it should be, runs out of entries before it has
+	// filled its rows, and the rows it did not fill are padded at the top.
+	//
+	// That is the screen a user sees as a conversation with its top gone
+	// and a few messages at the bottom, which is fixed by any key press
+	// because a key press places the window again.
+	//
+	// A reader who is following the newest thing is placed at the newest
+	// thing, which is where they are looking. A reader scrolled up into
+	// the history keeps the message they are on, and the window is only
+	// clamped back inside the feed.
+	if m.timelineFollowsNewest() {
+		m = m.scrollToNewest()
+	} else {
+		m = m.normalizeTimeline()
+	}
+
 	if delivered {
 		return m, withRepaint(m, nil)
 	}

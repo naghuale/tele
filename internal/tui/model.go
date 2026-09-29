@@ -1142,6 +1142,13 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 	m.sendState = sendStateIdle
 	m.sendErr = nil
 
+	// Whether the reader was watching the newest thing, asked BEFORE the
+	// row is added: a message a user has just sent is the newest thing in
+	// the conversation, and a reader who was at the end is watching for it.
+	// A reader scrolled up into the history is left exactly where they
+	// are, which is the same rule every other arrival follows.
+	wasAtNewest := m.timelineFollowsNewest()
+
 	// The message is in the timeline before the draft is gone: a user who
 	// pressed Enter has to see where the message went, and the history does
 	// not have it yet — Telegram has not seen it at all (§4.4).
@@ -1152,6 +1159,22 @@ func (m Model) updateComposerSubmission(msg composerSubmissionMsg) (tea.Model, t
 		deliveryStateOfSubmission(msg.submission.State),
 		m.clock()(),
 	)
+
+	// The window and the cursor follow the message that was just sent.
+	//
+	// The row is the newest thing in the conversation, and the window is
+	// not moved onto it, so the message a user has just sent is drawn off
+	// the bottom of a feed that is already full — the reader presses Enter,
+	// and the screen does not move. Then the read that confirms the send
+	// finds the cursor one message behind the end of the conversation, so
+	// it does not place the window either, and the message the queue
+	// accepted stays off the screen until a key is pressed.
+	//
+	// Placing the window here is what makes the delivery's own placement
+	// work: a reader at the end is a reader at the end afterwards too.
+	if wasAtNewest {
+		m = m.scrollToNewest()
+	}
 
 	// The draft is cleared only now, after the queue has taken it (§7.1),
 	// and the cursor goes with it: the next draft starts at its beginning.

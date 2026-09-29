@@ -878,6 +878,35 @@
     message and the only thing that separates an uncertain-by-settlement
     from an uncertain-by-lost-lease, and it is a temporary id that is in
     no history page
+  - a send has to place the window on the message that was just sent. The
+    submission added the row and moved neither the cursor nor the window, so
+    the message went in at the newest index of a feed that was already full
+    — off the bottom of the screen. Then the read that confirmed the send
+    found the cursor one message behind the end and did not place the
+    window either, and the message the queue had accepted stayed off the
+    screen until a key was pressed
+  - a change in the SHAPE of the feed re-places the window. A window is
+    placed by walking the entries above it, over the feed as it was then; a
+    read that takes a row out of the middle (an uncertain record the queue
+    has stopped listing, a row delivered into the conversation) leaves it
+    pointing at a place that is no longer there, and it is drawn from
+    further down than it should be, runs out of entries before filling its
+    rows, and the rows it did not fill are padded at the TOP. That is the
+    owner's screen: a few newest messages at the bottom, empty above, fixed
+    by any key press because a key press places the window again
+  - "send result named no entry this queue holds" is the SECOND and later
+    sightings of a result the queue already applied. `reconcile` matches
+    against `ListAwaitingSendResult`, which is the entries still waiting for
+    a result; once a result has been applied its entry is `sent` and is no
+    longer awaiting, so the same temporary id arriving again is claimed by
+    nobody. It is only written after the id has been seen twice 30s apart
+    (`unmatchedGrace`), and nothing is written to the store — so it is
+    harmless to the queue's state. It is NOT harmless as a number:
+    `noEntry` is incremented and it is written at WARN, while the comment
+    above it says the same result arriving twice is "expected and
+    harmless". A counter somebody reads as "a confirmation this queue
+    could not place" is counting repeats. Not changed: it is a counter and
+    a level, and the owner has said not to touch telemetry
   - the settlement read ONE message of a chat and called that the end of
     it. Its end-of-chat test was `len(messages) < limit`, which is the
     `len(messages) == limit` heuristic telegram.HistoryPage had already

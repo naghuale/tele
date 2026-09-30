@@ -398,7 +398,7 @@ func (s viewStyles) pill(background theme.Color, surface theme.Color) lipgloss.S
 // body is the style of the text of a message.
 //
 // The two sides are told apart by the side they are on and by the surface
-// behind them (§4.4): a message of this user is in the bubble on the
+// behind them (§4.4): a message of this user is in the block on the
 // right, and the other side's is on the chat background on the left.
 func (s viewStyles) body(outgoing bool) lipgloss.Style {
 	if outgoing {

@@ -831,7 +831,7 @@ func TestANarrowHeaderKeepsTheStatusAndTheSearchIsInTheHintBar(t *testing.T) {
 	}
 
 	header := strings.Join(chatListHeaderLines(t, m), " ")
-	if !strings.Contains(header, "Connected · 2 queued") {
+	if !strings.Contains(header, "connected · 2 queued") {
 		t.Fatalf("the narrow header = %q, want the status", header)
 	}
 	if !strings.Contains(m.View(), hintChatList) {

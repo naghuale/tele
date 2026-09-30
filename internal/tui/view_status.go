@@ -4,6 +4,8 @@ import (
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"telecli/internal/tui/theme"
 )
 
 // This file draws the status block: the one or two lines §4.3 puts under
@@ -21,16 +23,42 @@ import (
 // "offline" and an unreadable queue is not "empty", and the interface has
 // no word for either that would be honest.
 
-// statusBlock returns the lines of the status block, or none when there is
-// nothing to say.
+// statusPart is one part of the status line: the words, and the colour they
+// are drawn in.
 //
-// The block is at most two lines, and one on a short screen (§3.4 hides
-// the second line): a status that grows into the conversation costs the
+// A part carries a colour of its own because of the one part that has to
+// have one. The presence is the only part of the line that is about a
+// person rather than about the program, and the mockup of the owner (30.09)
+// draws its word in green and the rest of the line in the dim step of the
+// text ramp: a reader sees "online" before they read anything else, and a
+// line in one colour cannot say that. Everything else on the line is the
+// program's own state and stays in the block's own colour, so the line
+// reads as one line.
+type statusPart struct {
+	text  string
+	style lipgloss.Style
+}
+
+// statusBlock returns the lines of the status block drawn, or none when
+// there is nothing to say.
+//
+// The block is at most two lines, and one on a short screen (§3.4 hides the
+// second line): a status that grows into the conversation costs the
 // messages it is meant to explain.
 func (m Model) statusBlock(layout Layout, width int) []string {
-	lines := m.statusBlockLines(layout, width)
+	lines, parts := m.statusLines(layout, width)
 	if len(lines) == 0 {
 		return nil
+	}
+
+	// A line that fits is drawn part by part, so the presence keeps its own
+	// green. A line that has to be wrapped is drawn in the block's own
+	// colour for the whole of it: a wrapped line has no columns of its own
+	// to keep a part in, and a colour that moves to the next row in the
+	// middle of a sentence is a colour the reader has to work out rather
+	// than one that tells them something.
+	if len(lines) == 1 {
+		return []string{m.styledStatusLine(parts, width)}
 	}
 
 	style := m.statusStyle()
@@ -43,14 +71,22 @@ func (m Model) statusBlock(layout Layout, width int) []string {
 
 // statusBlockLines returns the text of the status block, one entry per row.
 //
-// The text is fitted and capped here and the style is applied by
-// statusBlock, in that order: a line is measured by what it says, so the
-// width is the width of the words rather than of the escape sequences that
-// colour them.
+// It is the same block without the colours on it, which is what the budget
+// of the timeline measures: a row is a row whatever colour it is, and both
+// come from statusLines so that the two cannot disagree about how many rows
+// the status is.
 func (m Model) statusBlockLines(layout Layout, width int) []string {
+	lines, _ := m.statusLines(layout, width)
+
+	return lines
+}
+
+// statusLines returns the rows of the status block as text, and the parts
+// of the line that fit into them.
+func (m Model) statusLines(layout Layout, width int) ([]string, []statusPart) {
 	parts := m.statusParts()
 	if len(parts) == 0 || width < 1 {
-		return nil
+		return nil, nil
 	}
 
 	// A tall screen has two lines and a short one has a single line (§3.4
@@ -67,10 +103,10 @@ func (m Model) statusBlockLines(layout Layout, width int) []string {
 	// "Waiting for network · Recovering" is left wondering about the rest
 	// of a word, while one reading "Waiting for network" has everything
 	// the line is for.
-	lines := m.widths.Wrap(joinWithSeparator(parts), width, ellipsis)
+	lines := m.widths.Wrap(joinWithSeparator(statusPartText(parts)), width, ellipsis)
 	for len(lines) > limit && len(parts) > 1 {
 		parts = parts[:len(parts)-1]
-		lines = m.widths.Wrap(joinWithSeparator(parts), width, ellipsis)
+		lines = m.widths.Wrap(joinWithSeparator(statusPartText(parts)), width, ellipsis)
 	}
 	if len(lines) > limit {
 		lines = lines[:limit]
@@ -79,7 +115,37 @@ func (m Model) statusBlockLines(layout Layout, width int) []string {
 		lines[index] = m.widths.Fit(line, width, ellipsis)
 	}
 
-	return lines
+	return lines, parts
+}
+
+// styledStatusLine draws one row of the status block: every part in its own
+// colour and the separator of §3.3 between the parts in the block's own.
+func (m Model) styledStatusLine(parts []statusPart, width int) string {
+	// The separator and the parts that have no colour of their own are in
+	// the dim step of the text ramp, and not in the colour of the part that
+	// ranks highest: a line whose separators are green is a line in green
+	// with a word of it in a different green.
+	own := m.styles().dimmed(m.tokens().SecondaryText)
+	row := m.painter(theme.Color{}).add(parts[0].style, parts[0].text)
+	for _, part := range parts[1:] {
+		row = row.add(own, statusSeparator).add(part.style, part.text)
+	}
+
+	return row.pad(width - m.widths.StringWidth(joinWithSeparator(statusPartText(parts)))).
+		String()
+}
+
+// statusPartText returns what the parts say, as one string per part, which
+// is how the width of the line is asked about: a line is measured by what
+// it says, so the width is the width of the words and not of the escape
+// sequences that colour them.
+func statusPartText(parts []statusPart) []string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		texts = append(texts, part.text)
+	}
+
+	return texts
 }
 
 // maxStatusLines is how many lines the status block may take (§4.3).
@@ -91,39 +157,68 @@ const maxStatusLines = 2
 // reads one way of saying "and also" on this screen.
 const statusSeparator = " · "
 
-// statusParts returns the parts of the status block in priority order.
-func (m Model) statusParts() []string {
+// statusParts returns the parts of the status block in priority order, each
+// with the colour it is drawn in.
+func (m Model) statusParts() []statusPart {
+	styles := m.styles()
+	quiet := styles.dimmed(m.tokens().SecondaryText)
+	var parts []statusPart
+
 	// A notice is what an action just did, and it is the thing the user is
 	// looking for: they pressed a key and the screen owes them an answer
 	// before it owes them anything else.
 	if m.notice != "" {
-		return []string{m.notice}
+		return []statusPart{{
+			text:  m.notice,
+			style: styles.text(m.tokens().StatusActive),
+		}}
 	}
 
 	// §11.1 puts the key and outbox failure above everything else, and
-	// decision 3 names the word. The counts of a queue nothing can be
-	// queued into would be a lie about that queue, so they go.
+	// decision 3 names the word. It is a part of the line and not the whole
+	// of it: the parts under it are still true while nothing can be sent,
+	// and a line that said only "Sending paused" took the presence of a
+	// person and the state of a connection off the screen because a
+	// composer could not write (the owner, 30.09).
 	if m.pausedErr != nil {
-		return []string{sendingPausedHeadline}
+		parts = append(parts, statusPart{
+			text:  sendingPausedHeadline,
+			style: styles.text(m.tokens().StatusError),
+		})
 	}
 
-	var parts []string
 	// The presence comes first because it is the only part of the line
 	// that is about a person rather than about the program, and a user
 	// reading a header wants to know who is there before they want to know
 	// how the queue is doing. It is also the part that is dropped last
 	// when the line does not fit: the queue can be read again in two
 	// seconds, and a person cannot.
+	//
+	// It is in green, as the mockup of the owner draws it: a presence is a
+	// fact about somebody, and the status vocabulary of the theme says a
+	// status is a colour that repeats the word rather than one that
+	// carries it.
 	if presence := presenceText(
 		m.summary.Presence,
 		m.clock()(),
 		m.timeZone(),
 	); presence != "" {
-		parts = append(parts, presence)
+		parts = append(parts, statusPart{
+			text:  presence,
+			style: styles.text(m.tokens().StatusSuccess),
+		})
 	}
 
 	if connection := connectionStatusText(m.summary.Connection); connection != "" {
-		parts = append(parts, connection)
+		style := quiet
+		// A connection that is not ready is the one part of the line the
+		// user can do something about, and the theme has a colour that
+		// says "waited for" rather than "broken".
+		if m.summary.Connection != ConnectionReady {
+			style = styles.text(m.tokens().StatusWarning)
+		}
+
+		parts = append(parts, statusPart{text: connection, style: style})
 	}
 
 	queue := m.summary.Queue
@@ -131,14 +226,30 @@ func (m Model) statusParts() []string {
 		return parts
 	}
 
+	// The counts of a queue nothing can be queued into would be a lie about
+	// that queue, so they go while sending is paused (decision 3). The
+	// presence and the connection stay: they are not counts.
+	if m.pausedErr != nil {
+		return parts
+	}
+
 	if queue.Recovering {
-		parts = append(parts, recoveringMessagesText)
+		parts = append(parts, statusPart{
+			text:  recoveringMessagesText,
+			style: styles.text(m.tokens().StatusActive),
+		})
 	}
 	if queue.Queued > 0 {
-		parts = append(parts, strconv.Itoa(queue.Queued)+" queued")
+		parts = append(parts, statusPart{
+			text:  strconv.Itoa(queue.Queued) + " queued",
+			style: quiet,
+		})
 	}
 	if queue.Retrying > 0 {
-		parts = append(parts, strconv.Itoa(queue.Retrying)+" retrying")
+		parts = append(parts, statusPart{
+			text:  strconv.Itoa(queue.Retrying) + " retrying",
+			style: quiet,
+		})
 	}
 
 	return parts
@@ -153,15 +264,15 @@ func (m Model) statusParts() []string {
 func connectionStatusText(state ConnectionState) string {
 	switch state {
 	case ConnectionReady:
-		return "Connected"
+		return "connected"
 	case ConnectionConnecting:
-		return "Connecting…"
+		return "connecting…"
 	case ConnectionUpdating:
-		return "Updating…"
+		return "updating…"
 	case ConnectionWaitingForNetwork:
-		return "Waiting for network"
+		return "waiting for network"
 	case ConnectionConnectingToProxy:
-		return "Connecting to proxy…"
+		return "connecting to proxy…"
 	default:
 		return ""
 	}

@@ -119,11 +119,6 @@ func (m Model) chatListRowHeight(layout Layout) int {
 // The colour and the rule under it say the same thing, and that is the
 // point: the rule is what a terminal with no colour shows, and the colour
 // is what a terminal with colour shows first.
-func (m Model) panelHeading(title string, width int, focused bool) string {
-	return m.panelHeadingStyle(focused).
-		Render(m.widths.Fit(title, width, ellipsis))
-}
-
 // panelHeadingStyle is how the title of a panel is written: the accent of
 // the theme when the panel has the keys, and the dim step of the text ramp
 // when it does not.
@@ -166,10 +161,10 @@ func (m Model) chatListSearchLine(layout Layout, width int) string {
 	room := maxInt(width-2*inset, 1)
 
 	if !layout.TwoPane() {
-		if status := m.statusBlockLines(layout, room); len(status) > 0 {
+		if status := m.statusBlock(layout, room); len(status) > 0 {
 			return m.painter(theme.Color{}).
 				add(m.styles().unstyled(), spaces(inset)).
-				add(m.statusStyle(), status[0]).
+				own(m.styles().unstyled(), status[0]).
 				String()
 		}
 	}

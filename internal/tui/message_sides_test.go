@@ -396,8 +396,8 @@ func unmeasured(mode termwidth.Mode) termwidth.WidthModel {
 	return model
 }
 
-// A block is never narrower than bubbleMinTextColumns of text, so a word in
-// a message is a bubble and not a sliver.
+// A block is never narrower than blockMinTextColumns of text, so a word in
+// a message is a block and not a sliver.
 //
 // The floor is of the text and not of the block: the insets and the ends
 // are added to it, and a test that measured the block would be measuring
@@ -411,7 +411,7 @@ func TestABlockIsNeverNarrowerThanSixteenColumnsOfText(t *testing.T) {
 		FocusHistory,
 	)
 	layout := LayoutFor(m.width, m.height)
-	inset := layout.BubbleInset()
+	inset := layout.BlockInset()
 	block := blockBackground(m, sideIncoming)
 
 	for name, message := range map[string]Message{
@@ -432,7 +432,7 @@ func TestABlockIsNeverNarrowerThanSixteenColumnsOfText(t *testing.T) {
 				t.Fatalf("row 1 of the block has no block on it: %q", cellText(rows[0]))
 			}
 
-			want := maxInt(bubbleMinTextColumns, m.widths.StringWidth(message.Author))
+			want := maxInt(blockMinTextColumns, m.widths.StringWidth(message.Author))
 			if got := last - first + 1 - 2*inset; got < want {
 				t.Errorf(
 					"the block is %d columns of text, want at least %d",
@@ -478,7 +478,7 @@ func TestAnOutgoingBlockIsAsWideAsItsTextAndEndsAtTheRightMargin(t *testing.T) {
 	_, wantEnd := feedColumns(feedTestWidth, layout)
 	label, _ := m.historyStateLabel(message)
 	wantWidth := maxInt(m.widths.StringWidth(message.Text), m.widths.StringWidth(label)) +
-		2*layout.BubbleInset()
+		2*layout.BlockInset()
 
 	rows = blockBody(rows)
 	if len(rows) < 2 {
@@ -522,7 +522,7 @@ func TestALongOutgoingMessageTakesTheShareAndWraps(t *testing.T) {
 	})
 
 	block := blockBackground(m, sideOutgoing)
-	want := feedTestWidth * outgoingBubbleSharePercent / 100
+	want := feedTestWidth * outgoingBlockSharePercent / 100
 
 	_, textRows := rowsSaying(rows, "word")
 	if len(textRows) < 2 {
@@ -1033,7 +1033,7 @@ func TestANarrowScreenLetsTheBlockFillTheFeed(t *testing.T) {
 		Time:     "12:05",
 	})
 
-	share := width * outgoingBubbleSharePercent / 100
+	share := width * outgoingBlockSharePercent / 100
 	block := blockBackground(m, sideOutgoing)
 	_, textRows := rowsSaying(rows, "word")
 	if len(textRows) == 0 {
@@ -1526,7 +1526,7 @@ func TestTheCountOfAChatIsAPillAndRoundsWithTheFont(t *testing.T) {
 // chosen chat — and this is the test that says so on the cells of a whole
 // screen with both panes on it.
 //
-// A bubble is its full cells and the blank row between two messages is the
+// A block is its full cells and the blank row between two messages is the
 // only air there is. The rounded ends of a block with a Nerd Font are the
 // only drawing left that rounds one, and they are on its left and its right.
 func TestNoHalfBlockIsDrawnAnywhereOnTheScreen(t *testing.T) {

@@ -28,7 +28,7 @@ func TestTheStatusLineSaysConnectedWithTheQueueCounts(t *testing.T) {
 			})
 
 			line := statusLineOf(t, model)
-			if line != "Connected · 2 queued · 1 retrying" {
+			if line != "connected · 2 queued · 1 retrying" {
 				t.Fatalf("status line = %q", line)
 			}
 			if !strings.Contains(plain(model.View()), line) {
@@ -40,11 +40,11 @@ func TestTheStatusLineSaysConnectedWithTheQueueCounts(t *testing.T) {
 
 func TestTheStatusLineNamesEveryConnectionState(t *testing.T) {
 	for state, want := range map[ConnectionState]string{
-		ConnectionReady:             "Connected",
-		ConnectionConnecting:        "Connecting…",
-		ConnectionUpdating:          "Updating…",
-		ConnectionWaitingForNetwork: "Waiting for network",
-		ConnectionConnectingToProxy: "Connecting to proxy…",
+		ConnectionReady:             "connected",
+		ConnectionConnecting:        "connecting…",
+		ConnectionUpdating:          "updating…",
+		ConnectionWaitingForNetwork: "waiting for network",
+		ConnectionConnectingToProxy: "connecting to proxy…",
 	} {
 		t.Run(want, func(t *testing.T) {
 			model := modelWithSummary(t, theme.ProfileNoColor, 100, 24, StatusSummary{
@@ -88,8 +88,8 @@ func TestAnEmptyQueueIsNotCounted(t *testing.T) {
 		Queue:      QueueSummary{Known: true},
 	})
 
-	if got := statusLineOf(t, model); got != "Connected" {
-		t.Fatalf("status line = %q, want Connected alone", got)
+	if got := statusLineOf(t, model); got != "connected" {
+		t.Fatalf("status line = %q, want connected alone", got)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestRecoveringInterruptedMessagesIsSaid(t *testing.T) {
 		Connection: ConnectionReady,
 		Queue:      QueueSummary{Known: true, Recovering: true, Queued: 4},
 	})
-	if got := statusLineOf(t, recovering); got != "Connected · Recovering interrupted messages… · 4 queued" {
+	if got := statusLineOf(t, recovering); got != "connected · Recovering interrupted messages… · 4 queued" {
 		t.Fatalf("status line = %q", got)
 	}
 
@@ -108,7 +108,7 @@ func TestRecoveringInterruptedMessagesIsSaid(t *testing.T) {
 		Connection: ConnectionWaitingForNetwork,
 		Queue:      QueueSummary{Known: true, Recovering: true},
 	})
-	if got := statusLineOf(t, offline); got != "Waiting for network · Recovering interrupted messages…" {
+	if got := statusLineOf(t, offline); got != "waiting for network · Recovering interrupted messages…" {
 		t.Fatalf("status line = %q", got)
 	}
 }
@@ -152,7 +152,7 @@ func TestAQueueThatCannotBeReadIsNotAnEmptyQueue(t *testing.T) {
 	// The read failed, so the counts are gone rather than stale, and the
 	// connection is still said: §11.1 ranks them apart and §4.3 says an
 	// error of one part must not take the others with it.
-	if got := statusLineOf(t, model); got != "Connected" {
+	if got := statusLineOf(t, model); got != "connected" {
 		t.Fatalf("status line = %q, want the connection alone", got)
 	}
 }
@@ -213,8 +213,8 @@ func TestTheStatusBlockIsTwoLinesAtMost(t *testing.T) {
 // the parts, which is the only shape a line may have.
 func isWholeStatusLine(line string) bool {
 	for _, want := range []string{
-		"Waiting for network",
-		"Waiting for network · Recovering interrupted messages…",
+		"waiting for network",
+		"waiting for network · Recovering interrupted messages…",
 		"Waiting for network · Recovering interrupted messages… · 12 queued",
 		"Waiting for network · Recovering interrupted messages… · 12 queued · 11 retrying",
 	} {
@@ -264,15 +264,16 @@ func TestTheStatusIsUnderTheConversationTitle(t *testing.T) {
 
 	lines := viewLines(plain(model.View()))
 	title := indexOfLineWith(lines, "A")
-	status := indexOfLineWith(lines, "Connected · 1 queued")
+	status := indexOfLineWith(lines, "connected · 1 queued")
 	if title < 0 || status < 0 {
 		t.Fatalf("the conversation title or the status line is missing: %q", lines)
 	}
 
-	// The status is under the title and under the rule that says the
-	// timeline has the keys: the name of the chat, then the line that
-	// marks the pane, then what the program is doing in it.
-	if status != title+2 {
+	// The status is on the row under the title, with nothing between them
+	// (the mockup of the owner, 30.09: the name of the chat and then what
+	// the program is doing in it), and the rule that says the timeline has
+	// the keys closes the header under the two of them.
+	if status != title+1 {
 		t.Fatalf("the status is on line %d and the title on %d", status, title)
 	}
 }
@@ -287,11 +288,11 @@ func TestTheNarrowChatListHeaderCarriesTheStatus(t *testing.T) {
 	}
 
 	narrow := modelWithSummary(t, theme.ProfileNoColor, 60, 24, summary)
-	if got := statusLineOf(t, narrow); got != "Connected · 2 queued" {
+	if got := statusLineOf(t, narrow); got != "connected · 2 queued" {
 		t.Fatalf("status line = %q", got)
 	}
 	narrowHeader := chatListHeaderLines(t, narrow)
-	if !strings.Contains(strings.Join(narrowHeader, " "), "Connected · 2 queued") {
+	if !strings.Contains(strings.Join(narrowHeader, " "), "connected · 2 queued") {
 		t.Fatalf("the narrow chat list header = %q", narrowHeader)
 	}
 
@@ -318,7 +319,7 @@ func TestTheStatusIsSaidBesideAnUnopenedConversation(t *testing.T) {
 		model, _ = updateModel(t, model, press(tea.KeyEsc))
 
 		view := plain(model.View())
-		if !strings.Contains(view, "Connecting… · 2 queued") {
+		if !strings.Contains(view, "connecting… · 2 queued") {
 			t.Fatalf(
 				"the empty pane at %d columns does not carry the status: %q",
 				width,
@@ -596,7 +597,7 @@ func TestAReconnectingClientKeepsTheQueueStates(t *testing.T) {
 	if !strings.Contains(view, "retrying at 14:35") {
 		t.Fatalf("the message lost its delivery state: %q", viewLines(view))
 	}
-	if got := statusLineOf(t, model); got != "Waiting for network · 2 queued · 1 retrying" {
+	if got := statusLineOf(t, model); got != "waiting for network · 2 queued · 1 retrying" {
 		t.Fatalf("status line = %q", got)
 	}
 }

@@ -349,22 +349,21 @@ func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
 		rows := model.entryLines(entries[0], layout, width, model.styles())
 
 		// A block carries the name of whoever sent it above its text
-		// (§4.4), with a row of the block's own background above the
-		// name and a row of it under the text. The gap between two
-		// messages is above all of that, so the name of the first entry
-		// is on the third row of it. The name is where the words of it
-		// start, which is past the column the marker of the message
-		// under the cursor stands in — the feed keeps a margin there,
-		// and the text starts with the name rather than beside it.
-		head := strings.Index(plain(rows[2]), messageAuthor(entries[0].message))
+		// (§4.4), and a block of one row of text has no air in it, so
+		// the name of the first entry is on its second row — the gap
+		// between two messages is the first. The name is where the words
+		// of the block start, which is past the column the marker of the
+		// message under the cursor stands in — the feed keeps a margin
+		// there, and the text starts with the name rather than beside it.
+		head := strings.Index(plain(rows[1]), messageAuthor(entries[0].message))
 		if head < 0 {
-			t.Fatalf("the sender's name is not on the third row: %q", plain(rows[2]))
+			t.Fatalf("the sender's name is not on the second row: %q", plain(rows[1]))
 		}
-		for index, row := range rows[3 : len(rows)-1] {
+		for index, row := range rows[2:] {
 			if got := indentOf(row); got != head {
 				t.Fatalf(
 					"row %d starts at column %d, the sender's name at %d: %q",
-					index+3,
+					index+2,
 					got,
 					head,
 					plain(row),
@@ -394,11 +393,12 @@ func TestTheAuthorLineIsANameTwoSpacesAndTheTime(t *testing.T) {
 	message := entries[0].message
 	rows := model.entryLines(entries[0], layout, width, model.styles())
 
-	// The gap, the row of air above the words and the row of the name.
-	if len(rows) < 3 {
-		t.Fatalf("the block is %d rows, want the name on the third", len(rows))
+	// The gap and then the row of the name: a block of one row of text has
+	// no air in it (the owner, 30.09).
+	if len(rows) < 2 {
+		t.Fatalf("the block is %d rows, want the name on the second", len(rows))
 	}
-	author := rows[2]
+	author := rows[1]
 
 	// The row starts with the air of the feed and the marker's column, so
 	// the name is where the words of the block start rather than at the

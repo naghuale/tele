@@ -849,13 +849,19 @@ func (m Model) blockPaddingRow(
 }
 
 // padBlock returns the rows of a block with a row of the block's own
-// background above them and below them.
+// background above them and below them — and the rows as they are for a
+// block that has no air in it, which is a block of one row of text
+// (the owner, 30.09).
 func (m Model) padBlock(
 	rows []string,
 	selected bool,
 	styles viewStyles,
 	block messageBlock,
 ) []string {
+	if !block.padded {
+		return rows
+	}
+
 	padding := m.blockPaddingRow(selected, styles, block)
 	padded := make([]string, 0, len(rows)+2*blockPaddingRows)
 	for range blockPaddingRows {
@@ -952,6 +958,12 @@ type messageBlock struct {
 	// together, which is two with a Nerd Font and none without one.
 	ends int
 
+	// padded is whether the block has a row of its own background above
+	// the words and below them. It is a property of the shape and not of
+	// the drawing: a block of one row of text has no air in it, and a
+	// block of two rows of text and more has (the owner, 30.09).
+	padded bool
+
 	// right is how many columns of the feed are behind the block. It is a
 	// number of the block rather than of the layout because a row is
 	// written a run at a time and only the painter knows how far along it
@@ -979,7 +991,7 @@ func (m Model) messageBlockFor(
 	layout Layout,
 	width int,
 	text string,
-	padded bool,
+	padding bool,
 	under ...string,
 ) messageBlock {
 	inset := layout.BlockInset()
@@ -1003,13 +1015,24 @@ func (m Model) messageBlockFor(
 	// sides, and is a rectangle of one row: the alternative to a pill is a
 	// rectangle, and the alternative to the rectangle is the two pills.
 	//
-	// A block with air above and below it is never a pill: the halves are
-	// one row tall, so on a block of three rows and more they would sit in
-	// the middle of it with a row of the block's own background above and
-	// below them, which is a pill inside a rectangle rather than a block
-	// with rounded ends. The ends belong to the one case that has no
-	// padding — the short screen of §3.4, where a message is its text and
-	// nothing else (the owner, 30.09).
+	// The air of the block is the owner's decision of 30.09, and it is
+	// about the TEXT and not about the whole block: a block whose text is
+	// one row is that row and the author line or the state, with no air in
+	// it, and a block of two rows of text and more keeps a row of its own
+	// background above them and below them. Half a row of air is not a
+	// thing a terminal can draw — the halves of a row are bands of another
+	// shade, see the half blocks above — so "a little air" is a whole row
+	// or nothing. The author line and the state of the send are not part
+	// of the count: he counts the rows of the text.
+	textArea := ceiling - 2*inset
+	padded := padding && len(m.widths.Wrap(text, textArea, ellipsis)) > 1
+
+	// The ends are counted over the whole block, because that is what the
+	// half circles have to fit in: they are one row tall, and a block with
+	// air in it has them in the middle of it with a row of the block's own
+	// background above and below, which is a pill inside a rectangle. A
+	// block of one row in all — the short screen of §3.4, where a message
+	// is its text and nothing else — is the pill.
 	ends := 0
 	if !padded && nerd > 0 && m.blockTextRows(ceiling-2*inset-nerd, text, under) == 1 {
 		ends = nerd
@@ -1042,10 +1065,11 @@ func (m Model) messageBlockFor(
 	least := minInt(blockMinTextColumns, most)
 
 	block := messageBlock{
-		side:  side,
-		inset: inset,
-		ends:  ends,
-		text:  minInt(maxInt(natural, least), most),
+		side:   side,
+		inset:  inset,
+		ends:   ends,
+		padded: padded,
+		text:   minInt(maxInt(natural, least), most),
 	}
 	block.width = minInt(block.text+2*inset+ends, lane)
 	block.width = maxInt(block.width, 1)

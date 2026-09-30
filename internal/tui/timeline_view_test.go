@@ -349,21 +349,22 @@ func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
 		rows := model.entryLines(entries[0], layout, width, model.styles())
 
 		// A block carries the name of whoever sent it above its text
-		// (§4.4), and the blank row above the block is the gap between
-		// two messages, so the name is on the second row and the text
-		// under it. The name is where the words of it start, which is past
-		// the column the marker of the message under the cursor stands in
-		// — the feed keeps a margin there, and the text starts with the
-		// name rather than beside it.
-		head := strings.Index(plain(rows[1]), messageAuthor(entries[0].message))
+		// (§4.4), with a row of the block's own background above the
+		// name and a row of it under the text. The gap between two
+		// messages is above all of that, so the name of the first entry
+		// is on the third row of it. The name is where the words of it
+		// start, which is past the column the marker of the message
+		// under the cursor stands in — the feed keeps a margin there,
+		// and the text starts with the name rather than beside it.
+		head := strings.Index(plain(rows[2]), messageAuthor(entries[0].message))
 		if head < 0 {
-			t.Fatalf("the sender's name is not on the second row: %q", plain(rows[1]))
+			t.Fatalf("the sender's name is not on the third row: %q", plain(rows[2]))
 		}
-		for index, row := range rows[2:] {
+		for index, row := range rows[3 : len(rows)-1] {
 			if got := indentOf(row); got != head {
 				t.Fatalf(
 					"row %d starts at column %d, the sender's name at %d: %q",
-					index+2,
+					index+3,
 					got,
 					head,
 					plain(row),
@@ -371,6 +372,69 @@ func TestTheTextOfAMessageStartsUnderItsSenderName(t *testing.T) {
 			}
 		}
 	})
+}
+
+// The author line of a block from the other side is the name of whoever
+// sent the message and the time of it on one row, two spaces apart, with
+// the time in the dim step of the text ramp (the owner, 30.09).
+//
+// It is two spaces and not the middle dot of §3.3: that dot joins two
+// parts of one line of words — "online · connected" — and a name and a time
+// are not that. The mockup writes them side by side, and the row reads as
+// a caption of the block rather than as a sentence about it.
+func TestTheAuthorLineIsANameTwoSpacesAndTheTime(t *testing.T) {
+	model := openedProgramModel(t, theme.ProfileTrueColor, 60, 24)
+	layout := LayoutFor(model.width, model.height)
+	width := layout.ChatContentWidth()
+
+	entries := timelineEntries(model.selected().Messages)
+	if len(entries) == 0 {
+		t.Fatal("the conversation has no message in it")
+	}
+	message := entries[0].message
+	rows := model.entryLines(entries[0], layout, width, model.styles())
+
+	// The gap, the row of air above the words and the row of the name.
+	if len(rows) < 3 {
+		t.Fatalf("the block is %d rows, want the name on the third", len(rows))
+	}
+	author := rows[2]
+
+	// The row starts with the air of the feed and the marker's column, so
+	// the name is where the words of the block start rather than at the
+	// edge of the row.
+	want := messageAuthor(message) + authorTimeSeparator + message.Time
+	if got := strings.TrimSpace(plain(author)); !strings.HasPrefix(got, want) {
+		t.Fatalf(
+			"the author line is %q, want it to start with %q",
+			plain(author), want,
+		)
+	}
+	if strings.Contains(plain(author), "·") {
+		t.Errorf(
+			"the author line is %q, want no middle dot in it (the owner, 30.09)",
+			plain(author),
+		)
+	}
+
+	// The time is in the dim step of the text ramp and the name is not: a
+	// time in the colour of the words above it is a word, and a name in the
+	// dim step is a caption.
+	muted := foregroundParameters(
+		model.styles().text(model.tokens().MutedText).Render("x"),
+	)
+	cells := renderedCells(t, model, author)
+	for _, cell := range cells {
+		if cell.text != message.Time {
+			continue
+		}
+		if cell.foreground != muted {
+			t.Errorf(
+				"the time is drawn in %q, want the dim step %q",
+				cell.foreground, muted,
+			)
+		}
+	}
 }
 
 // indentOf returns how many spaces a rendered row starts with.

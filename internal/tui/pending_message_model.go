@@ -168,9 +168,9 @@ func (m Model) pendingMessageRows(
 		under = append(under, uncertainWarning)
 	}
 
-	block := m.messageBlockFor(sideOutgoing, layout, width, message.Text, under...)
+	block := m.messageBlockFor(sideOutgoing, layout, width, message.Text, true, under...)
 
-	rows := make([]string, 0, 4)
+	rows := make([]string, 0, 6)
 	for _, line := range m.widths.Wrap(message.Text, block.text, ellipsis) {
 		rows = append(rows, m.blockRow(
 			false, styles, styles.unstyled(), spaces(selectionMarkerWidth),
@@ -206,7 +206,7 @@ func (m Model) pendingMessageRows(
 		))
 	}
 
-	return rows
+	return m.padBlock(rows, false, styles, block)
 }
 
 // deliveryStateLabel returns the words under a message of this user and the

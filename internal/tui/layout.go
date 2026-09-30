@@ -71,7 +71,7 @@ const (
 	feedMargin       = 3
 	feedMarginNarrow = 1
 
-	// bubbleInset is the space inside the block of a message on each side
+	// blockInset is the space inside the block of a message on each side
 	// of its text.
 	//
 	// Two columns is the air inside the block, and it is two at every
@@ -81,9 +81,9 @@ const (
 	// screen is narrower and gets the same two, because the block there
 	// is already as wide as the feed allows and the inset is the only
 	// thing between the words and the edge of the screen.
-	bubbleInset = 2
+	blockInset = 2
 
-	// bubbleMinTextColumns is the narrowest a block of a message may be
+	// blockMinTextColumns is the narrowest a block of a message may be
 	// inside, its insets and its rounded ends not counted.
 	//
 	// A block that is as wide as its words is the right answer for a
@@ -95,7 +95,7 @@ const (
 	// whoever sent it, the state of a message of this user — are as wide as
 	// they are whatever this is, so the floor never cuts a name or a state
 	// short to reach it.
-	bubbleMinTextColumns = 16
+	blockMinTextColumns = 16
 
 	// chatListInset is the air inside a row of the chat list on each side
 	// of its words, and chatListInsetNarrow the same on a single-pane
@@ -316,9 +316,9 @@ func (l Layout) FeedMargin() int {
 	return feedMargin
 }
 
-// BubbleInset returns the space inside the block of a message on each
+// BlockInset returns the space inside the block of a message on each
 // side of its text, which is the same at every width.
-func (l Layout) BubbleInset() int { return bubbleInset }
+func (l Layout) BlockInset() int { return blockInset }
 
 // visibleRange returns the [start, end) slice window of a list of total
 // items such that selected is included. end is exclusive.

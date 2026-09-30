@@ -41,12 +41,18 @@ const (
 	unknownAuthor = "Unknown"
 )
 
-// authorTimeSeparator is what holds the sender of a message and the time
-// of it together. It is the middle dot of §3.3, the same one the status
-// line uses, so one screen has one way of saying "and also".
-const authorTimeSeparator = " · "
+// authorTimeSeparator is what holds the sender of a message and the time of
+// it together: two spaces, and no dot between them (the owner, 30.09).
+//
+// It is not the middle dot of §3.3 that the status line uses. That dot
+// joins two parts of one line of words — "online · connected" — and a name
+// and a time are not that: the dot made the row read as a sentence with a
+// subject and a predicate, and the mockup writes them side by side with
+// the time in the dim step of the text ramp. Two spaces say the same thing
+// and take one column less.
+const authorTimeSeparator = "  "
 
-// outgoingBubbleSharePercent is how much of the feed, in per cent, an
+// outgoingBlockSharePercent is how much of the feed, in per cent, an
 // outgoing message may take.
 //
 // Seventy per cent is what leaves a column on the left for the other
@@ -63,7 +69,7 @@ const authorTimeSeparator = " · "
 // the share says sixty-three is a block that is a column narrower on one
 // terminal than on another, and the row under it is a column out of place
 // either way.
-const outgoingBubbleSharePercent = 70
+const outgoingBlockSharePercent = 70
 
 // conversationRegion draws the messages of the open conversation, with
 // the header above them.
@@ -88,14 +94,14 @@ func (m Model) conversationRegion(
 	// once is a screen where the user cannot tell which one has the keys.
 	focused := m.panelFocused(conversationPane)
 
-	header := []string{
-		m.panelHeading(m.conversationTitle(layout, width), width, focused),
-		styles.focusRule(width, focused),
-	}
-
-	// §4.3 puts the status under the title: a user reads it as part of the
-	// header of the conversation rather than as the last line of it.
+	// The name of the chat is the brightest thing in the header and the
+	// status is under it, with nothing between the two, as the mockup of
+	// the owner (30.09) has them: "Дмитрий С" and then "online · connected ·
+	// 1 queued". The rule that says this pane has the keys closes the
+	// header, because that is what a rule under a header is.
+	header := []string{m.conversationHeading(m.conversationTitle(layout, width), width)}
 	header = append(header, m.statusBlock(layout, width)...)
+	header = append(header, styles.focusRule(width, focused))
 
 	// The progress of an older-page request is at the top of the timeline,
 	// where the page it is about will go: a line at the bottom would be
@@ -177,6 +183,20 @@ func (m Model) olderPageLines(layout Layout, width int) []string {
 	default:
 		return nil
 	}
+}
+
+// conversationHeading returns the name of the open chat as the first row of
+// the conversation: the brightest text of the screen, in bold, whether or
+// not the pane has the keys.
+//
+// It is not the accent. The accent is how a pane says that it has the keys
+// (the rule under this header is the rest of that), and the name of the
+// chat is not a statement about the keyboard: it is the one thing a reader
+// of a conversation is looking for, and the owner has it in the bright text
+// of the theme in bold (30.09).
+func (m Model) conversationHeading(title string, width int) string {
+	return m.styles().text(m.tokens().PrimaryText).Bold(true).
+		Render(m.widths.Fit(title, width, ellipsis))
 }
 
 // conversationTitle returns the title of the open chat, with the back
@@ -469,10 +489,10 @@ func (m Model) incomingMessageLines(
 	selected := m.entrySelected(entry)
 	head := m.authorLine(entry, styles)
 	block := m.messageBlockFor(
-		sideIncoming, layout, width, entryText(entry), blockRunText(head),
+		sideIncoming, layout, width, entryText(entry), true, blockRunText(head),
 	)
 
-	rows := make([]string, 0, 4)
+	rows := make([]string, 0, 6)
 	rows = append(rows, m.blockRow(
 		selected, styles, m.selectionMarkStyle(selected),
 		m.selectionMark(selected), block, head, false,
@@ -494,7 +514,7 @@ func (m Model) incomingMessageLines(
 		))
 	}
 
-	return rows
+	return m.padBlock(rows, selected, styles, block)
 }
 
 // authorLine returns the runs of the first row of the block of a message
@@ -551,7 +571,10 @@ func (m Model) shortMessageLines(
 		side, colour = sideOutgoing, m.tokens().OutgoingMessage
 	}
 
-	block := m.messageBlockFor(side, layout, width, entryText(entry))
+	// A short screen has no padding in it: two rows of the twenty it has
+	// are two rows of the conversation, and the ends of the block are the
+	// one piece of the shape that costs nothing (§3.4).
+	block := m.messageBlockFor(side, layout, width, entryText(entry), false)
 
 	rows := make([]string, 0, 3)
 	mark := m.selectionMark(selected)
@@ -587,9 +610,9 @@ func (m Model) outgoingMessageLines(
 	selected := m.entrySelected(entry)
 	text := entryText(entry)
 	label, labelColour := m.historyStateLabel(entry.message)
-	block := m.messageBlockFor(sideOutgoing, layout, width, text, label)
+	block := m.messageBlockFor(sideOutgoing, layout, width, text, true, label)
 
-	rows := make([]string, 0, 4)
+	rows := make([]string, 0, 6)
 	mark := spaces(selectionMarkerWidth)
 	for index, line := range m.widths.Wrap(text, block.text, ellipsis) {
 		if index == 0 {
@@ -618,7 +641,56 @@ func (m Model) outgoingMessageLines(
 		))
 	}
 
-	return rows
+	return m.padBlock(rows, selected, styles, block)
+}
+
+// blockPaddingRows is how many rows of the block's own background sit above
+// the words of a block and under them.
+//
+// It is the inset of §4.4 on the other axis: the air inside a block is a
+// column on each side of the text and a row above it and below it, and
+// without the rows the text is pressed against the top and the bottom of
+// its own block while it has air on its left and its right (the owner,
+// 30.09 — the price is two rows a message, and the decision on the air is
+// the owner's after seeing it).
+const blockPaddingRows = 1
+
+// blockPaddingRow returns one row of the block's own background above or
+// below the words of a block: the block's surface across the block, the
+// background of the feed everywhere else, and no marker, because a message
+// that is not selected has nothing to mark and the air around it is not a
+// row of the message.
+func (m Model) blockPaddingRow(
+	selected bool,
+	styles viewStyles,
+	block messageBlock,
+) string {
+	return m.painter(theme.Color{}).
+		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.offset)).
+		own(styles.on(m.blockSurface(block.side, selected), styles.unstyled()), spaces(block.width)).
+		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.right)).
+		String()
+}
+
+// padBlock returns the rows of a block with a row of the block's own
+// background above them and below them.
+func (m Model) padBlock(
+	rows []string,
+	selected bool,
+	styles viewStyles,
+	block messageBlock,
+) []string {
+	padding := m.blockPaddingRow(selected, styles, block)
+	padded := make([]string, 0, len(rows)+2*blockPaddingRows)
+	for range blockPaddingRows {
+		padded = append(padded, padding)
+	}
+	padded = append(padded, rows...)
+	for range blockPaddingRows {
+		padded = append(padded, padding)
+	}
+
+	return padded
 }
 
 // blockRun is one piece of a row of a block, in a colour of its own.
@@ -731,9 +803,10 @@ func (m Model) messageBlockFor(
 	layout Layout,
 	width int,
 	text string,
+	padded bool,
 	under ...string,
 ) messageBlock {
-	inset := layout.BubbleInset()
+	inset := layout.BlockInset()
 	nerd := m.roundedEndColumns(side)
 	lane := maxInt(width-2*layout.FeedMargin(), 1)
 	ceiling := m.messageBlockCap(layout, width)
@@ -753,8 +826,16 @@ func (m Model) messageBlockFor(
 	// two stacked halves this is about. Such a block keeps its square
 	// sides, and is a rectangle of one row: the alternative to a pill is a
 	// rectangle, and the alternative to the rectangle is the two pills.
+	//
+	// A block with air above and below it is never a pill: the halves are
+	// one row tall, so on a block of three rows and more they would sit in
+	// the middle of it with a row of the block's own background above and
+	// below them, which is a pill inside a rectangle rather than a block
+	// with rounded ends. The ends belong to the one case that has no
+	// padding — the short screen of §3.4, where a message is its text and
+	// nothing else (the owner, 30.09).
 	ends := 0
-	if nerd > 0 && m.blockTextRows(ceiling-2*inset-nerd, text, under) == 1 {
+	if !padded && nerd > 0 && m.blockTextRows(ceiling-2*inset-nerd, text, under) == 1 {
 		ends = nerd
 	}
 
@@ -777,12 +858,12 @@ func (m Model) messageBlockFor(
 
 	// The block is never narrower than the width of a message, and a
 	// two-word message in a block of eight columns is a sliver: the pill
-	// of §4.4 needs room to be a pill in, and a bubble a user cannot see
-	// the words in is a bubble that has to be read with effort. The floor
+	// of §4.4 needs room to be a pill in, and a block a user cannot see
+	// the words in is a block that has to be read with effort. The floor
 	// is of the text and not of the block — the insets and the ends are
 	// added to it — and it never exceeds what the share allows, so a
 	// narrow screen still gets the block it can hold.
-	least := minInt(bubbleMinTextColumns, most)
+	least := minInt(blockMinTextColumns, most)
 
 	block := messageBlock{
 		side:  side,
@@ -841,7 +922,7 @@ func (m Model) messageBlockCap(layout Layout, width int) int {
 		return lane
 	}
 
-	return minInt(width*outgoingBubbleSharePercent/100, lane)
+	return minInt(width*outgoingBlockSharePercent/100, lane)
 }
 
 // roundedEndColumns returns how many columns the two rounded ends of a
@@ -880,7 +961,7 @@ func (m Model) blockSurface(side messageSide, selected bool) theme.Color {
 	}
 
 	if side == sideOutgoing {
-		return m.tokens().OutgoingBubble
+		return m.tokens().OutgoingBlock
 	}
 
 	return m.tokens().ComposerBackground

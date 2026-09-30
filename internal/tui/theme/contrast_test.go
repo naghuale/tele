@@ -271,10 +271,10 @@ func TestTheMutedWalkStopsWhereItShould(t *testing.T) {
 	}
 }
 
-// The words of a message are read, and a message is read on the bubble of
+// The words of a message are read, and a message is read on the block of
 // its own side: the words of somebody else's on the neutral surface, the
 // words of this user's on the accent's tint of it. WCAG AA for body text
-// is 4.5:1, and this is the bar both bubbles are held to.
+// is 4.5:1, and this is the bar both blocks are held to.
 //
 // The tint is the hard half of it. A surface mixed towards the accent is a
 // surface the accent has less contrast on — the words of a message of this
@@ -282,12 +282,12 @@ func TestTheMutedWalkStopsWhereItShould(t *testing.T) {
 // tint that takes the words under the bar. Every value in the palettes is
 // the largest share of the distance that holds the words, and the test is
 // what says so rather than a comment.
-func TestTheWordsOfAMessageAreReadableOnItsOwnBubble(t *testing.T) {
+func TestTheWordsOfAMessageAreReadableOnItsOwnBlock(t *testing.T) {
 	cases := []struct {
 		textRole       string
 		backgroundRole string
 	}{
-		{textRole: "OutgoingMessage", backgroundRole: "OutgoingBubble"},
+		{textRole: "OutgoingMessage", backgroundRole: "OutgoingBlock"},
 		{textRole: "IncomingMessage", backgroundRole: "ComposerBackground"},
 	}
 
@@ -318,29 +318,33 @@ func TestTheWordsOfAMessageAreReadableOnItsOwnBubble(t *testing.T) {
 // The two sides are told apart in colour as well as in position, so the
 // tint has to be a real difference and not a shade of the same grey.
 //
-// A tint that is too weak to see is not a tint: it is the same bubble with
+// A tint that is too weak to see is not a tint: it is the same block with
 // an extra number in a test, and the reader is back to reading the side of
 // the screen to know whose message it is. The two blocks also have to stay
 // apart on a terminal that shows fewer colours, which is why the 256-colour
 // entries are named here rather than derived: two neighbouring greys are
 // two greys, and a run-time reduction could hand both sides the same one.
 func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
-	// minimumBubbleDifference is how far apart two surfaces have to be
-	// before the eye takes them for two. It is small because the two are
-	// neighbouring steps of one ramp by design; it is not zero because a
-	// tint of nothing is nothing.
-	const minimumBubbleDifference = 1.05
+	// minimumBlockDifference is how far apart two surfaces have to be
+	// before the eye takes them for two blocks. It is a real number and
+	// not a gesture because the owner could not tell the two sides apart
+	// on 30.09: they were 1.09:1, 1.17:1 and 1.19:1 away from each other.
+	// What a palette can reach is bounded by its own accent — the words of
+	// a message of this user ARE the accent, and the accent has to hold
+	// 4.5:1 on the block — so the bar is what the darkest of the three
+	// accents leaves: tokyo-night 1.15:1, mocha 1.34:1, gruvbox 1.48:1.
+	const minimumBlockDifference = 1.15
 
 	for _, name := range ThemeNames() {
 		built := mustTheme(t, name)
 		roles := colorRoles(t, built.Tokens)
 
 		incoming := roles["ComposerBackground"]
-		outgoing := roles["OutgoingBubble"]
+		outgoing := roles["OutgoingBlock"]
 
 		if outgoing == incoming {
 			t.Errorf(
-				"theme %s: both sides are drawn on %v, so the tint is not a tint",
+				"theme %s: both sides are drawn on %v, so the two blocks are one block",
 				name, incoming,
 			)
 
@@ -348,10 +352,10 @@ func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
 		}
 
 		difference := outgoing.ContrastRatio(incoming)
-		if difference < minimumBubbleDifference {
+		if difference < minimumBlockDifference {
 			t.Errorf(
-				"theme %s: the two bubbles are %.3f:1 apart, want at least %.2f:1",
-				name, difference, minimumBubbleDifference,
+				"theme %s: the two blocks are %.3f:1 apart, want at least %.2f:1",
+				name, difference, minimumBlockDifference,
 			)
 		}
 
@@ -369,11 +373,11 @@ func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
 
 		for _, profile := range []Profile{ProfileANSI256, ProfileANSI16} {
 			degraded := colorRoles(t, built.ForProfile(profile).Tokens)
-			if degraded["OutgoingBubble"] == degraded["ComposerBackground"] ||
+			if degraded["OutgoingBlock"] == degraded["ComposerBackground"] ||
 				degraded["ComposerBackground"].IsSet() {
 				continue
 			}
-			if !degraded["OutgoingBubble"].IsSet() {
+			if !degraded["OutgoingBlock"].IsSet() {
 				t.Errorf(
 					"theme %s: profile %s keeps no block of its own, so the two sides are the same colour there",
 					name, profile,
@@ -391,16 +395,16 @@ func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
 // two roles the interface already has says what it is at every step. The
 // share is not written down here on purpose — it is different for each
 // theme and it is bounded by the contrast above, not by a rule — but the
-// bounds are, and a palette that put the bubble outside them would have a
+// bounds are, and a palette that put the block outside them would have a
 // block that is neither the neutral surface nor a tint of it.
-func TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
+func TestTheMessageBlocksAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
 	for _, name := range ThemeNames() {
 		palette := mustTheme(t, name).Palette
 
 		surface, accent := palette.Surface0, palette.Accent
-		bubble := palette.OutgoingBubble
+		block := palette.OutgoingBlock
 
-		if !bubble.IsSet() {
+		if !block.IsSet() {
 			t.Errorf("theme %s: the palette names no block for a message", name)
 
 			continue
@@ -409,7 +413,7 @@ func TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
 		for index, name2 := range []string{"red", "green", "blue"} {
 			from := channelOf(surface.Hex(), index)
 			to := channelOf(accent.Hex(), index)
-			have := channelOf(bubble.Hex(), index)
+			have := channelOf(block.Hex(), index)
 
 			low, high := from, to
 			if low > high {
@@ -419,7 +423,7 @@ func TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
 			if have <= low || have >= high {
 				t.Errorf(
 					"theme %s: %s of the block is %d, want it strictly between %d and %d (%v between %v and %v)",
-					name, name2, have, low, high, bubble, surface, accent,
+					name, name2, have, low, high, block, surface, accent,
 				)
 			}
 		}

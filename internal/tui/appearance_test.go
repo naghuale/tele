@@ -297,12 +297,14 @@ func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
 	}
 
 	// The band of the composer opens with its own row of air, so the text
-	// of the newest message is the row directly above that band, with the
-	// empty rows of the feed all above the name of whoever sent it. A
-	// message does not carry a row of air of its own under it: the owner's
+	// of the newest message is the row above the row of the block's own
+	// background that closes the block, with the empty rows of the feed
+	// all above the name of whoever sent it. The row of air under a
+	// message is inside its block and not a row of the feed: the owner's
 	// Terminal draws its rows with a gap, so a row of half blocks under a
-	// block is a band of its own and not air.
-	if composer-text != 2 {
+	// block was a band of its own and not air — this row is full cells of
+	// the block's own colour, which is what makes it air.
+	if composer-text != 3 {
 		t.Fatalf(
 			"the text is on row %d and the composer on row %d, want them against the field:\n%s",
 			text,
@@ -350,7 +352,7 @@ func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
 	layout := LayoutFor(m.width, m.height)
 	first := layout.SidebarWidth() + paneGapWidth
 	want := first + focusColumnWidth + contentInsetWidth +
-		layout.FeedMargin() + layout.BubbleInset()
+		layout.FeedMargin() + layout.BlockInset()
 	if got := indentOf(incoming); got != want {
 		t.Fatalf("the incoming text starts at %d, want %d", got, want)
 	}
@@ -389,9 +391,9 @@ func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
 
 	layout := LayoutFor(m.width, m.height)
 	width := layout.ChatContentWidth()
-	limit := width * outgoingBubbleSharePercent / 100
+	limit := width * outgoingBlockSharePercent / 100
 	block := m.messageBlockFor(
-		sideOutgoing, layout, width, strings.Repeat("long ", 60), "✓ sent 10:01",
+		sideOutgoing, layout, width, strings.Repeat("long ", 60), true, "✓ sent 10:01",
 	)
 	if block.width > limit {
 		t.Fatalf("the block is %d columns, want at most %d", block.width, limit)

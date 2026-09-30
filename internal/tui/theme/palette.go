@@ -42,7 +42,7 @@ type Palette struct {
 	// machines, and a golden file cannot be right on one of them.
 	Muted Color
 
-	// OutgoingBubble is the surface the block of a message of this user is
+	// OutgoingBlock is the surface the block of a message of this user is
 	// drawn on: the theme's own step of the surface ramp, mixed a little
 	// towards the accent.
 	//
@@ -61,7 +61,7 @@ type Palette struct {
 	// computed, and TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent
 	// says so, because a value worked out at run time is a value that can
 	// come out different on two machines.
-	OutgoingBubble Color
+	OutgoingBlock Color
 
 	Accent    Color
 	AccentAlt Color
@@ -116,23 +116,28 @@ func catppuccinMochaPalette() Palette {
 		// overlay0 lifted towards the text ramp until it reads on the
 		// mantle and the crust: 4.75:1 and 5.07:1.
 		Muted: Complete("#7e839b", 102, 8),
-		// Surface0 mixed an eighth of the way to mauve. An eighth is as
-		// far as it goes and the error red is what stops it: a twelfth
-		// of the way would still hold the words of a message at 4.88:1
-		// and would leave "! Failed" at 4.29:1, under the bar §24 asks
-		// for, where an eighth leaves it at 4.66:1. Entry 60 is one step
-		// above the 59 of Surface0, so the two bubbles are told apart on
-		// an indexed terminal too.
-		OutgoingBubble: Complete("#3d3b52", 60, 8),
-		Accent:         Complete("#cba6f7", 183, 14),
-		AccentAlt:      Complete("#89b4fa", 111, 12),
-		Success:        Complete("#a6e3a1", 151, 2),
-		Warning:        Complete("#f9e2af", 223, 3),
-		Error:          Complete("#f38ba8", 211, 1),
-		Info:           Complete("#89dceb", 117, 6),
-		Link:           Complete("#89b4fa", 111, 6),
-		Mention:        Complete("#f5c2e7", 218, 5),
-		Code:           Complete("#fab387", 216, 3),
+		// Surface0 mixed three fifteenths of the way to mauve, which is
+		// as far as the words of a message of this user go: the words
+		// ARE the accent, and the accent on the block is 4.61:1 here, a
+		// step over the 4.5:1 of §24. A sixth of the way would be a
+		// clearer difference between the two blocks and would put the
+		// words at 4.14:1, so the two of them together are what fixes
+		// this value. The block and Surface0 are 1.34:1 apart, which is
+		// the "clearly a different block" the owner asked for on
+		// 30.09 — the eighth of a way it was before was 1.17:1, and the
+		// two sides looked alike. Entry 61 is two steps above the 59 of
+		// Surface0 and carries the mauve, so the two blocks are told
+		// apart on an indexed terminal too.
+		OutgoingBlock: Complete("#48435f", 61, 8),
+		Accent:        Complete("#cba6f7", 183, 14),
+		AccentAlt:     Complete("#89b4fa", 111, 12),
+		Success:       Complete("#a6e3a1", 151, 2),
+		Warning:       Complete("#f9e2af", 223, 3),
+		Error:         Complete("#f38ba8", 211, 1),
+		Info:          Complete("#89dceb", 117, 6),
+		Link:          Complete("#89b4fa", 111, 6),
+		Mention:       Complete("#f5c2e7", 218, 5),
+		Code:          Complete("#fab387", 216, 3),
 	}
 }
 
@@ -174,16 +179,27 @@ func tokyoNightStormPalette() Palette {
 		// surface under them. 4.89:1 for the words and 4.66:1 for a
 		// failed send, where a tenth of the distance would leave the red
 		// at 4.26:1.
-		OutgoingBubble: Complete("#2d344b", 18, 8),
-		Accent:         Complete("#7aa2f7", 111, 14),
-		AccentAlt:      Complete("#bb9af7", 141, 12),
-		Success:        Complete("#9ece6a", 149, 2),
-		Warning:        Complete("#e0af68", 179, 3),
-		Error:          Complete("#f7768e", 210, 1),
-		Info:           Complete("#7dcfff", 117, 6),
-		Link:           Complete("#7aa2f7", 111, 6),
-		Mention:        Complete("#bb9af7", 141, 5),
-		Code:           Complete("#ff9e64", 215, 3),
+		// Nine hundredths of the way to the blue, and the blue of this
+		// theme is a dark one: the words of a message of this user are
+		// the accent, and the accent of tokyo-night is the darkest of the
+		// three, so this is as far as the block can go and still hold
+		// them at 4.5:1 — a tenth of the way puts them at 4.47:1. The
+		// block and Surface0 are 1.15:1 apart, which is the least of the
+		// three themes and the most this palette can say: telling its two
+		// blocks apart further means giving the words of this user a
+		// lighter colour, and that is a decision about the whole ramp of
+		// the theme rather than about this one value. The owner is asked
+		// to look at it (30.09).
+		OutgoingBlock: Complete("#2f3850", 18, 8),
+		Accent:        Complete("#7aa2f7", 111, 14),
+		AccentAlt:     Complete("#bb9af7", 141, 12),
+		Success:       Complete("#9ece6a", 149, 2),
+		Warning:       Complete("#e0af68", 179, 3),
+		Error:         Complete("#f7768e", 210, 1),
+		Info:          Complete("#7dcfff", 117, 6),
+		Link:          Complete("#7aa2f7", 111, 6),
+		Mention:       Complete("#bb9af7", 141, 5),
+		Code:          Complete("#ff9e64", 215, 3),
 	}
 }
 
@@ -228,15 +244,21 @@ func gruvboxDarkPalette() Palette {
 		// of a tint in a palette with a light accent, and it is paid for
 		// knowingly: the words of the message itself, which are what
 		// §24 holds to the bar, are at 5.75:1.
-		OutgoingBubble: Complete("#4b4335", 60, 8),
-		Accent:         Complete("#fabd2f", 214, 14),
-		AccentAlt:      Complete("#d3869b", 174, 12),
-		Success:        Complete("#b8bb26", 142, 2),
-		Warning:        Complete("#fe8019", 208, 3),
-		Error:          Complete("#fb4934", 203, 1),
-		Info:           Complete("#83a598", 108, 6),
-		Link:           Complete("#83a598", 108, 6),
-		Mention:        Complete("#d3869b", 174, 5),
-		Code:           Complete("#8ec07c", 108, 3),
+		// Just under a fifth of the way to the yellow: the words of a
+		// message of this user are the accent, and 4.63:1 is what is
+		// left of the bar at that share. The block and Surface0 are
+		// 1.48:1 apart, the widest of the three themes, because the
+		// yellow of this palette is the lightest of the three accents
+		// and the block can go further towards it than the others can.
+		OutgoingBlock: Complete("#5e5035", 242, 8),
+		Accent:        Complete("#fabd2f", 214, 14),
+		AccentAlt:     Complete("#d3869b", 174, 12),
+		Success:       Complete("#b8bb26", 142, 2),
+		Warning:       Complete("#fe8019", 208, 3),
+		Error:         Complete("#fb4934", 203, 1),
+		Info:          Complete("#83a598", 108, 6),
+		Link:          Complete("#83a598", 108, 6),
+		Mention:       Complete("#d3869b", 174, 5),
+		Code:          Complete("#8ec07c", 108, 3),
 	}
 }

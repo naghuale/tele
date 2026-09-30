@@ -29,7 +29,7 @@ func TestThePresenceIsDrawnBeforeTheConnection(t *testing.T) {
 	})
 
 	line := statusLineOf(t, model)
-	if line != "Online · Connected · 2 queued" {
+	if line != "online · connected · 2 queued" {
 		t.Fatalf("status line = %q", line)
 	}
 }
@@ -48,14 +48,14 @@ func TestEveryPresenceTextIsDrawn(t *testing.T) {
 	}{
 		"online": {
 			presence: Presence{Kind: PresenceUser, ExpiresAt: now.Add(time.Hour)},
-			want:     "Online",
+			want:     "online",
 		},
 		"online expires in an hour": {
 			presence: Presence{
 				Kind:      PresenceUser,
 				ExpiresAt: now.Add(time.Hour),
 			},
-			want: "Online",
+			want: "online",
 		},
 		// Both of these are 90 and 50 minutes before 15:00 UTC, which is
 		// 16:30 and 17:10 in the zone the model reads times in.
@@ -161,7 +161,7 @@ func TestEveryPresenceTextIsDrawn(t *testing.T) {
 
 // An online status is a promise TDLib makes with a deadline, and it sends
 // nothing when the deadline passes. The word has to change anyway, from the
-// clock, without a new update: a header that says "Online" to somebody who
+// clock, without a new update: a header that says "online" to somebody who
 // is not is the one thing a presence line must never be.
 func TestAnOnlinePresenceThatRanOutIsDrawnFromTheClock(t *testing.T) {
 	now := testClock
@@ -170,8 +170,8 @@ func TestAnOnlinePresenceThatRanOutIsDrawnFromTheClock(t *testing.T) {
 	model := modelWithPresence(t, theme.ProfileNoColor, 100, 24, presence, StatusSummary{})
 	model = withClock(model, now, time.UTC)
 
-	if got := statusLineOf(t, model); got != "Online" {
-		t.Fatalf("status line = %q, want Online", got)
+	if got := statusLineOf(t, model); got != "online" {
+		t.Fatalf("status line = %q, want online", got)
 	}
 
 	// Nothing arrives from the store: the same presence, half an hour later.
@@ -216,7 +216,7 @@ func TestAMissingPresenceHidesNothingElse(t *testing.T) {
 		Queue:      QueueSummary{Known: true, Queued: 4, Retrying: 1},
 	})
 
-	if got := statusLineOf(t, model); got != "Connected · 4 queued · 1 retrying" {
+	if got := statusLineOf(t, model); got != "connected · 4 queued · 1 retrying" {
 		t.Fatalf("status line = %q", got)
 	}
 }
@@ -239,7 +239,7 @@ func TestANarrowScreenKeepsThePresence(t *testing.T) {
 			t.Fatalf("width %d: no status line", width)
 		}
 		joined := strings.Join(lines, " ")
-		if !strings.Contains(joined, "Online") {
+		if !strings.Contains(joined, "online") {
 			t.Fatalf("width %d: the presence was dropped: %q", width, lines)
 		}
 		for _, line := range lines {
@@ -310,7 +310,7 @@ func TestPresencePrintsWithoutTheStatus(t *testing.T) {
 		},
 		"an online presence on the screen": {
 			printed: presenceText(online, testClock, time.UTC),
-			want:    "Online",
+			want:    "online",
 			leaks:   noStoreYear,
 		},
 		"a presence that ran out an hour ago on the screen": {
@@ -442,7 +442,7 @@ func TestThePresenceIsDrawnFromTheClockOfTheCaseAndNotTheMachine(t *testing.T) {
 			},
 			now:  testClock,
 			zone: time.UTC,
-			want: "Online",
+			want: "online",
 		},
 		// Six years on, the same presence is long gone, and the header says
 		// the day rather than the hour: the days are years apart, so
@@ -481,7 +481,7 @@ func TestThePresenceIsDrawnFromTheClockOfTheCaseAndNotTheMachine(t *testing.T) {
 			},
 			now:  far,
 			zone: vladivostok,
-			want: "Online",
+			want: "online",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -519,7 +519,7 @@ var testClock = time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC)
 // `time.Local` until something pins that. A presence test that pinned
 // neither judged a presence of 2026-09-28 against a clock of whenever the
 // test happened to run, and on 28 September 2026 at 16:00 UTC the answer
-// turned from "Online" to "last seen at 02:00" — in the zone of the machine,
+// turned from "online" to "last seen at 02:00" — in the zone of the machine,
 // which is a second thing nobody pinned.
 //
 // Every presence test builds its model here, so every presence test now has

@@ -21,25 +21,25 @@
                                                                                                                         
     Команда Разработки    11:40                                                                                         
     созвон в 15:00                                                                                                      
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                                                                                                        
-                                         Anna Example · 12:02                                                           
+                                         Anna Example  12:02                                                            
                                          The build is green again                                                       
+                                                                                                                        
+                                                                                                                        
                                                                                                                         
                                                                                           Shipped the release notes     
                                                                                                        ✓ sent 12:05     
                                                                                                                         
-                                         Anna Example · 12:07                                                           
+                                                                                                                        
+                                                                                                                        
+                                         Anna Example  12:07                                                            
                                          Спасибо, посмотрю после обеда                                                  
+                                                                                                                        
                                                                                                                         
                                     › Write a message…                                                                  
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"    \x1b[1;96mChats        \x1b[0m      \x1b[90m3 unread\x1b[0m     \x1b[90mAnna Example                                                                        \x1b[0m"
+"    \x1b[1;96mChats        \x1b[0m      \x1b[90m3 unread\x1b[0m     \x1b[1;97mAnna Example                                                                        \x1b[0m"
 "    \x1b[90m/ search                   \x1b[0m                                                                                         "
 "  \x1b[96m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m                                                                                       "
 "  \x1b[1;96;107m \x1b[0m\x1b[107m \x1b[0m\x1b[1;96;107mAnna Example\x1b[0m\x1b[107m          \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m  \x1b[0m                                                                                       "
@@ -53,19 +53,19 @@
 "                                                                                                                        "
 "  \x1b[37m \x1b[0m \x1b[1;97mКоманда Разработки\x1b[0m    \x1b[90m11:40\x1b[0m                                                                                         "
 "  \x1b[37m \x1b[0m \x1b[37mсозвон в 15:00\x1b[0m                                                                                                      "
-"                                                                                                                        "
-"                                                                                                                        "
-"                                                                                                                        "
-"                                                                                                                        "
-"                                                                                                                        "
-"                                      \x1b[37m \x1b[0m  \x1b[32mAnna Example\x1b[0m · \x1b[90m12:02\x1b[0m                                                           "
+"                                      \x1b[37m \x1b[0m  \x1b[32mAnna Example\x1b[0m  \x1b[90m12:02\x1b[0m                                                            "
 "                                      \x1b[37m \x1b[0m  \x1b[97mThe build is green again\x1b[0m                                                       "
 "                                                                                                                        "
+"                                                                                                                        "
+"                                                                                        \x1b[100m                             \x1b[0m   "
 "                                                                                       \x1b[37m \x1b[0m\x1b[100m  \x1b[0m\x1b[96;100mShipped the release notes\x1b[0m\x1b[100m  \x1b[0m   "
 "                                                                                       \x1b[37m \x1b[0m\x1b[100m             \x1b[0m\x1b[100m  \x1b[0m\x1b[32;100m✓ sent 12:05\x1b[0m\x1b[100m  \x1b[0m   "
+"                                                                                        \x1b[100m                             \x1b[0m   "
 "                                                                                                                        "
-"                                      \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[32;107mAnna Example\x1b[0m\x1b[107m · \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m         \x1b[0m\x1b[107m  \x1b[0m                                                "
+"                                       \x1b[107m                                 \x1b[0m                                                "
+"                                      \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[32;107mAnna Example\x1b[0m\x1b[107m  \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m          \x1b[0m\x1b[107m  \x1b[0m                                                "
 "                                      \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[97;107mСпасибо, посмотрю после обеда\x1b[0m\x1b[107m  \x1b[0m                                                "
+"                                       \x1b[107m                                 \x1b[0m                                                "
 "                                                                                                                        "
 "                                    \x1b[90m› \x1b[0m\x1b[90mWrite a message…\x1b[0m                                                                  "
 "                                    \x1b[37mEnter open · / search · q quit                                                      \x1b[0m"

@@ -584,24 +584,67 @@
     14:30", "↻ retrying at 14:35") and no author line: the block being
     on the right already says whose it is
   - a block is as wide as its widest line and never narrower than
-    bubbleMinTextColumns (16) of text, insets and ends apart, so a
-    one-word message is a bubble and not a sliver; the name and the state
+    blockMinTextColumns (16) of text, insets and ends apart, so a
+    one-word message is a block and not a sliver; the name and the state
     are as wide as they are whatever that floor is
-  - a block is its own full cells: there is no air drawn above or below
-    it, and no half block (U+2584, U+2580) is drawn anywhere. Both were
-    tried and both are gone, because the owner's Terminal draws its rows
-    with a gap: a row of half blocks above a block and a row of them
-    below it do not meet it, and what the screen showed was three layers
-    of a shade where there is one shape. A bubble of one line of words is
-    two rows of it, and a feed of N such bubbles takes 3N-1 rows: the
-    bubble and one blank row between two messages, with no gap row above
+  - a block is its own full cells: the air inside it is on the background
+    of the block, a column on each side of the words (blockInset, 2) and
+    one row above them and one below them (blockPaddingRows, 1, the
+    owner's 30.09: "текст придавлен к краям" — the price is two rows a
+    message and the decision on the air is his after seeing it). No half
+    block (U+2584, U+2580) is drawn anywhere: both were tried and both
+    are gone, because the owner's Terminal draws its rows with a gap, a
+    row of half blocks above a block and a row of them below it do not
+    meet it, and what the screen showed was three layers of a shade
+    where there is one shape. The Nerd halves (U+E0B6/U+E0B4) therefore
+    belong to the one block with no padding at all — the short screen of
+    §3.4, where a message is its text and nothing else — and a padded
+    block of three rows and more is a rectangle, because a half circle
+    one row tall in the middle of it is a pill inside a rectangle. A
+    block of one line of words is
+    four rows of it with the air above and below the words, and a feed of
+    N such blocks takes 5N-1 rows: the block, the blank row between two
+    messages, with no gap row above
     the topmost one because there is no message above it on the screen
     (that row is what the owner has a screenshot of as an empty bar at
-    the top of the feed). In a 168x43 window that is thirteen one-line
-    messages where the half blocks left room for seven
+    the top of the feed). In a 168x43 window the feed is 38 rows, which is
+    SEVEN one-line messages whole with the air inside the block, and the
+    top of the eighth: thirteen without it, and seven where the half
+    blocks were
   - the words of a delivery state are in lower case ("✓ sent", "●
     queued"), as the mockup of the owner writes them: a state is a word
     inside a row of a conversation and not a heading
+  - the author line of a block from the other side is "Name  time": two
+    spaces, the time in MutedText, and no middle dot. The dot of §3.3
+    joins two parts of one line of words ("online · connected"); a name
+    and a time are not that, and the owner has them side by side (30.09)
+    - authorTimeSeparator is two spaces
+  - the conversation header is: the name of the chat in bold PrimaryText
+    (not the accent: the accent marks the pane that has the keys, which
+    the rule under the header does), then the status line with NOTHING
+    between them, then that rule (30.09). The words of the presence and
+    of the connection are in lower case ("online", "connected"), the
+    presence is the one part in StatusSuccess (green, as the mockup) and
+    the separator and the other parts are dimmed SecondaryText. A status
+    line that has to be wrapped is drawn in one colour for the whole of
+    it: a wrapped line has no columns of its own to keep a part in
+  - "Sending paused" is a PART of the status line and not the whole of
+    it (30.09). statusParts returned early on pausedErr, so the presence
+    of a person and the state of a connection left the screen whenever a
+    composer could not write, and the golden of the pause showed the one
+    word. The counts of the queue stay hidden while it is paused
+    (decision 3: a count of a queue nothing can be queued into is a lie),
+    and the line reads "Sending paused · online · connected"
+  - the two sides have blocks that are clearly apart in every theme
+    (30.09, "сейчас почти одинаковые"): Palette.OutgoingBlock is
+    Surface0 mixed towards the accent, and how far is bounded by the
+    words of a message of this user, which ARE the accent and have to
+    hold 4.5:1 on the block. mocha 0.15 (#48435f, 1.34:1 from Surface0),
+    gruvbox 0.18 (#5e5035, 1.48:1), tokyo-night 0.09 (#2f3850, 1.15:1 —
+    its accent is the darkest of the three, and a tenth of the way puts
+    the words at 4.47:1). Before: 1.17, 1.19 and 1.09.
+    TestTheTwoSidesHaveBlocksOfTheirOwnColours holds the floor at 1.15
+    and TestTheWordsOfAMessageAreReadableOnItsOwnBlock holds the 4.5:1
   - a blank row separates two messages, and it is the first thing to go
     on a screen shorter than 20 rows
   - a run of consecutive messages from one sender that share a
@@ -1225,11 +1268,11 @@
     the edges of the pane rather than to cut the band short. There are no
     air rows above and below a card, so the air of a card is only the air
     inside its two rows
-  - OutgoingBubble is the surface of the block of a message of this user,
+  - OutgoingBlock is the surface of the block of a message of this user,
     and ComposerBackground is the surface of the block of a message of the
     other side: two roles because two colours, so that the two sides of a
     conversation are told apart in colour and not only in position. The
-    value is named by each palette (Palette.OutgoingBubble) and is a mix
+    value is named by each palette (Palette.OutgoingBlock) and is a mix
     of Surface0 and the accent — every channel strictly between the two,
     which TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent checks.
     The share is small because the words of a message of this user are the
@@ -1239,7 +1282,7 @@
     (TestTheWordsOfAMessageAreReadableOnItsOwnBubble), and the words of a
     message of the other side are held to the same bar on Surface0 by the
     same test
-  - OutgoingBubble is the one surface that is NOT cleared on the ANSI16
+  - OutgoingBlock is the one surface that is NOT cleared on the ANSI16
     profile. The others are, because five shades of surface do not exist
     there and the terminal's own background shows through; this one is
     kept because it is the only thing on a 16-colour screen that tells

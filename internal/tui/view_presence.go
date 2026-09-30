@@ -15,7 +15,7 @@ import (
 // nothing since.
 
 const (
-	presenceOnlineText = "Online"
+	presenceOnlineText = "online"
 	presenceBotText    = "bot"
 
 	presenceLastSeenAtText  = "last seen at "

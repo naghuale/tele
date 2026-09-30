@@ -39,7 +39,7 @@
                                     Enter open · Esc cancel                                                             
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m \x1b[38;2;205;214;243mrelease\x1b[0m\x1b[7;38;2;203;166;247m▏\x1b[0m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;126;131;155mRelease Room                                                                        \x1b[0m\x1b[0m"
+" \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m \x1b[38;2;205;214;243mrelease\x1b[0m\x1b[7;38;2;203;166;247m▏\x1b[0m                      \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[1;38;2;205;214;243mRelease Room                                                                        \x1b[0m\x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m  \x1b[1;38;2;203;166;247mChats        \x1b[0m      \x1b[38;2;126;131;155m3 unread\x1b[0m  \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m  \x1b[38;2;126;131;155m/ search                   \x1b[0m  \x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
 " \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m\x1b[38;2;203;166;247m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m  \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"

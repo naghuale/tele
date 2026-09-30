@@ -42,27 +42,6 @@ type Palette struct {
 	// machines, and a golden file cannot be right on one of them.
 	Muted Color
 
-	// OutgoingBlock is the surface the block of a message of this user is
-	// drawn on: the theme's own step of the surface ramp, mixed a little
-	// towards the accent.
-	//
-	// The other side's messages are drawn on Surface0, which is a neutral
-	// grey, and this one is a tint of it. A tint is what tells the two
-	// sides apart in colour as well as in position, which is what a reader
-	// of a chat already expects: their own messages are the ones in the
-	// colour of the theme.
-	//
-	// The share is small, and the reason is the text on it. The words of a
-	// message of this user are the accent, which is the lightest thing on
-	// the screen, and a surface mixed towards the accent is a surface the
-	// accent has less contrast on: at a tenth of the distance the words
-	// of a message are already at 4.47:1 on Tokyo Night and below the
-	// 4.5:1 §24 asks for. Every value here is written down rather than
-	// computed, and TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent
-	// says so, because a value worked out at run time is a value that can
-	// come out different on two machines.
-	OutgoingBlock Color
-
 	Accent    Color
 	AccentAlt Color
 
@@ -128,16 +107,15 @@ func catppuccinMochaPalette() Palette {
 		// two sides looked alike. Entry 61 is two steps above the 59 of
 		// Surface0 and carries the mauve, so the two blocks are told
 		// apart on an indexed terminal too.
-		OutgoingBlock: Complete("#48435f", 61, 8),
-		Accent:        Complete("#cba6f7", 183, 14),
-		AccentAlt:     Complete("#89b4fa", 111, 12),
-		Success:       Complete("#a6e3a1", 151, 2),
-		Warning:       Complete("#f9e2af", 223, 3),
-		Error:         Complete("#f38ba8", 211, 1),
-		Info:          Complete("#89dceb", 117, 6),
-		Link:          Complete("#89b4fa", 111, 6),
-		Mention:       Complete("#f5c2e7", 218, 5),
-		Code:          Complete("#fab387", 216, 3),
+		Accent:    Complete("#cba6f7", 183, 14),
+		AccentAlt: Complete("#89b4fa", 111, 12),
+		Success:   Complete("#a6e3a1", 151, 2),
+		Warning:   Complete("#f9e2af", 223, 3),
+		Error:     Complete("#f38ba8", 211, 1),
+		Info:      Complete("#89dceb", 117, 6),
+		Link:      Complete("#89b4fa", 111, 6),
+		Mention:   Complete("#f5c2e7", 218, 5),
+		Code:      Complete("#fab387", 216, 3),
 	}
 }
 
@@ -190,16 +168,15 @@ func tokyoNightStormPalette() Palette {
 		// lighter colour, and that is a decision about the whole ramp of
 		// the theme rather than about this one value. The owner is asked
 		// to look at it (30.09).
-		OutgoingBlock: Complete("#2f3850", 18, 8),
-		Accent:        Complete("#7aa2f7", 111, 14),
-		AccentAlt:     Complete("#bb9af7", 141, 12),
-		Success:       Complete("#9ece6a", 149, 2),
-		Warning:       Complete("#e0af68", 179, 3),
-		Error:         Complete("#f7768e", 210, 1),
-		Info:          Complete("#7dcfff", 117, 6),
-		Link:          Complete("#7aa2f7", 111, 6),
-		Mention:       Complete("#bb9af7", 141, 5),
-		Code:          Complete("#ff9e64", 215, 3),
+		Accent:    Complete("#7aa2f7", 111, 14),
+		AccentAlt: Complete("#bb9af7", 141, 12),
+		Success:   Complete("#9ece6a", 149, 2),
+		Warning:   Complete("#e0af68", 179, 3),
+		Error:     Complete("#f7768e", 210, 1),
+		Info:      Complete("#7dcfff", 117, 6),
+		Link:      Complete("#7aa2f7", 111, 6),
+		Mention:   Complete("#bb9af7", 141, 5),
+		Code:      Complete("#ff9e64", 215, 3),
 	}
 }
 
@@ -250,15 +227,14 @@ func gruvboxDarkPalette() Palette {
 		// 1.48:1 apart, the widest of the three themes, because the
 		// yellow of this palette is the lightest of the three accents
 		// and the block can go further towards it than the others can.
-		OutgoingBlock: Complete("#5e5035", 242, 8),
-		Accent:        Complete("#fabd2f", 214, 14),
-		AccentAlt:     Complete("#d3869b", 174, 12),
-		Success:       Complete("#b8bb26", 142, 2),
-		Warning:       Complete("#fe8019", 208, 3),
-		Error:         Complete("#fb4934", 203, 1),
-		Info:          Complete("#83a598", 108, 6),
-		Link:          Complete("#83a598", 108, 6),
-		Mention:       Complete("#d3869b", 174, 5),
-		Code:          Complete("#8ec07c", 108, 3),
+		Accent:    Complete("#fabd2f", 214, 14),
+		AccentAlt: Complete("#d3869b", 174, 12),
+		Success:   Complete("#b8bb26", 142, 2),
+		Warning:   Complete("#fe8019", 208, 3),
+		Error:     Complete("#fb4934", 203, 1),
+		Info:      Complete("#83a598", 108, 6),
+		Link:      Complete("#83a598", 108, 6),
+		Mention:   Complete("#d3869b", 174, 5),
+		Code:      Complete("#8ec07c", 108, 3),
 	}
 }

@@ -642,16 +642,26 @@
     word. The counts of the queue stay hidden while it is paused
     (decision 3: a count of a queue nothing can be queued into is a lie),
     and the line reads "Sending paused · online · connected"
-  - the two sides have blocks that are clearly apart in every theme
-    (30.09, "сейчас почти одинаковые"): Palette.OutgoingBlock is
-    Surface0 mixed towards the accent, and how far is bounded by the
-    words of a message of this user, which ARE the accent and have to
-    hold 4.5:1 on the block. mocha 0.15 (#48435f, 1.34:1 from Surface0),
-    gruvbox 0.18 (#5e5035, 1.48:1), tokyo-night 0.09 (#2f3850, 1.15:1 —
-    its accent is the darkest of the three, and a tenth of the way puts
-    the words at 4.47:1). Before: 1.17, 1.19 and 1.09.
-    TestTheTwoSidesHaveBlocksOfTheirOwnColours holds the floor at 1.15
-    and TestTheWordsOfAMessageAreReadableOnItsOwnBlock holds the 4.5:1
+  - BOTH SIDES ARE DRAWN ON ONE SURFACE (the owner, 30.09: a tinted own
+    block almost hid the selection of the message under the cursor, and a
+    violet block under Selected is a selection nobody can find). The two
+    sides are told apart by the colour of their words — OutgoingMessage is
+    the accent, IncomingMessage is Text — and by the edge of the feed.
+    The block under the cursor is the Selected role on either side, and it
+    is 1.37:1, 1.31:1 and 1.37:1 away from the plain block in the three
+    themes.
+    TestTheTwoSidesShareOneSurfaceAndTheSelectedBlockIsItsOwn holds the
+    floor at 1.25:1 and reads the words of both sides on both blocks;
+    TestTheWordsOfAMessageAreReadableOnItsOwnBlock holds the 4.5:1 of the
+    words on the plain block.
+    ONE NUMBER IS BELOW THE TEXT BAR AND IS THE OWNER'S TO DECIDE: the
+    accent of this user on the selected block is 4.49:1, 5.20:1 and
+    3.90:1 in the three themes, because Selected in two of them is a step
+    lighter than their own Surface0. The test holds it at 3.5:1. Making
+    it 4.5:1 means a Selected a step darker in those two themes, and
+    Selected is also the selected row of the chat list and the surface of
+    every popup. The words of the other side on Selected are 6.31, 6.43
+    and 6.08
   - a blank row separates two messages, and it is the first thing to go
     on a screen shorter than 20 rows
   - a run of consecutive messages from one sender that share a
@@ -1275,27 +1285,15 @@
     the edges of the pane rather than to cut the band short. There are no
     air rows above and below a card, so the air of a card is only the air
     inside its two rows
-  - OutgoingBlock is the surface of the block of a message of this user,
-    and ComposerBackground is the surface of the block of a message of the
-    other side: two roles because two colours, so that the two sides of a
-    conversation are told apart in colour and not only in position. The
-    value is named by each palette (Palette.OutgoingBlock) and is a mix
-    of Surface0 and the accent — every channel strictly between the two,
-    which TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent checks.
-    The share is small because the words of a message of this user are the
-    accent and a surface mixed towards the accent is a surface the accent
-    has less contrast on: each palette names the largest share that keeps
-    those words at WCAG AA 4.5:1
-    (TestTheWordsOfAMessageAreReadableOnItsOwnBubble), and the words of a
-    message of the other side are held to the same bar on Surface0 by the
-    same test
-  - OutgoingBlock is the one surface that is NOT cleared on the ANSI16
-    profile. The others are, because five shades of surface do not exist
-    there and the terminal's own background shows through; this one is
-    kept because it is the only thing on a 16-colour screen that tells
-    the two sides of a conversation apart in colour, and without it they
-    are told apart by position alone. Its ANSI256 and ANSI16 entries are
-    named per palette like every other role
+  - THERE IS NO OutgoingBlock ROLE. ComposerBackground (Surface0) is the
+    surface of the block on both sides, and Selected (Surface1) is the
+    surface of the block under the cursor. The role existed for two rounds
+    as the accent's tint of Surface0, and the owner turned it down on
+    30.09 because the tint hid the selection; Palette.OutgoingBlock,
+    Tokens.OutgoingBlock, blockOf and the ANSI16 exception for it are all
+    gone, and so is TestTheMessageBubblesAreMixesOfTheSurfaceAndTheAccent
+    with it. On a 16-colour terminal the two sides are told apart by the
+    words and by the edge of the feed, which is what is left there.
   - colour profiles: True Color, ANSI-256, ANSI-16 and no colour. The
     terminal is measured through Lip Gloss and the decision is a pure
     function of that measurement, the environment, --no-color and

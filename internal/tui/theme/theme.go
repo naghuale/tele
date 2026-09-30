@@ -54,17 +54,6 @@ type Tokens struct {
 	StatusUncertain Color
 	StatusCanceled  Color
 
-	// OutgoingBlock is the surface the block of a message of this user is
-	// drawn on, and ComposerBackground is the surface the block of a
-	// message of the other side is drawn on.
-	//
-	// They are two roles and not one because they are two colours: the
-	// other side's block is the neutral step of the surface ramp and this
-	// one is a tint of it towards the accent, and that difference is what
-	// tells the two sides apart in colour as well as in position. A theme
-	// that had one role for both would have one block for both.
-	OutgoingBlock Color
-
 	IncomingMessage Color
 	OutgoingMessage Color
 	CodeBackground  Color
@@ -259,7 +248,6 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 		ComposerBackground: palette.Surface0,
 		FooterBackground:   palette.Surface0,
 		PopupBackground:    palette.Surface1,
-		OutgoingBlock:      blockOf(palette),
 		CodeBackground:     palette.Surface2,
 		ShadowBackground:   dim,
 
@@ -292,23 +280,6 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 		StatusUncertain: accentAlt,
 		StatusCanceled:  dim,
 	}
-}
-
-// blockOf is the surface the block of a message of this user is drawn on:
-// the palette's own tint, or the composer's surface for a palette written
-// before the role existed (a user palette, PR-10C).
-//
-// The fallback is the composer's surface and not nothing on purpose. A
-// missing tint must not cost a user a block behind their own messages: the
-// two sides would then be told apart by position alone, which is what the
-// interface did before both of them had one, and a surface the block can
-// still be drawn on is better than no surface at all.
-func blockOf(palette Palette) Color {
-	if palette.OutgoingBlock.IsSet() {
-		return palette.OutgoingBlock
-	}
-
-	return palette.Surface0
 }
 
 // GradientsFor derives the decorative ramps of a palette.

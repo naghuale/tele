@@ -667,7 +667,7 @@ func (m Model) blockPaddingRow(
 ) string {
 	return m.painter(theme.Color{}).
 		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.offset)).
-		own(styles.on(m.blockSurface(block.side, selected), styles.unstyled()), spaces(block.width)).
+		own(styles.on(m.blockSurface(selected), styles.unstyled()), spaces(block.width)).
 		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.right)).
 		String()
 }
@@ -819,7 +819,7 @@ func (m Model) messageBlockFor(
 	under ...string,
 ) messageBlock {
 	inset := layout.BlockInset()
-	nerd := m.roundedEndColumns(side)
+	nerd := m.roundedEndColumns()
 	lane := maxInt(width-2*layout.FeedMargin(), 1)
 	ceiling := m.messageBlockCap(layout, width)
 
@@ -960,11 +960,11 @@ func (m Model) messageBlockCap(layout Layout, width int) int {
 // block has a colour to be the colour of. A terminal with neither draws
 // them as empty squares, and two empty squares at the ends of every message
 // are worse than the square corners they replace.
-func (m Model) roundedEndColumns(side messageSide) int {
+func (m Model) roundedEndColumns() int {
 	if !m.nerdFont {
 		return 0
 	}
-	if !m.blockSurface(side, false).IsSet() {
+	if !m.blockSurface(false).IsSet() {
 		return 0
 	}
 
@@ -972,20 +972,25 @@ func (m Model) roundedEndColumns(side messageSide) int {
 }
 
 // blockSurface returns the surface the block of a message is drawn on: the
-// Selected token while the cursor is on the message, and otherwise the
-// theme's own surface for that side of the feed.
+// Selected token while the cursor is on the message, and the neutral
+// surface of the theme otherwise, on both sides of the feed.
 //
-// It is the selected surface and not the side's own, because a selection
+// It is the Selected token and not the side's own, because a selection
 // that cannot be seen on a block is a selection a user can only find by
 // moving the cursor — and the block is the only background on the screen a
 // selection could hide in.
-func (m Model) blockSurface(side messageSide, selected bool) theme.Color {
+//
+// Both sides are drawn on the same neutral surface. The own side used to
+// have the accent's tint of it, and the owner turned that down on 30.09:
+// a tinted own block almost hides the one thing the tint was standing in
+// for, because the selection of the message under the cursor is drawn on
+// the block, and a violet block under a selected surface is a selection
+// nobody can find. So the two sides are told apart by the colour of their
+// words — the accent for this user, the light neutral for the other side
+// — and the block under the cursor is the Selected role on either side.
+func (m Model) blockSurface(selected bool) theme.Color {
 	if selected {
 		return m.tokens().Selected
-	}
-
-	if side == sideOutgoing {
-		return m.tokens().OutgoingBlock
 	}
 
 	return m.tokens().ComposerBackground
@@ -1020,7 +1025,7 @@ func (m Model) blockRow(
 ) string {
 	runs = m.fitRuns(runs, block.text)
 	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
-	raised := styles.on(m.blockSurface(block.side, selected), styles.unstyled())
+	raised := styles.on(m.blockSurface(selected), styles.unstyled())
 
 	// The columns in front of the block, the marker in the last of them
 	// and the rest of the feed behind it are all written with the
@@ -1049,7 +1054,7 @@ func (m Model) blockRow(
 
 	for _, run := range runs {
 		row = row.own(
-			styles.on(m.blockSurface(block.side, selected), run.style),
+			styles.on(m.blockSurface(selected), run.style),
 			run.text,
 		)
 	}
@@ -1074,7 +1079,7 @@ func (m Model) edgeStyle(
 	selected bool,
 ) lipgloss.Style {
 	return styles.blockEdge(
-		m.blockSurface(side, selected), m.tokens().ChatBackground,
+		m.blockSurface(selected), m.tokens().ChatBackground,
 	)
 }
 

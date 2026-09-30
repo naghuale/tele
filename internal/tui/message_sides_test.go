@@ -1333,6 +1333,139 @@ func columnRange(from, to int) []int {
 	return columns
 }
 
+// The count in the header of the list is at the right edge of the row, and
+// the row is exactly as wide as the pane. Fitted to the pane the count is a
+// row longer than the pane, and the pane cuts it: the goldens of 30899d3
+// read "Chats 3 unread \u2026" on every screen of the program, and an
+// ellipsis in the header of every screen is a defect in the header of every
+// screen. The owner's mockup has "Chats" at the left and "N unread" at the
+// right edge of the same row (30.09).
+func TestTheCountInTheHeaderEndsAtTheRightEdgeOfThePane(t *testing.T) {
+	for _, width := range []int{120, 100, 80, 72, 60} {
+		m := focusedOn(
+			programModel(t, theme.ProfileTrueColor, width, 30),
+			FocusChatList,
+		)
+		m.chats = []Chat{
+			{ID: 1, Title: "Anna Example", Unread: 1234, Time: "12:07"},
+			{ID: 2, Title: "Release Room", Time: "12:05"},
+		}
+		m.chatsState = loadStateLoaded
+
+		layout := LayoutFor(m.width, m.height)
+		pane := chatListPaneWidth(layout)
+		lines := m.chatListLines(layout, pane, layout.Height)
+		heading := plain(lines[0])
+
+		// The row is as wide as the pane, and not a column more: a row
+		// longer than the pane is a row the region of the pane cuts, and
+		// the cut is the ellipsis the goldens of 30899d3 were full of.
+		cells := renderedCells(t, m, lines[0])
+		if len(cells) != pane {
+			t.Errorf(
+				"width=%d: the heading is %d columns, want the %d of the pane: %q",
+				width, len(cells), pane, heading,
+			)
+		}
+
+		// The count is at the right edge of the words of a row, which is
+		// where the mockup of the owner has it and where the time and the
+		// badge of a chat are.
+		if got, want := lastWord(cells), pane-1-layout.ChatListInset(); got != want {
+			t.Errorf(
+				"width=%d: the count ends at column %d, want %d: %q",
+				width, got, want, heading,
+			)
+		}
+
+		// Where the pane has the room for the title and the whole count, the
+		// count is whole: an ellipsis in the header of a screen that has
+		// room for the words is a word the header does not say.
+		room := pane - 2*layout.ChatListInset()
+		full := m.widths.StringWidth(chatListTitle) +
+			chatListHeadingGap + m.widths.StringWidth(m.chatListSummaryText())
+		if room >= full && strings.Contains(heading, ellipsis) {
+			t.Errorf("width=%d: the header is %q, want no ellipsis in it", width, heading)
+		}
+	}
+}
+
+// The words of the chats start at the same column as the title of the pane
+// and as the "/ search" under it, and the time, the badge and the count of
+// the header share one right edge.
+//
+// The mockup of the owner has one left edge for the header and for every
+// name and preview under it, and one right edge for the time, the count and
+// the count of the header. The goldens of 30899d3 had the header on the
+// third column and the names on the seventh: the marker of the selection
+// took a column of its own in front of the words, and the preview took
+// another, so the list looked indented for a reason nobody could find.
+func TestTheHeaderAndTheWordsOfTheChatsShareTheirEdges(t *testing.T) {
+	m := focusedOn(
+		programModel(t, theme.ProfileTrueColor, 120, 30),
+		FocusChatList,
+	)
+	m.chats = []Chat{
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05"},
+	}
+	m.chatsState = loadStateLoaded
+	m.selectedChat = 0
+
+	layout := LayoutFor(m.width, m.height)
+	pane := chatListPaneWidth(layout)
+	lines := m.chatListLines(layout, pane, layout.Height)
+	rows, _ := m.chatListRows(layout, pane)
+
+	// The left edge: the title of the pane, the "/ search" under it, the
+	// name of the chosen chat and its preview are on one column.
+	for name, cells := range map[string][]renderedCell{
+		"the title of the pane": renderedCells(t, m, lines[0]),
+		"the search line":       renderedCells(t, m, lines[1]),
+		"a name":                renderedCells(t, m, rows[0][0]),
+		"a preview":             renderedCells(t, m, rows[0][1]),
+	} {
+		if got := firstWord(cells); got != layout.ChatListInset() {
+			t.Errorf(
+				"%s starts at column %d, want the %d columns of air inside the row",
+				name, got, layout.ChatListInset(),
+			)
+		}
+	}
+
+	// The right edge: the time, the badge and the count of the header are all
+	// on the same column, and it is the column the last word of a row ends
+	// in.
+	right := pane - 1 - layout.ChatListInset()
+	for name, cells := range map[string][]renderedCell{
+		"the count of the header": renderedCells(t, m, lines[0]),
+		"a time":                  renderedCells(t, m, rows[0][0]),
+	} {
+		if got := lastWord(cells); got != right {
+			t.Errorf("%s ends at column %d, want %d", name, got, right)
+		}
+	}
+
+	// The badge is a pill, so its number ends a column short of the right
+	// edge: the column of the pill's own air after the number is what lines
+	// up with the time and with the count of the header.
+	if got := lastWord(renderedCells(t, m, rows[0][1])) + 1; got != right {
+		t.Errorf("the pill of the badge ends at column %d, want %d", got, right)
+	}
+}
+
+// firstWord returns the column the first word of a row starts in, and -1
+// when the row has no word at all.
+func firstWord(row []renderedCell) int {
+	for column, cell := range row {
+		if strings.TrimSpace(cell.text) != "" {
+			return column
+		}
+	}
+
+	return -1
+}
+
 // The count of a chat is a pill with a space on each side of the number,
 // and with a Nerd Font it is rounded with the two halves the font provides,
 // in the colour of the pill on the background of the row.

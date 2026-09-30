@@ -7,20 +7,20 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-  Chats 3 unread                …   Anna Example                                                                        
-  / search                                                                                                              
+    Chats              3 unread     Anna Example                                                                        
+    / search                                                                                                            
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
-      Anna Example        12:07                                                                                         
-       the build is green …  2                                                                                          
+    Anna Example          12:07                                                                                         
+    the build is green ag…   2                                                                                          
                                                                                                                         
-      Release Room        12:05                                                                                         
-       the tag is pushed                                                                                                
+    Release Room          12:05                                                                                         
+    the tag is pushed                                                                                                   
                                                                                                                         
-      Notes               11:58                                                                                         
-       milk, bread, coffee   1                                                                                          
+    Notes                 11:58                                                                                         
+    milk, bread, coffee      1                                                                                          
                                                                                                                         
-      Команда Разработки  11:40                                                                                         
-       созвон в 15:00                                                                                                   
+    Команда Разработки    11:40                                                                                         
+    созвон в 15:00                                                                                                      
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -39,20 +39,20 @@
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183mChats\x1b[0m \x1b[38;5;102m3 unread                \x1b[0m…\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;102mAnna Example                                                                        \x1b[0m\x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;102m/ search                       \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[1;38;5;183mChats        \x1b[0m      \x1b[38;5;102m3 unread\x1b[0m  \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;102mAnna Example                                                                        \x1b[0m\x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[38;5;102m/ search                   \x1b[0m  \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;183m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m  \x1b[0m\x1b[1;38;5;183;48;5;59m  \x1b[0m\x1b[1;38;5;183;48;5;59mAnna Example\x1b[0m\x1b[48;5;59m        \x1b[0m\x1b[38;5;102;48;5;59m12:07\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;59m  \x1b[0m\x1b[1;38;5;183;48;5;59m   \x1b[0m\x1b[38;5;146;48;5;59mthe build is green …\x1b[0m\x1b[48;5;59m \x1b[0m\x1b[1;38;5;232;48;5;183m 2 \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183;48;5;59m \x1b[0m\x1b[48;5;59m \x1b[0m\x1b[1;38;5;183;48;5;59mAnna Example\x1b[0m\x1b[48;5;59m          \x1b[0m\x1b[38;5;102;48;5;59m12:07\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;183;48;5;59m \x1b[0m\x1b[48;5;59m \x1b[0m\x1b[38;5;146;48;5;59mthe build is green ag…\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[1;38;5;232;48;5;183m 2 \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                               \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mRelease Room\x1b[0m        \x1b[38;5;102m12:05\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mthe tag is pushed\x1b[0m       \x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[1;38;5;189mRelease Room\x1b[0m          \x1b[38;5;102m12:05\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[38;5;146mthe tag is pushed\x1b[0m          \x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                               \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mNotes\x1b[0m               \x1b[38;5;102m11:58\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mmilk, bread, coffee\x1b[0m  \x1b[1;38;5;232;48;5;183m 1 \x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[1;38;5;189mNotes\x1b[0m                 \x1b[38;5;102m11:58\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[38;5;146mmilk, bread, coffee\x1b[0m     \x1b[1;38;5;232;48;5;183m 1 \x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                               \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m  \x1b[0m\x1b[1;38;5;189mКоманда Разработки\x1b[0m  \x1b[38;5;102m11:40\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146m   \x1b[0m\x1b[38;5;146mсозвон в 15:00\x1b[0m          \x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[1;38;5;189mКоманда Разработки\x1b[0m    \x1b[38;5;102m11:40\x1b[0m\x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
+" \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[38;5;146mсозвон в 15:00\x1b[0m             \x1b[48;5;232m  \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                               \x1b[0m\x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 " \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m  \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"

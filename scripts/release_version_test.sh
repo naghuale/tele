@@ -327,11 +327,19 @@ accepts "the release runs against the real file" v0.1.0
 check "the released section is on top" \
   "$(grep -qxF '## [v0.1.0] - 2026-09-30' "$FIXTURE/CHANGELOG.md" && echo yes || echo no)"
 check "every merged pull request kept its line" \
-  "$(for number in 47 46 45 40 36 34 32 30 28 27 24 23 20 18 16 12 8 7 5 4 3 2 61 58 56 52 51; do
+  "$(for number in 47 46 45 40 36 34 32 30 28 24 23 20 18 12 8 7 5 4 3 2 61 58 56 52 51; do
       grep -q "pull/$number)" "$FIXTURE/CHANGELOG.md" || exit 1
     done && echo yes || echo no)"
 check "the rc1 section survived" \
   "$(grep -qxF '## [v0.1.0-rc1] - 2026-09-26' "$FIXTURE/CHANGELOG.md" && echo yes || echo no)"
+# A line that promises what the interface does not do is worse than a
+# missing line: the journal is read instead of the code.
+check "no line promises a chat list that updates itself" \
+  "$(grep -q 'список чатов обновляется сам' "$FIXTURE/CHANGELOG.md" && echo no || echo yes)"
+check "no line promises messages arriving on their own" \
+  "$(grep -q 'приходят в ленту сразу' "$FIXTURE/CHANGELOG.md" && echo no || echo yes)"
+check "the loading of the chat list is named instead" \
+  "$(grep -q 'Loading chats' "$FIXTURE/CHANGELOG.md" && echo yes || echo no)"
 drop_fixture
 
 # ---- the tag and the build ---------------------------------------------

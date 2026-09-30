@@ -7,20 +7,20 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-  Chats 3 unread                …   Anna Example                                                                        
-  / search                                                                                                              
+    Chats              3 unread     Anna Example                                                                        
+    / search                                                                                                            
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
-      Anna Example        12:07                                                                                         
-       the build is green …  2                                                                                          
+    Anna Example          12:07                                                                                         
+    the build is green ag…   2                                                                                          
                                                                                                                         
-      Release Room        12:05                                                                                         
-       the tag is pushed                                                                                                
+    Release Room          12:05                                                                                         
+    the tag is pushed                                                                                                   
                                                                                                                         
-      Notes               11:58                                                                                         
-       milk, bread, coffee   1                                                                                          
+    Notes                 11:58                                                                                         
+    milk, bread, coffee      1                                                                                          
                                                                                                                         
-      Команда Разработки  11:40                                                                                         
-       созвон в 15:00                                                                                                   
+    Команда Разработки    11:40                                                                                         
+    созвон в 15:00                                                                                                      
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -39,20 +39,20 @@
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"  \x1b[1;96mChats\x1b[0m \x1b[90m3 unread                \x1b[0m…   \x1b[90mAnna Example                                                                        \x1b[0m"
-"  \x1b[90m/ search                       \x1b[0m                                                                                       "
+"    \x1b[1;96mChats        \x1b[0m      \x1b[90m3 unread\x1b[0m     \x1b[90mAnna Example                                                                        \x1b[0m"
+"    \x1b[90m/ search                   \x1b[0m                                                                                         "
 "  \x1b[96m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m                                                                                       "
-"  \x1b[107m  \x1b[0m\x1b[1;96;107m  \x1b[0m\x1b[1;96;107mAnna Example\x1b[0m\x1b[107m        \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m  \x1b[0m                                                                                       "
-"  \x1b[107m  \x1b[0m\x1b[1;96;107m   \x1b[0m\x1b[37;107mthe build is green …\x1b[0m\x1b[107m \x1b[0m\x1b[1m 2 \x1b[0m\x1b[107m  \x1b[0m                                                                                       "
+"  \x1b[1;96;107m \x1b[0m\x1b[107m \x1b[0m\x1b[1;96;107mAnna Example\x1b[0m\x1b[107m          \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m  \x1b[0m                                                                                       "
+"  \x1b[1;96;107m \x1b[0m\x1b[107m \x1b[0m\x1b[37;107mthe build is green ag…\x1b[0m\x1b[107m  \x1b[0m\x1b[1m 2 \x1b[0m\x1b[107m  \x1b[0m                                                                                       "
 "                                                                                                                        "
-"    \x1b[37m  \x1b[0m\x1b[1;97mRelease Room\x1b[0m        \x1b[90m12:05\x1b[0m                                                                                         "
-"    \x1b[37m   \x1b[0m\x1b[37mthe tag is pushed\x1b[0m                                                                                                "
+"  \x1b[37m \x1b[0m \x1b[1;97mRelease Room\x1b[0m          \x1b[90m12:05\x1b[0m                                                                                         "
+"  \x1b[37m \x1b[0m \x1b[37mthe tag is pushed\x1b[0m                                                                                                   "
 "                                                                                                                        "
-"    \x1b[37m  \x1b[0m\x1b[1;97mNotes\x1b[0m               \x1b[90m11:58\x1b[0m                                                                                         "
-"    \x1b[37m   \x1b[0m\x1b[37mmilk, bread, coffee\x1b[0m  \x1b[1m 1 \x1b[0m                                                                                         "
+"  \x1b[37m \x1b[0m \x1b[1;97mNotes\x1b[0m                 \x1b[90m11:58\x1b[0m                                                                                         "
+"  \x1b[37m \x1b[0m \x1b[37mmilk, bread, coffee\x1b[0m     \x1b[1m 1 \x1b[0m                                                                                         "
 "                                                                                                                        "
-"    \x1b[37m  \x1b[0m\x1b[1;97mКоманда Разработки\x1b[0m  \x1b[90m11:40\x1b[0m                                                                                         "
-"    \x1b[37m   \x1b[0m\x1b[37mсозвон в 15:00\x1b[0m                                                                                                   "
+"  \x1b[37m \x1b[0m \x1b[1;97mКоманда Разработки\x1b[0m    \x1b[90m11:40\x1b[0m                                                                                         "
+"  \x1b[37m \x1b[0m \x1b[37mсозвон в 15:00\x1b[0m                                                                                                      "
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "

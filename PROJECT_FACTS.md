@@ -847,9 +847,8 @@
     The air is on the background of the ROW, which for the chosen chat is
     the Selected: the card is a band of colour with words in it, and a
     band that stopped two columns short on each side is the stripe #59
-    removed. The air of the two air rows of the card is the background of
-    the list instead, because the edge of the card is the row of its own
-    not a stripe of colour at the end of it
+    removed. There is no air row above or below a card, so there is no
+    second kind of air to reason about
   - the count is the last cells of the second row and its right edge is
     the right edge of the time in the first row, at any length of preview;
     the preview is cut with an ellipsis at least chatListBadgeGap columns
@@ -858,10 +857,28 @@
     short layout height the row is one line — the name and the count, the
     count at the right edge where the time would be — because §4.2 gives
     the timestamp up before the count
-  - a name cut to a width that does not leave the marker's own column and
-    space is a name a column too long, and a row a column over the width
-    of the pane is a row the terminal wraps; nameWidth is therefore
-    content less the marker, its space and the time
+  - the marker of the selection stands in the FIRST cell of the left air of
+    the row, not in front of it: the words of every chat then start at the
+    same column as the title of the pane and as the "/ search" under it,
+    which is what the mockup of the owner has. The goldens of 30899d3 had
+    the marker with a column of its own in front of the words and the
+    preview with another, so the header was on the third column and the
+    names on the seventh, and the list looked indented for a reason nobody
+    could find. The marker goes through own() with the background of the row
+    written under it, because a cell with no background at all is a cell the
+    terminal paints with whatever it thinks its own background is
+  - the header of the list is a row of the pane like every other one: the
+    same air inside it, "Chats" at the left and the unread count at the
+    right edge of the words of a row, so the count, the time and the badge
+    are read down one column. The count is fitted to the room the title
+    leaves (chatListHeadingGap between the two) and NOT to the width of the
+    pane: fitted to the pane it made the row longer than the pane by the
+    width of the title, and the region of the pane cut it with an ellipsis —
+    "Chats 3 unread …" in every golden of 30899d3
+  - a name cut to a width that does not leave the time's room is a name a
+    column too long, and a row a column over the width of the pane is a row
+    the terminal wraps; nameWidth is therefore content less the time, and
+    the marker costs the row nothing because it is in the air
   - the vocabulary lives in internal/tui/theme and
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
@@ -1205,9 +1222,9 @@
     from the first cell of the row to the last one that is not the count.
     A band that stopped two columns short on each side is the stripe the
     chat list stopped having, and the air is there to keep the words off
-    the edges of the pane rather than to cut the band short. Only the two
-    air rows of the card are on the background of the list instead, since
-    the edge of the card is its own two rows and not a stripe of colour
+    the edges of the pane rather than to cut the band short. There are no
+    air rows above and below a card, so the air of a card is only the air
+    inside its two rows
   - OutgoingBubble is the surface of the block of a message of this user,
     and ComposerBackground is the surface of the block of a message of the
     other side: two roles because two colours, so that the two sides of a

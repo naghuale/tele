@@ -64,18 +64,36 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 // the eye has to find. The title is the panel heading, so it is in the
 // accent of the theme when the pane has the keys.
 func (m Model) chatListHeadingLine(layout Layout, width int) string {
-	summary := m.chatListSummaryLine(width)
-	air := maxInt(
-		width-m.widths.StringWidth(chatListTitle)-m.widths.StringWidth(summary),
-		1,
+	// The row of the header is a row of the pane like every other one, so
+	// the air inside it is the same air: the title of the pane and the
+	// "/ search" under it start at the same column as the name of a chat and
+	// its preview, and the count of the header ends at the same column as
+	// the time and the badge of a row (the mockup of the owner).
+	//
+	// The count is fitted to the room the title leaves and not to the width
+	// of the row: fitted to the row it is a row longer than the pane, and
+	// the pane cuts it with an ellipsis where the rule of the owner has the
+	// right edge of the count.
+	edge := maxInt(width-layout.ChatListInset(), 1)
+	room := maxInt(edge-layout.ChatListInset(), 1)
+	title := m.widths.Fit(chatListTitle, maxInt(room/2, 1), ellipsis)
+	summary := m.widths.TruncateMarked(
+		m.chatListSummaryText(),
+		maxInt(room-m.widths.StringWidth(title)-chatListHeadingGap, 1),
+		ellipsis,
 	)
 
 	return m.painter(theme.Color{}).
-		add(m.panelHeadingStyle(m.panelFocused(listPane)), chatListTitle).
-		add(m.styles().unstyled(), spaces(air)).
-		add(m.styles().dimmed(m.tokens().MutedText), summary).
+		add(m.styles().unstyled(), spaces(layout.ChatListInset())).
+		add(m.panelHeadingStyle(m.panelFocused(listPane)), title).
+		right(summary, edge, m.styles().dimmed(m.tokens().MutedText)).
+		pad(layout.ChatListInset()).
 		String()
 }
+
+// chatListHeadingGap is the air between the title of the pane and the count
+// at the other end of the row, when the count is all the room there is for.
+const chatListHeadingGap = 1
 
 // chatListRowHeight returns how many lines one chat of the list takes.
 //
@@ -118,19 +136,20 @@ func (m Model) panelHeadingStyle(focused bool) lipgloss.Style {
 	return styles.dimmed(m.tokens().MutedText)
 }
 
-// chatListSummaryLine is the unread count of the header, which is the words
-// alone: it shares its row with the title of the pane.
-func (m Model) chatListSummaryLine(width int) string {
+// chatListSummaryText is the unread count of the header, which is the words
+// alone: it shares its row with the title of the pane, and the row that puts
+// it at its right edge is the row that fits it to the room the title leaves.
+func (m Model) chatListSummaryText() string {
 	unread := 0
 	for _, chat := range m.chats {
 		unread += chat.Unread
 	}
 
 	if unread == 0 {
-		return m.widths.Fit("no unread", width, ellipsis)
+		return "no unread"
 	}
 
-	return m.widths.Fit(unreadBadge(unread)+" unread", width, ellipsis)
+	return unreadBadge(unread) + " unread"
 }
 
 // chatListSearchLine is how the list says that it can be searched.
@@ -140,14 +159,28 @@ func (m Model) chatListSummaryLine(width int) string {
 // a list that can be searched has to say so somewhere that is not behind a
 // key they have to know.
 func (m Model) chatListSearchLine(layout Layout, width int) string {
+	// The row carries the same air inside it as the row above it and as
+	// every row of the list under it, so the hint starts at the column the
+	// title of the pane starts at.
+	inset := layout.ChatListInset()
+	room := maxInt(width-2*inset, 1)
+
 	if !layout.TwoPane() {
-		if status := m.statusBlockLines(layout, width); len(status) > 0 {
-			return m.statusStyle().Render(status[0])
+		if status := m.statusBlockLines(layout, room); len(status) > 0 {
+			return m.painter(theme.Color{}).
+				add(m.styles().unstyled(), spaces(inset)).
+				add(m.statusStyle(), status[0]).
+				String()
 		}
 	}
 
-	return m.styles().dimmed(m.tokens().MutedText).
-		Render(m.widths.Fit(chatListSearchHint, width, ellipsis))
+	return m.painter(theme.Color{}).
+		add(m.styles().unstyled(), spaces(inset)).
+		add(
+			m.styles().dimmed(m.tokens().MutedText),
+			m.widths.Fit(chatListSearchHint, room, ellipsis),
+		).
+		String()
 }
 
 // chatListSearchHint is how the list says that it can be searched.
@@ -239,10 +272,6 @@ func (m Model) chatListRowLines(
 	// width, which is content and the four columns of air.
 	inset := layout.ChatListInset()
 	content := maxInt(width-2*inset, 1)
-	air := func() *rowPainter {
-		return m.painter(theme.Color{}).own(onRow, spaces(inset))
-	}
-
 	title := chat.Title
 	if title == "" {
 		title = untitledChatTitle
@@ -261,11 +290,11 @@ func (m Model) chatListRowLines(
 	// out of the width of the name and not added to it.
 	//
 	// What the name is spent out of is the width of the row less the air on
-	// each side, less the marker's column and its space, and less the time
-	// and the gap before it: a name cut to a width that does not leave the
-	// marker's room is a name a column too long, and a row a column over
-	// the width of the pane is a row the terminal wraps.
-	nameWidth := content - selectionMarkerWidth - contentInsetWidth
+	// each side and less the time and the gap before it. The marker is in
+	// the air, so it costs the row nothing: a name cut to a width that
+	// does not leave the time's room is a name a column too long, and a row
+	// a column over the width of the pane is a row the terminal wraps.
+	nameWidth := content
 	if nameWidth-timeColumns-timeGapColumns >= minNameBesideTime {
 		nameWidth -= timeColumns + timeGapColumns
 	} else {
@@ -276,8 +305,23 @@ func (m Model) chatListRowLines(
 	// rendered run: Lip Gloss re-reads the sequences of what it is given,
 	// and a run that already carries the surface loses it on the way
 	// through.
-	markRun := mark + " "
-	markStyle := styles.selectionMark(selected, m.focus == FocusChatList)
+	//
+	// It stands in the air inside the row and not in front of it, so the
+	// words of every chat start at the column the title of the pane and
+	// the "/ search" above them start at (the mockup of the owner): a
+	// marker with a column of its own in front of the words puts every
+	// name one column to the right of both, and the list looks like it is
+	// indented for a reason nobody can find.
+	// The marker is a run with a colour of its own inside the air, so it
+	// goes through own() with the background of the row written under it:
+	// a cell of the row with no background at all is a cell the terminal
+	// paints with whatever it thinks its own background is.
+	markStyle := styles.on(background, styles.selectionMark(selected, m.focus == FocusChatList))
+	lead := func(painted *rowPainter) *rowPainter {
+		return painted.
+			own(markStyle, mark).
+			own(onRow, spaces(inset-selectionMarkerWidth))
+	}
 	// edge closes a row: the columns of air on the right of it, on the
 	// background of the row like the ones on the left, so the right edge of
 	// every row of the list is the same column and the times and the counts
@@ -296,8 +340,7 @@ func (m Model) chatListRowLines(
 		short := maxInt(nameWidth-m.widths.StringWidth(badge.text())-2, 1)
 
 		head := edge(badge.write(
-			air().
-				add(markStyle, markRun).
+			lead(m.painter(theme.Color{})).
 				add(styles.rowText(selected).Bold(true),
 					m.widths.TruncateMarked(title, short, ellipsis)),
 			width-inset,
@@ -307,9 +350,7 @@ func (m Model) chatListRowLines(
 	}
 
 	head := edge(m.chatTitle(
-		m.painter(surface).
-			own(onRow, spaces(inset)).
-			add(markStyle, markRun),
+		lead(m.painter(surface)),
 		title,
 		selected,
 		nameWidth,
@@ -325,14 +366,11 @@ func (m Model) chatListRowLines(
 	// selection that stops where the words stop is a highlight under a
 	// name.
 	previewWidth := maxInt(
-		content-selectionMarkerWidth-contentInsetWidth-
-			m.widths.StringWidth(badge.text())-chatListBadgeGap,
+		content-m.widths.StringWidth(badge.text())-chatListBadgeGap,
 		1,
 	)
 	detail := edge(badge.write(
-		m.painter(surface).
-			own(onRow, spaces(inset)).
-			add(markStyle, markRun+spaces(contentInsetWidth)).
+		lead(m.painter(surface)).
 			add(
 				styles.text(m.tokens().SecondaryText),
 				m.widths.TruncateMarked(

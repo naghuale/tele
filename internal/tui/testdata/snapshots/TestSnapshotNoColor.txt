@@ -7,20 +7,20 @@
 # width:   codepoint
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-  Chats 3 unread                …   Anna Example                                                                        
-  / search                                                                                                              
+    Chats              3 unread     Anna Example                                                                        
+    / search                                                                                                            
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
-    › Anna Example        12:07                                                                                         
-    ›  the build is green …  2                                                                                          
+  › Anna Example          12:07                                                                                         
+  › the build is green ag…   2                                                                                          
                                                                                                                         
-      Release Room        12:05                                                                                         
-       the tag is pushed                                                                                                
+    Release Room          12:05                                                                                         
+    the tag is pushed                                                                                                   
                                                                                                                         
-      Notes               11:58                                                                                         
-       milk, bread, coffee   1                                                                                          
+    Notes                 11:58                                                                                         
+    milk, bread, coffee      1                                                                                          
                                                                                                                         
-      Команда Разработки  11:40                                                                                         
-       созвон в 15:00                                                                                                   
+    Команда Разработки    11:40                                                                                         
+    созвон в 15:00                                                                                                      
                                                                                                                         
                                                                                                                         
                                                                                                                         
@@ -39,20 +39,20 @@
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"  Chats 3 unread                …   Anna Example                                                                        "
-"  / search                                                                                                              "
+"    Chats              3 unread     Anna Example                                                                        "
+"    / search                                                                                                            "
 "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       "
-"    › Anna Example        12:07                                                                                         "
-"    ›  the build is green …  2                                                                                          "
+"  › Anna Example          12:07                                                                                         "
+"  › the build is green ag…   2                                                                                          "
 "                                                                                                                        "
-"      Release Room        12:05                                                                                         "
-"       the tag is pushed                                                                                                "
+"    Release Room          12:05                                                                                         "
+"    the tag is pushed                                                                                                   "
 "                                                                                                                        "
-"      Notes               11:58                                                                                         "
-"       milk, bread, coffee   1                                                                                          "
+"    Notes                 11:58                                                                                         "
+"    milk, bread, coffee      1                                                                                          "
 "                                                                                                                        "
-"      Команда Разработки  11:40                                                                                         "
-"       созвон в 15:00                                                                                                   "
+"    Команда Разработки    11:40                                                                                         "
+"    созвон в 15:00                                                                                                      "
 "                                                                                                                        "
 "                                                                                                                        "
 "                                                                                                                        "

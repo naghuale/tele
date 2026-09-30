@@ -297,14 +297,13 @@ func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
 	}
 
 	// The band of the composer opens with its own row of air, so the text
-	// of the newest message is the row above the row of the block's own
-	// background that closes the block, with the empty rows of the feed
-	// all above the name of whoever sent it. The row of air under a
-	// message is inside its block and not a row of the feed: the owner's
-	// Terminal draws its rows with a gap, so a row of half blocks under a
-	// block was a band of its own and not air — this row is full cells of
-	// the block's own colour, which is what makes it air.
-	if composer-text != 3 {
+	// of the newest message is the row directly above that band, with the
+	// empty rows of the feed all above the name of whoever sent it. A
+	// message of one row of text has no air inside its block (the owner,
+	// 30.09) and no air around it: the owner's Terminal draws its rows
+	// with a gap, so a row of half blocks above and under a block was a
+	// band of another shade and not air at all.
+	if composer-text != 2 {
 		t.Fatalf(
 			"the text is on row %d and the composer on row %d, want them against the field:\n%s",
 			text,

@@ -588,10 +588,19 @@
     one-word message is a block and not a sliver; the name and the state
     are as wide as they are whatever that floor is
   - a block is its own full cells: the air inside it is on the background
-    of the block, a column on each side of the words (blockInset, 2) and
-    one row above them and one below them (blockPaddingRows, 1, the
-    owner's 30.09: "текст придавлен к краям" — the price is two rows a
-    message and the decision on the air is his after seeing it). No half
+    of the block, a column on each side of the words (blockInset, 2) for
+    every block, and one row above them and one below them
+    (blockPaddingRows, 1) only where the TEXT of the block is two rows
+    long or more (the owner's decision of 30.09, from his screenshots: a
+    block of one row of text with the air in it was "не очень", a block
+    of two rows of text with it was "приемлемо"). Half a cell of air is
+    not a thing a terminal can draw — the halves of a row are bands of
+    another shade — so the air is a whole row or nothing. The count is of
+    the rows of the TEXT: the author line and the state of the send are
+    not in it. So a block of one row of text is 2 rows (author + text, or
+    text + state), of two is 5, of three is 6, and a feed of N one-line
+    messages is 3N-1 rows again. The field is messageBlock.padded, and
+    padBlock asks the block rather than the caller. No half
     block (U+2584, U+2580) is drawn anywhere: both were tried and both
     are gone, because the owner's Terminal draws its rows with a gap, a
     row of half blocks above a block and a row of them below it do not
@@ -600,17 +609,15 @@
     belong to the one block with no padding at all — the short screen of
     §3.4, where a message is its text and nothing else — and a padded
     block of three rows and more is a rectangle, because a half circle
-    one row tall in the middle of it is a pill inside a rectangle. A
-    block of one line of words is
-    four rows of it with the air above and below the words, and a feed of
-    N such blocks takes 5N-1 rows: the block, the blank row between two
-    messages, with no gap row above
+    one row tall in the middle of it is a pill inside a rectangle. A feed
+    of N one-line messages takes 3N-1 rows: the block (two rows: the
+    author and the text, or the text and the state), the blank row
+    between two messages, with no gap row above
     the topmost one because there is no message above it on the screen
     (that row is what the owner has a screenshot of as an empty bar at
     the top of the feed). In a 168x43 window the feed is 38 rows, which is
-    SEVEN one-line messages whole with the air inside the block, and the
-    top of the eighth: thirteen without it, and seven where the half
-    blocks were
+    THIRTEEN one-line messages: the same as before the air was asked for,
+    because a block of one row of text has no air in it
   - the words of a delivery state are in lower case ("✓ sent", "●
     queued"), as the mockup of the owner writes them: a state is a word
     inside a row of a conversation and not a heading

@@ -602,6 +602,9 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotChatListRowsRounded", func(t *testing.T) Model {
 			return snapshotChatListRows(t, true)
 		}},
+		{"TestSnapshotBlockRows", func(t *testing.T) Model {
+			return snapshotBlockRows(t, wide(theme.ProfileTrueColor))
+		}},
 		{"TestSnapshotOneRowBubbleSquare", func(t *testing.T) Model {
 			return snapshotOneRowBubble(t, false)
 		}},
@@ -800,6 +803,47 @@ func snapshotChatListRows(t *testing.T, nerdFont bool) Model {
 // shorter than twenty rows — which is the one place a block is a pill
 // rather than a rectangle, and so the one screen where the setting has a
 // shape to change.
+// snapshotBlockRows is the screen of the decision of 30.09 about the air
+// inside a block: a block whose text is one row has none, and a block of
+// two rows of text and more has a row of its own background above the words
+// and below them. Both shapes, of both sides, on one screen, because the
+// decision is about the shape of the block and not about who wrote it.
+func snapshotBlockRows(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page: HistoryPage{Messages: []Message{
+			{
+				ID: 1, Text: "one row of text", Time: "12:02",
+				Author: "Anna Example", AuthorID: 5,
+			},
+			{
+				ID: 2, Text: "and one row of my own", Time: "12:03",
+				Outgoing: true,
+			},
+			{
+				ID: 3, Time: "12:04", Author: "Anna Example", AuthorID: 5,
+				Text: "three rows of text, and the air of a block that has " +
+					"them is a row of the block above the words and a row " +
+					"of it below them, which is what this screen is for",
+			},
+			{
+				ID: 4, Time: "12:05", Outgoing: true,
+				Text: "three rows of my own, with the same air around " +
+					"them: the owner counts the rows of the text and not " +
+					"the rows of the block, and this is the second of the " +
+					"two shapes",
+			},
+		}},
+	})
+
+	return m.scrollToNewest()
+}
+
 func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
 	t.Helper()
 
@@ -1150,6 +1194,12 @@ func TestSnapshotChatListRowsRounded(t *testing.T) {
 // screen: a block of more than one row is a rectangle either way, and a
 // pair of goldens that shows nothing is the proof that the setting does not
 // reach into a block it would have to break the shape of.
+// A block of one row of text and a block of three, of both sides, with the
+// air of the second and none in the first (the owner, 30.09).
+func TestSnapshotBlockRows(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotBlockRows"))
+}
+
 func TestSnapshotOneRowBubbleSquare(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotOneRowBubbleSquare"))
 }
@@ -1206,75 +1256,142 @@ func TestNoGoldenDrawsAHalfBlock(t *testing.T) {
 	}
 }
 
-// A feed of one-line messages is five rows a message: the block is the four
-// rows of it — a row of its own background above the words, the two rows of
-// the words themselves (the name of whoever sent the message and its text,
-// or its text and the state of the send) and a row of its own background
-// under them — and the blank row between two messages belongs to the one
-// below the gap. The topmost message of the feed has no message above it,
-// so it has no gap row either, and N messages take 5N-1 rows.
+// A block is as many rows as its shape says and no more: a block whose
+// text is one row is that row and the author line under the name (or the
+// state under the text of this user) — the owner's decision of 30.09, taken
+// from his screenshots where a block of one row of text with the air in it
+// was "не очень" and a block of two rows of text with it was "приемлемо".
+// A block of two rows of text and more keeps a row of its own background
+// above the words and below them.
 //
-// The air above and below the words is the air of the inset of §4.4 on the
-// other axis, and it is the one thing about the shape of a block the owner
-// asked to see before deciding on it (30.09). It costs two rows a message:
-// in a 168x43 window — the owner's — a feed of 38 rows is seven one-line
-// messages with it and thirteen without it.
-func TestAFeedOfOneLineMessagesTakesFiveRowsAMessage(t *testing.T) {
+// Half a row of air is not a thing a terminal can draw, because the halves
+// of a row are bands of another shade (the half blocks are gone for that
+// reason), so the air is a whole row or nothing. This test counts the rows
+// of all four shapes — one row of text and three rows of text, of the other
+// side and of this one — because the count is what the window of the feed
+// is placed against.
+func TestTheRowsOfABlockDependOnHowManyRowsItsTextTakes(t *testing.T) {
+	// long wraps into three rows of the block at this width, which is what
+	// the second half of every case below is about.
+	const long = "the release notes are long enough that they take three rows of the block in a window of this size, which is the point of the test"
+
+	for _, testCase := range []struct {
+		name string
+		text string
+		rows int
+		air  bool
+	}{
+		{name: "one row of the other side", text: "ok", rows: 2, air: false},
+		{
+			name: "three rows of the other side",
+			text: long,
+			rows: 6, air: true,
+		},
+		{name: "one row of this user", text: "sdf", rows: 2, air: false},
+		{
+			name: "three rows of this user",
+			text: long,
+			rows: 6, air: true,
+		},
+	} {
+		for _, outgoing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, outgoing=%t", testCase.name, outgoing), func(t *testing.T) {
+				m, rows := blockRowsOf(t, testCase.text, outgoing)
+				styles := m.styles()
+				surface := m.tokens().ComposerBackground
+				if outgoing {
+					surface = m.tokens().OutgoingBlock
+				}
+				own := backgroundParameters(
+					styles.on(m.tokens().ChatBackground, styles.unstyled()).
+						Render(styles.on(surface, styles.unstyled()).Render("x")),
+				)
+
+				if len(rows) != testCase.rows {
+					t.Fatalf(
+						"a block of %d rows took %d, want %d: %q",
+						testCase.rows, len(rows), testCase.rows, plain(rows[0]),
+					)
+				}
+
+				// The air is a row of the block's own background, and it is
+				// there exactly when the block is padded: a row of the
+				// feed's background inside a block is a hole in it.
+				for _, index := range []int{0, len(rows) - 1} {
+					row := rows[index]
+					// The first and the last row of a padded block are
+					// its own background and have no words in them; the
+					// first and the last row of a block without air are
+					// the author's line and the text, or the text and
+					// the state.
+					blank := strings.TrimSpace(plain(row)) == ""
+					if blank != testCase.air {
+						t.Errorf(
+							"row %d of the block is %q, want air in the block: %t",
+							index, plain(row), testCase.air,
+						)
+					}
+
+					// And the air is on the background of the block, not
+					// on the background of the feed: a row of the feed
+					// inside a block is a hole in it.
+					onBlock := false
+					for _, cell := range renderedCells(t, m, row) {
+						if cell.background == own {
+							onBlock = true
+
+							break
+						}
+					}
+					if testCase.air && !onBlock {
+						t.Errorf(
+							"the air of the block on row %d is %q, want the background of the block",
+							index, plain(row),
+						)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A feed of one-line messages is three rows a message: the block is the two
+// rows of it — the name of whoever sent it and its text, or its text and
+// the state of the send — and the blank row between two messages belongs to
+// the one below the gap. The topmost message of the feed has no message
+// above it, so it has no gap row either, and N messages take 3N-1 rows.
+//
+// The rows of air inside a block are not part of it while its text is one
+// row long (the owner, 30.09), which is why the number is three again where
+// the round before it was five.
+func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
 	for _, count := range []int{1, 2, 5, 9, 13} {
 		t.Run(fmt.Sprintf("%d messages", count), func(t *testing.T) {
-			m := oneLineConversation(t, 120, 20+5*count, count)
+			m := oneLineConversation(t, 120, 20+3*count, count)
 			rows := feedOf(t, m)
 
-			if want := 5*count - 1; len(rows) != want {
+			if want := 3*count - 1; len(rows) != want {
 				t.Fatalf(
 					"a feed of %d one-line messages took %d rows, want %d "+
-						"(a row of the block, two rows of words, a row of the "+
-						"block, and one blank between)",
+						"(two rows of a block and one blank between)",
 					count, len(rows), want,
 				)
 			}
-			// The newest message is the last one with words in it: the
-			// row under its words is the air of its own block, and a
-			// block that has air under it ends on a row of its own
-			// background.
-			last := ""
-			for _, row := range rows {
-				if plain(row) != strings.Repeat(" ", len(plain(row))) {
-					last = plain(row)
-				}
-			}
-			if !strings.Contains(last, fmt.Sprintf("message %d", count)) {
+			if last := plain(rows[len(rows)-1]); !strings.Contains(
+				last, fmt.Sprintf("message %d", count),
+			) {
 				t.Fatalf(
-					"the last row with words in it is %q, want the newest message",
+					"the last row is %q, want the newest message",
 					last,
 				)
 			}
-			// And the gap is where it belongs: the fifth row of every
-			// five, and the only row of every five with no block on it. A
-			// row of words is what tells the two apart, so the test asks
-			// the colours rather than the words: the air above and below
-			// the words of a block is blank on the screen too, and it is
-			// the block's own background.
-			blockBackground := backgroundParameters(
-				m.styles().on(m.tokens().ChatBackground, m.styles().unstyled()).
-					Render(m.styles().on(
-						m.tokens().ComposerBackground, m.styles().unstyled(),
-					).Render("x")),
-			)
-
+			// And the gap is where it belongs: the third row of every
+			// three, and the only row of every three with no block on it.
 			for index, row := range rows {
-				onBlock := false
-				for _, cell := range renderedCells(t, m, row) {
-					if cell.background == blockBackground {
-						onBlock = true
-
-						break
-					}
-				}
-				if want := index > 0 && index%5 == 4; onBlock == want {
+				if blank := strings.TrimSpace(plain(row)) == ""; blank != (index > 0 && index%3 == 2) {
 					t.Errorf(
-						"row %d is %q, want a gap row with no block on it: %t",
-						index, plain(row), want,
+						"row %d is %q, want a blank gap row: %t",
+						index, plain(row), !blank,
 					)
 				}
 			}
@@ -1282,68 +1399,25 @@ func TestAFeedOfOneLineMessagesTakesFiveRowsAMessage(t *testing.T) {
 	}
 }
 
-// The air inside a block is on the background of the block, above the words
-// and under them, the way the inset of §4.4 is on each side of them.
-//
-// A row of the feed's own background inside the block is not air inside the
-// block: it is a hole in it, and a block with a hole in it reads as two
-// blocks with a gap between them. The row above the words and the row under
-// them carry the block's own colour, and the row between two messages
-// carries only the feed's.
-func TestTheAirInsideABlockIsTheBlockAndNotTheFeed(t *testing.T) {
-	m := oneLineConversation(t, 120, 40, 2)
-	rows := feedOf(t, m)
+// blockRowsOf returns the rows one block takes on the screen, without the
+// gap row that separates it from the message above it.
+func blockRowsOf(t *testing.T, text string, outgoing bool) (Model, []string) {
+	t.Helper()
 
-	feed := backgroundParameters(
-		m.styles().on(m.tokens().ChatBackground, m.styles().unstyled()).Render("x"),
-	)
-	block := backgroundParameters(
-		m.styles().on(m.tokens().IncomingMessage, m.styles().unstyled()).
-			Render(m.styles().on(m.tokens().ComposerBackground, m.styles().unstyled()).Render("x")),
-	)
+	page := HistoryPage{Messages: []Message{{
+		ID: 1, Text: text, Time: "12:00", Outgoing: outgoing,
+		Author: "Anna", AuthorID: 5,
+	}}}
+	m := openConversationWithHistory(t, &recordingChatSource{pages: []HistoryPage{page}}, 7, page)
+	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	if len(rows) != 9 {
-		t.Fatalf("a feed of two one-line messages is %d rows, want 9", len(rows))
+	layout := LayoutFor(m.width, m.height)
+	entries := timelineEntries(m.selected().Messages)
+	if len(entries) != 1 {
+		t.Fatalf("the conversation has %d entries, want 1", len(entries))
 	}
 
-	for index, row := range rows {
-		cells := renderedCells(t, m, row)
-		// The gap between the two messages is the fifth row, and the only
-		// row of the feed that has no block on it.
-		gap := index == 4
-
-		seen := map[string]int{}
-		for _, cell := range cells {
-			seen[cell.background]++
-		}
-
-		// The gap row carries no block on it and no word either: the feed
-		// paints the row, which is the one row of the two that is not a
-		// row of a message.
-		if gap {
-			if len(seen) > 1 || (len(cells) > 0 && seen[feed] != len(cells)) {
-				t.Errorf(
-					"row %d is %q, want the whole row on the background of the feed",
-					index, plain(row),
-				)
-			}
-
-			continue
-		}
-
-		if seen[block] == 0 {
-			t.Errorf(
-				"row %d is %q, want the background of the block on it",
-				index, plain(row),
-			)
-		}
-		if seen[feed] == 0 {
-			t.Errorf(
-				"row %d is %q, want the background of the feed around the block",
-				index, plain(row),
-			)
-		}
-	}
+	return m, m.entryLines(entries[0], layout, layout.ChatContentWidth(), m.styles())[1:]
 }
 
 // oneLineConversation opens a chat with count messages of one line each,

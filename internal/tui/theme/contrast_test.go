@@ -287,7 +287,7 @@ func TestTheWordsOfAMessageAreReadableOnItsOwnBlock(t *testing.T) {
 		textRole       string
 		backgroundRole string
 	}{
-		{textRole: "OutgoingMessage", backgroundRole: "OutgoingBlock"},
+		{textRole: "OutgoingMessage", backgroundRole: "ComposerBackground"},
 		{textRole: "IncomingMessage", backgroundRole: "ComposerBackground"},
 	}
 
@@ -315,137 +315,107 @@ func TestTheWordsOfAMessageAreReadableOnItsOwnBlock(t *testing.T) {
 	}
 }
 
-// The two sides are told apart in colour as well as in position, so the
-// tint has to be a real difference and not a shade of the same grey.
+// The two sides are drawn on ONE surface, and the block under the cursor is
+// a different one.
 //
-// A tint that is too weak to see is not a tint: it is the same block with
-// an extra number in a test, and the reader is back to reading the side of
-// the screen to know whose message it is. The two blocks also have to stay
-// apart on a terminal that shows fewer colours, which is why the 256-colour
-// entries are named here rather than derived: two neighbouring greys are
-// two greys, and a run-time reduction could hand both sides the same one.
-func TestTheTwoSidesHaveBlocksOfTheirOwnColours(t *testing.T) {
-	// minimumBlockDifference is how far apart two surfaces have to be
-	// before the eye takes them for two blocks. It is a real number and
-	// not a gesture because the owner could not tell the two sides apart
-	// on 30.09: they were 1.09:1, 1.17:1 and 1.19:1 away from each other.
-	// What a palette can reach is bounded by its own accent — the words of
-	// a message of this user ARE the accent, and the accent has to hold
-	// 4.5:1 on the block — so the bar is what the darkest of the three
-	// accents leaves: tokyo-night 1.15:1, mocha 1.34:1, gruvbox 1.48:1.
-	const minimumBlockDifference = 1.15
+// The own side had a tint of the surface for a while, and the owner turned
+// it down on 30.09: the tint almost hid the selection of the message under
+// the cursor, because the selection is drawn on the block and a violet
+// block under a selected surface is a selection nobody can find. So:
+//
+//   - the block of the other side and the block of this user are the same
+//     neutral surface, so the two sides are told apart by the colour of
+//     their words — the accent for this user, the light neutral for the
+//     other side — and by the edge of the feed they are against;
+//   - the block under the cursor is the Selected role on either side, and
+//     it is far enough from the plain one for the eye to find the message
+//     the keys act on without reading any of it.
+//
+// The second half is a contrast check in every theme, because "different" is
+// not a number: a palette whose Selected is a hair off its own Surface0 is a
+// palette where the cursor is somewhere on the screen. The three themes
+// give 1.31:1, 1.37:1 and 1.37:1, and the bar is 1.25:1.
+func TestTheTwoSidesShareOneSurfaceAndTheSelectedBlockIsItsOwn(t *testing.T) {
+	const minimumSelectionDifference = 1.25
 
 	for _, name := range ThemeNames() {
 		built := mustTheme(t, name)
 		roles := colorRoles(t, built.Tokens)
 
-		incoming := roles["ComposerBackground"]
-		outgoing := roles["OutgoingBlock"]
+		plain := roles["ComposerBackground"]
+		selected := roles["Selected"]
 
-		if outgoing == incoming {
+		if !plain.IsSet() {
+			t.Errorf("theme %s: neither side of the feed has a surface", name)
+
+			continue
+		}
+
+		if selected == plain {
 			t.Errorf(
-				"theme %s: both sides are drawn on %v, so the two blocks are one block",
-				name, incoming,
+				"theme %s: the block under the cursor is the same surface as every "+
+					"other block (%v), so the cursor is nowhere",
+				name, selected,
 			)
 
 			continue
 		}
 
-		difference := outgoing.ContrastRatio(incoming)
-		if difference < minimumBlockDifference {
+		difference := selected.ContrastRatio(plain)
+		if difference < minimumSelectionDifference {
 			t.Errorf(
-				"theme %s: the two blocks are %.3f:1 apart, want at least %.2f:1",
-				name, difference, minimumBlockDifference,
+				"theme %s: the block under the cursor and the block of a message that "+
+					"is not under it are %.3f:1 apart, want at least %.2f:1",
+				name, difference, minimumSelectionDifference,
 			)
 		}
 
-		// The tint lifts the block rather than darkening it: a darker
-		// block of this user's own messages reads as a hole in the feed
-		// rather than as a message, and the accent is the lightest thing
-		// on the screen so a surface darker than the neutral one would be
-		// the only shadow on it.
-		if relativeLuminanceOf(outgoing) <= relativeLuminanceOf(incoming) {
+		// The words have to be readable on the block they are drawn on,
+		// whichever block that is: the light neutral of the other side on
+		// the neutral surface and on the selected one, where the three
+		// themes give 6.31:1, 6.43:1 and 6.08:1.
+		for _, testCase := range []struct {
+			textRole       string
+			backgroundRole string
+		}{
+			{textRole: "OutgoingMessage", backgroundRole: "ComposerBackground"},
+			{textRole: "IncomingMessage", backgroundRole: "ComposerBackground"},
+			{textRole: "IncomingMessage", backgroundRole: "Selected"},
+		} {
+			ratio := roles[testCase.textRole].ContrastRatio(roles[testCase.backgroundRole])
+			if ratio < MinimumTextContrast {
+				t.Errorf(
+					"theme %s: %s (%s) on %s (%s) = %.2f:1, want at least %.1f:1",
+					name,
+					testCase.textRole,
+					roles[testCase.textRole],
+					testCase.backgroundRole,
+					roles[testCase.backgroundRole],
+					ratio,
+					MinimumTextContrast,
+				)
+			}
+		}
+
+		// The words of this user are the accent, and the accent is the
+		// lightest thing on the screen, so it is the one pair that does
+		// not reach the text bar on the selected block: 4.49:1, 5.20:1
+		// and 3.90:1 in the three themes, because the Selected of two of
+		// them is a step lighter than their own surface. The bar is what
+		// the darkest of the three leaves; the owner has to decide
+		// whether the words of a message of this user under the cursor
+		// want the 4.5:1 of the others, which means a Selected a step
+		// darker in those two themes, and that is the selected row of the
+		// chat list and the surface of every popup as well.
+		const minimumAccentOnSelected = 3.5
+
+		ratio := roles["OutgoingMessage"].ContrastRatio(selected)
+		if ratio < minimumAccentOnSelected {
 			t.Errorf(
-				"theme %s: the block of this user (%v) is not lighter than the block of the other side (%v)",
-				name, outgoing, incoming,
+				"theme %s: the words of this user under the cursor are %.2f:1 on the "+
+					"selected block, want at least %.1f:1",
+				name, ratio, minimumAccentOnSelected,
 			)
 		}
-
-		for _, profile := range []Profile{ProfileANSI256, ProfileANSI16} {
-			degraded := colorRoles(t, built.ForProfile(profile).Tokens)
-			if degraded["OutgoingBlock"] == degraded["ComposerBackground"] ||
-				degraded["ComposerBackground"].IsSet() {
-				continue
-			}
-			if !degraded["OutgoingBlock"].IsSet() {
-				t.Errorf(
-					"theme %s: profile %s keeps no block of its own, so the two sides are the same colour there",
-					name, profile,
-				)
-			}
-		}
 	}
-}
-
-// The tint is a mix of the surface and the accent and nothing else: every
-// channel of it is strictly between the two.
-//
-// A value that is not a mix would be a new colour the palette acquired, and
-// it would have to be justified on its own; a value that is a mix of the
-// two roles the interface already has says what it is at every step. The
-// share is not written down here on purpose — it is different for each
-// theme and it is bounded by the contrast above, not by a rule — but the
-// bounds are, and a palette that put the block outside them would have a
-// block that is neither the neutral surface nor a tint of it.
-func TestTheMessageBlocksAreMixesOfTheSurfaceAndTheAccent(t *testing.T) {
-	for _, name := range ThemeNames() {
-		palette := mustTheme(t, name).Palette
-
-		surface, accent := palette.Surface0, palette.Accent
-		block := palette.OutgoingBlock
-
-		if !block.IsSet() {
-			t.Errorf("theme %s: the palette names no block for a message", name)
-
-			continue
-		}
-
-		for index, name2 := range []string{"red", "green", "blue"} {
-			from := channelOf(surface.Hex(), index)
-			to := channelOf(accent.Hex(), index)
-			have := channelOf(block.Hex(), index)
-
-			low, high := from, to
-			if low > high {
-				low, high = high, low
-			}
-
-			if have <= low || have >= high {
-				t.Errorf(
-					"theme %s: %s of the block is %d, want it strictly between %d and %d (%v between %v and %v)",
-					name, name2, have, low, high, block, surface, accent,
-				)
-			}
-		}
-	}
-}
-
-// channelOf returns one channel of a "#rrggbb" string: 0 is red, 1 green,
-// 2 blue.
-func channelOf(hex string, index int) int {
-	offset := 1 + index*2
-
-	return hexDigit(hex[offset])*16 + hexDigit(hex[offset+1])
-}
-
-// relativeLuminanceOf is the luminance of a colour, or -1 for one that has
-// none. The zero is a real ratio, so a colour that could not be measured
-// has to be told apart from a black one.
-func relativeLuminanceOf(c Color) float64 {
-	luminance, ok := relativeLuminance(c)
-	if !ok {
-		return -1
-	}
-
-	return luminance
 }

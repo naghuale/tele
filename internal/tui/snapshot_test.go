@@ -1298,13 +1298,15 @@ func TestTheRowsOfABlockDependOnHowManyRowsItsTextTakes(t *testing.T) {
 			t.Run(fmt.Sprintf("%s, outgoing=%t", testCase.name, outgoing), func(t *testing.T) {
 				m, rows := blockRowsOf(t, testCase.text, outgoing)
 				styles := m.styles()
-				surface := m.tokens().ComposerBackground
-				if outgoing {
-					surface = m.tokens().OutgoingBlock
-				}
+				// Both sides of the feed are drawn on the same surface
+				// (the owner, 30.09), so the block of this side and the
+				// block of the other side are looked for in the same one.
 				own := backgroundParameters(
 					styles.on(m.tokens().ChatBackground, styles.unstyled()).
-						Render(styles.on(surface, styles.unstyled()).Render("x")),
+						Render(
+							styles.on(m.tokens().ComposerBackground, styles.unstyled()).
+								Render("x"),
+						),
 				)
 
 				if len(rows) != testCase.rows {

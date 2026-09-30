@@ -454,12 +454,12 @@ func basicOf(c Color) Color {
 // has, and a background telecli picked for them is a background they did
 // not choose.
 //
-// OutgoingBlock is the one surface that stays, and it is here on purpose.
-// It is the only thing on the screen that tells a message of this user
-// from a message of the other side in colour, and on a 16-colour terminal
-// the position is all that is left if the block of each is the terminal's
-// own background: a conversation in which both sides look the same is the
-// conversation §24 and §14 are about, and one basic colour buys it back.
+// Both sides of the feed are drawn on the same surface, so there is no
+// surface of a block to keep: the words of a message of this user are the
+// accent, and that is what tells the two sides apart in colour (the owner,
+// 30.09 — a tinted own block hid the selection of the message under the
+// cursor). On a 16-colour terminal the position and the words are what is
+// left, and they are the two the reader is already reading.
 func clearBackgroundRoles(tokens *Tokens) {
 	tokens.AppBackground = Color{}
 	tokens.SidebarBackground = Color{}
@@ -474,7 +474,7 @@ func clearBackgroundRoles(tokens *Tokens) {
 // eachTokenColor applies fn to every colour of every role.
 //
 // The theme contract test uses the same walk to prove that no role is
-// left unset, which is why it is a function rather than 28 lines of
+// left unset, which is why it is a function rather than 27 lines of
 // repetition.
 func eachTokenColor(tokens *Tokens, fn func(Color) Color) {
 	*tokens = Tokens{
@@ -485,7 +485,6 @@ func eachTokenColor(tokens *Tokens, fn func(Color) Color) {
 		PopupBackground:    fn(tokens.PopupBackground),
 		ShadowBackground:   fn(tokens.ShadowBackground),
 		FooterBackground:   fn(tokens.FooterBackground),
-		OutgoingBlock:      fn(tokens.OutgoingBlock),
 		PrimaryText:        fn(tokens.PrimaryText),
 		SecondaryText:      fn(tokens.SecondaryText),
 		MutedText:          fn(tokens.MutedText),

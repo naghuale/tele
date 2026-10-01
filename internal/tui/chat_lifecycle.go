@@ -29,6 +29,17 @@ type ChatPresenceOpener interface {
 	CloseChat(ctx context.Context, chatID int64) error
 }
 
+// chatOpenedMsg is delivered by openChatCmd.
+//
+// It is what tells the model that the chat is open, which is a question the
+// model cannot answer by having sent the call: a read of the messages of a
+// chat TDLib has not loaded yet is refused, and a broadcast chat is one
+// TDLib loads by openChat (see markVisibleMessagesViewed).
+type chatOpenedMsg struct {
+	chatID int64
+	err    error
+}
+
 // switchConversationChat tells TDLib about the chat the user is looking at
 // now, and about the one they were looking at before.
 //
@@ -58,6 +69,12 @@ func (m *Model) switchConversationChat(chatID int64) tea.Cmd {
 	// than a reason to ask again on every key.
 	m.openedChat = chatID
 
+	// Another chat is another chat: nothing has answered for this one yet,
+	// so nothing of it may be read until openChat has answered.
+	if chatID != previous {
+		m.openedAck = 0
+	}
+
 	if len(cmds) == 0 {
 		return nil
 	}
@@ -75,11 +92,12 @@ func (m *Model) openChatCmd(chatID int64) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		if err := opener.OpenChat(ctx, chatID); err != nil {
+		err := opener.OpenChat(ctx, chatID)
+		if err != nil {
 			reportChatLifecycleCause(diagnostics, "open", chatID, err)
 		}
 
-		return nil
+		return chatOpenedMsg{chatID: chatID, err: err}
 	}
 }
 
@@ -131,6 +149,9 @@ func (m *Model) closeConversationChat() tea.Cmd {
 
 	cmd := m.closeChatCmd(m.openedChat)
 	m.openedChat = 0
+	// Nothing has answered for a chat that is not open, and nothing may be
+	// read in a chat that was closed.
+	m.openedAck = 0
 
 	return cmd
 }

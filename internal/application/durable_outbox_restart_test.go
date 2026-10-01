@@ -222,6 +222,7 @@ func (s *h7dSession) ViewMessages(
 	context.Context,
 	telegram.ChatID,
 	[]telegram.MessageID,
+	telegram.MessageSource,
 ) error {
 	s.viewedChats.Add(1)
 	return nil

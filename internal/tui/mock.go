@@ -34,6 +34,24 @@ func (k ChatKind) Grouped() bool {
 	return k == ChatKindGroup || k == ChatKindChannel
 }
 
+// String returns a stable lowercase name.
+//
+// A log line about a read of a chat names the kind of the chat, because the
+// kind is what decides what TDLib accepts as the source of a read, and a
+// word that says nothing in a diagnostic line is worse than no word.
+func (k ChatKind) String() string {
+	switch k {
+	case ChatKindPrivate:
+		return "private"
+	case ChatKindGroup:
+		return "group"
+	case ChatKindChannel:
+		return "channel"
+	default:
+		return "unknown"
+	}
+}
+
 // Chat is one chat of the list, and the messages of it when it is open.
 type Chat struct {
 	ID      int64

@@ -22,13 +22,23 @@ import (
 
 // MessageViewer is told which messages of a chat are on the screen.
 //
+// The kind of the chat travels with the call because it decides what TDLib
+// accepts as the source of a read, and it is the one thing the interface
+// knows that the adapter does not: a broadcast chat is read as a window of
+// its history and a chat with one other person is read in itself.
+//
 // The calls are best effort from the interface's point of view. A chat
 // whose messages could not be marked read still shows them, and a count
 // that does not fall is a count TDLib reports. A cause goes to the
 // diagnostic stream and never to the screen, because a TDLib error message
 // is not interface text (§11.3, §19).
 type MessageViewer interface {
-	ViewMessages(ctx context.Context, chatID int64, messageIDs []int64) error
+	ViewMessages(
+		ctx context.Context,
+		chatID int64,
+		kind ChatKind,
+		messageIDs []int64,
+	) error
 }
 
 // messagesViewedMsg is delivered by the command of
@@ -48,6 +58,15 @@ type messagesViewedMsg struct {
 // It asks nothing unless there is something to ask: the chat list is not a
 // chat anybody is reading, a chat with no messages on the screen has no
 // window, and a window that has already been marked read is marked read.
+//
+// The chat has to be open before it can be read. A chat with one other
+// person is in the account's own dialog list whatever TDLib is doing, and a
+// broadcast chat is one TDLib loads with openChat: a read that arrives
+// first is refused, and nothing about that refusal is visible on the screen
+// — the counter simply stays. So the read waits for the answer of openChat
+// rather than being batched with it, which is what the owner's account of a
+// channel with 89 unread was: a read sent in the same breath as the open,
+// lost, and reported by nothing.
 func (m *Model) markVisibleMessagesViewed() tea.Cmd {
 	if m == nil || m.messageViewer == nil {
 		return nil
@@ -63,33 +82,43 @@ func (m *Model) markVisibleMessagesViewed() tea.Cmd {
 		return nil
 	}
 
-	chatID := m.chats[m.selectedChat].ID
+	chat := m.chats[m.selectedChat]
 	ids := m.visibleMessageIDs()
-	if chatID == 0 || len(ids) == 0 {
+	if chat.ID == 0 || len(ids) == 0 {
+		return nil
+	}
+
+	// The chat TDLib was told about has to be this one, and TDLib has to
+	// have answered that it is open.
+	if m.openedChat != chat.ID || m.openedAck != chat.ID {
 		return nil
 	}
 
 	// The same window twice is a read that says nothing, and a round trip
 	// to TDLib for it. A reader who scrolls up and back again gets nothing
 	// on the wire either, because the window is the one that was marked.
-	if m.viewedChat == chatID && slices.Equal(m.viewedIDs, ids) {
+	if m.viewedChat == chat.ID && slices.Equal(m.viewedIDs, ids) {
 		return nil
 	}
 
-	m.viewedChat, m.viewedIDs = chatID, ids
+	m.viewedChat, m.viewedIDs = chat.ID, ids
 
 	viewer := m.messageViewer
 	diagnostics := m.diagnostics
+	kind := chat.Kind
+	chatID := chat.ID
 	ctx := m.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	return func() tea.Msg {
-		err := viewer.ViewMessages(ctx, chatID, ids)
-		if err != nil {
-			reportMessageViewCause(diagnostics, chatID, err)
-		}
+		err := viewer.ViewMessages(ctx, chatID, kind, ids)
+		// Every read says what was asked and what TDLib answered, whether
+		// it worked or not: a read that leaves the counter where it was is
+		// the one thing nothing on the screen explains, and the line below
+		// is what the next check on a real account reads.
+		reportMessageView(diagnostics, chatID, kind, ids, err)
 
 		return messagesViewedMsg{chatID: chatID, err: err}
 	}
@@ -218,16 +247,75 @@ func (m *Model) refreshChatList() tea.Cmd {
 	return listChatsCmd(m.source)
 }
 
-// reportMessageViewCause writes the cause of a read that did not happen.
+// updateChatOpened remembers that TDLib has answered for a chat, which is
+// what lets the messages of that chat be read.
 //
-// The chat identifier is safe to name: it is an integer TDLib assigned, and
-// it is what makes a line in a log useful. The cause is not safe - it can
-// carry a TDLib error message - and it is written to a log and not to a
-// screen.
-func reportMessageViewCause(diagnostics io.Writer, chatID int64, err error) {
+// The answer counts whether it was ok or an error: a chat TDLib refused to
+// open is a chat it may still hold — a private chat is in the account's own
+// dialog list whatever it said — and refusing to read anything at all after
+// one refusal would be a rule invented here. What TDLib thinks of the read
+// is said by the read itself, which is logged whatever it answers.
+func (m Model) updateChatOpened(msg chatOpenedMsg) Model {
+	if m.openedChat != msg.chatID {
+		// An answer for a chat the model has left is an answer about
+		// nothing: it says nothing about the chat that is on the screen.
+		return m
+	}
+
+	m.openedAck = msg.chatID
+
+	return m
+}
+
+// reportMessageView writes one line about a read of a window of a chat.
+//
+// The four things the next check on a real account needs are in it: what
+// kind of chat was read, how many identifiers went, the highest of them —
+// TDLib reads up to that one — and what it answered. Not one of them can
+// contain a message body, a name or a path: the identifiers are TDLib's,
+// the kind is one of three words, and the answer is an @type or a code.
+//
+// A refusal is the case the line exists for. The owner of a channel with 89
+// unread was told nothing by the screen, because the read that would have
+// cleared the count was sent before the chat was open and its refusal went
+// nowhere a person could read it.
+func reportMessageView(
+	diagnostics io.Writer,
+	chatID int64,
+	kind ChatKind,
+	messageIDs []int64,
+	err error,
+) {
 	if diagnostics == nil {
 		return
 	}
 
-	fmt.Fprintf(diagnostics, "view messages of chat %d: %v\n", chatID, err)
+	answer := "ok"
+	if err != nil {
+		answer = "error: " + err.Error()
+	}
+
+	fmt.Fprintf(
+		diagnostics,
+		"viewMessages chat=%d kind=%s ids=%d highest=%d answer=%s\n",
+		chatID,
+		kind,
+		len(messageIDs),
+		highestID(messageIDs),
+		answer,
+	)
+}
+
+// highestID returns the largest of the identifiers, which is the one the
+// read reaches: TDLib reads up to it, so it is the number a check of a
+// stuck counter is read by.
+func highestID(messageIDs []int64) int64 {
+	var highest int64
+	for _, id := range messageIDs {
+		if id > highest {
+			highest = id
+		}
+	}
+
+	return highest
 }

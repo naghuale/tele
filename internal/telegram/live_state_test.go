@@ -298,6 +298,50 @@ func TestApplyChatReadInboxUpdatesUnreadCount(t *testing.T) {
 	}
 }
 
+// The owner's channel had 89 unread and stayed at 89. The recorded answer
+// TDLib sends after a read is the whole shape of updateChatReadInbox, with
+// the identifier the read reached beside the count, and the count of the
+// list is the count in it — the read pointer is TDLib's own bookkeeping and
+// nothing in the projection has to understand it to show 0.
+//
+// The payload is the real one (td_api.tl: updateChatReadInbox chat_id:int53
+// last_read_inbox_message_id:int53 unread_count:int32), so a field this
+// decoder has never heard of and still has to ignore is part of the test.
+func TestARecordedReadInboxTakesAChannelFromEightyNineToZero(t *testing.T) {
+	state := NewLiveState()
+	if _, err := state.apply(RawMessage(
+		`{"@type":"updateNewChat","chat":{"@type":"chat","id":` +
+			`-1001234567890,"title":"Release Notes","unread_count":89,` +
+			`"type":{"@type":"chatTypeSupergroup","is_channel":true},"positions":[` +
+			`{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"700",` +
+			`"is_pinned":false,"source":null}]}}`,
+	)); err != nil {
+		t.Fatalf("apply updateNewChat: %v", err)
+	}
+
+	changed, err := state.apply(RawMessage(
+		`{"@type":"updateChatReadInbox","chat_id":-1001234567890,` +
+			`"last_read_inbox_message_id":991,"unread_count":0}`,
+	))
+	if err != nil {
+		t.Fatalf("apply updateChatReadInbox: %v", err)
+	}
+	if !changed {
+		t.Fatal("clearing 89 unread must report a change")
+	}
+
+	chats := state.ChatList()
+	if len(chats) != 1 {
+		t.Fatalf("ChatList() = %d chats, want 1", len(chats))
+	}
+	if got := chats[0].UnreadCount; got != 0 {
+		t.Fatalf("UnreadCount = %d, want 0", got)
+	}
+	if got := chats[0].Title; got != "Release Notes" {
+		t.Fatalf("Title = %q, want the title the read did not touch", got)
+	}
+}
+
 func TestApplyUnknownChatDoesNotCreateEntry(t *testing.T) {
 	for _, raw := range []string{
 		`{"@type":"updateChatTitle","chat_id":404,"title":"Ghost"}`,

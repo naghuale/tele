@@ -16,9 +16,11 @@ import (
 // What is on the screen of an open chat has been read, so the counter of
 // the row falls and the other side of the conversation is told it was seen.
 
-// recordingViewer records the windows it was told about.
+// recordingViewer records the windows it was told about and the kind of the
+// chat each one was told for.
 type recordingViewer struct {
 	chatID  int64
+	kind    ChatKind
 	windows [][]int64
 	err     error
 }
@@ -26,9 +28,10 @@ type recordingViewer struct {
 func (v *recordingViewer) ViewMessages(
 	_ context.Context,
 	chatID int64,
+	kind ChatKind,
 	messageIDs []int64,
 ) error {
-	v.chatID = chatID
+	v.chatID, v.kind = chatID, kind
 	v.windows = append(v.windows, append([]int64(nil), messageIDs...))
 
 	return v.err
@@ -50,7 +53,13 @@ func (v *recordingViewer) count() int {
 // readChat is one chat of the list with a long enough history for the
 // window to be smaller than the conversation.
 func readChat(unread int, messages int) Chat {
-	chat := Chat{ID: 7, Title: "Anna", Unread: unread, Kind: ChatKindPrivate}
+	return readChatOf(ChatKindPrivate, unread, messages)
+}
+
+// readChatOf is readChat of a given kind, because the kind is what decides
+// the source TDLib is given.
+func readChatOf(kind ChatKind, unread int, messages int) Chat {
+	chat := Chat{ID: 7, Title: "Anna", Unread: unread, Kind: kind}
 	for id := 1; id <= messages; id++ {
 		chat.Messages = append(chat.Messages, Message{
 			ID:     int64(id),
@@ -75,14 +84,30 @@ func viewingModel(
 ) (Model, *fakeChatSource) {
 	t.Helper()
 
+	return viewingModelWithLog(t, viewer, &recordingWriter{}, chats, width, height)
+}
+
+// viewingModelWithLog is viewingModel with a diagnostics stream of its own,
+// because what a read is said about in the log is part of what it does.
+func viewingModelWithLog(
+	t *testing.T,
+	viewer *recordingViewer,
+	diagnostics *recordingWriter,
+	chats []Chat,
+	width, height int,
+) (Model, *fakeChatSource) {
+	t.Helper()
+
 	source := &fakeChatSource{}
 	deps := Dependencies{
 		Source:           source,
 		MessageSubmitter: &recordingSubmitter{},
 		PresenceOpener:   &recordingOpener{},
-		Diagnostics:      &recordingWriter{},
 		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
 		ColorProfile:     theme.ProfileNoColor,
+	}
+	if diagnostics != nil {
+		deps.Diagnostics = diagnostics
 	}
 	if viewer != nil {
 		deps.MessageViewer = viewer
@@ -100,6 +125,33 @@ func viewingModel(
 	return model, source
 }
 
+// deliverOpen runs the commands a key returned and feeds the answer of the
+// open back into the model, which is what the Bubble Tea loop does with
+// every message it gets.
+//
+// Without that answer the model has been told a chat is open and does not
+// know that TDLib agreed, and the read of its messages is held back until
+// the answer arrives — so a test that does not deliver it would be testing
+// a read that never happens.
+func deliverOpen(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+
+	for _, msg := range collectMsgs(cmd) {
+		if _, isOpen := msg.(chatOpenedMsg); !isOpen {
+			continue
+		}
+
+		// What the answer produced is run as well: the read of the window
+		// is a command of every message, and the answer of the open is the
+		// message that lets it go.
+		var afterOpen tea.Cmd
+		model, afterOpen = updateModel(t, model, msg)
+		runCommands(t, afterOpen)
+	}
+
+	return model
+}
+
 // openReadChat opens the chat and settles its first page, which is the
 // moment the conversation is on the screen with its messages in it.
 func openReadChat(t *testing.T, model Model) Model {
@@ -109,14 +161,18 @@ func openReadChat(t *testing.T, model Model) Model {
 	if model.screen != ScreenConversation {
 		t.Fatalf("screen = %v, want the conversation", model.screen)
 	}
-	runCommands(t, cmd)
+	model = deliverOpen(t, model, cmd)
 
 	chat := model.chats[model.selectedChat]
-	model, _ = updateModel(t, model, historyLoadedMsg{
+	var readCmd tea.Cmd
+	model, readCmd = updateModel(t, model, historyLoadedMsg{
 		chatID:    chat.ID,
 		operation: model.historyOperation,
 		page:      HistoryPage{Messages: chat.Messages, NextFrom: 1},
 	})
+	// The read of the window is a command of this message too, and it is
+	// where the first viewMessages of a chat goes out.
+	runCommands(t, readCmd)
 
 	return model
 }
@@ -141,17 +197,6 @@ func collectMsgs(cmd tea.Cmd) []tea.Msg {
 	}
 
 	return out
-}
-
-// lastRead returns the messagesViewedMsg of the last read in the messages.
-func lastRead(msgs []tea.Msg) (messagesViewedMsg, bool) {
-	for index := len(msgs) - 1; index >= 0; index-- {
-		if read, ok := msgs[index].(messagesViewedMsg); ok {
-			return read, true
-		}
-	}
-
-	return messagesViewedMsg{}, false
 }
 
 // The window the conversation is drawing is marked read, and the messages
@@ -204,6 +249,73 @@ func TestTheVisibleWindowOfAnOpenChatIsMarkedRead(t *testing.T) {
 	}
 	if strings.Contains(view, "line 01") {
 		t.Fatal("the oldest message is on the screen and was not marked")
+	}
+}
+
+// The read waits for the answer of openChat. A read batched with the open
+// is a read sent before TDLib has loaded the chat, and a broadcast chat is
+// one TDLib loads with openChat: the read is refused, the counter stays at
+// what it was, and nothing on the screen says why. That is the owner's
+// channel of 89 unread, and the order of the two calls is what it was.
+func TestAReadWaitsForTheAnswerOfTheOpen(t *testing.T) {
+	viewer := &recordingViewer{}
+	model, _ := viewingModel(t, viewer, []Chat{readChatOf(ChatKindChannel, 89, 40)}, 100, 24)
+
+	model, cmd := updateModel(t, model, press(tea.KeyEnter))
+	if model.screen != ScreenConversation {
+		t.Fatalf("screen = %v, want the conversation", model.screen)
+	}
+
+	// Everything the key press returned runs: the conversation is on the
+	// screen with its messages in it, and the open of the chat is on its way
+	// to TDLib. Nothing of it may be a read.
+	runCommands(t, cmd)
+	if viewer.count() != 0 {
+		t.Fatalf(
+			"%d reads went out before TDLib answered that the chat is open",
+			viewer.count(),
+		)
+	}
+
+	// TDLib answers, and the window may be read now.
+	model, afterOpen := updateModel(t, model, chatOpenedMsg{chatID: 7})
+	runCommands(t, afterOpen)
+
+	if viewer.count() != 1 {
+		t.Fatalf("reads = %d, want the one the answer allowed", viewer.count())
+	}
+	if model.openedAck != 7 {
+		t.Fatalf("openedAck = %d, want the chat TDLib answered for", model.openedAck)
+	}
+	if viewer.last()[len(viewer.last())-1] != 40 {
+		t.Fatalf("the window read = %v, want the newest message in it", viewer.last())
+	}
+}
+
+// An answer about another chat says nothing about the one on the screen, so
+// it cannot let that one's messages be read.
+func TestAnAnswerForAnotherChatDoesNotOpenThisOne(t *testing.T) {
+	viewer := &recordingViewer{}
+	model, _ := viewingModel(t, viewer, []Chat{readChat(89, 40)}, 100, 24)
+	model = openReadChat(t, model)
+
+	if viewer.count() == 0 {
+		t.Fatal("nothing was marked read in an open chat")
+	}
+
+	// The window moves, so a read is due, and the answer that arrives is
+	// about a chat the model is not looking at.
+	model, _ = updateModel(t, model, press(tea.KeyEsc))
+	model, _ = updateModel(t, model, press(tea.KeyPgUp))
+	marked := viewer.count()
+
+	model, _ = updateModel(t, model, chatOpenedMsg{chatID: 8})
+
+	if model.openedAck != 7 {
+		t.Fatalf("openedAck = %d, want it unchanged by an answer about 8", model.openedAck)
+	}
+	if viewer.count() != marked {
+		t.Fatal("an answer about another chat let a read of this one go")
 	}
 }
 
@@ -397,45 +509,86 @@ func TestAReadChatAtZeroIsNotReadAgain(t *testing.T) {
 
 // A read that TDLib refused leaves the chat unread, which is the smaller
 // mistake: a counter that stays is an inconvenience, and a read that was
-// never recorded is a lie to the other side. The cause goes to the
-// diagnostic stream and not to the screen (§11.3, §19).
-func TestAFailedReadIsLoggedAndTheScreenGoesOn(t *testing.T) {
-	log := &recordingWriter{}
-	viewer := &recordingViewer{
-		err: errors.New("viewMessages: ERROR 400 CHAT_INVALID"),
-	}
-	source := &fakeChatSource{}
+// never recorded is a lie to the other side.
+//
+// The line in the log is the point of the test. A refusal is the one thing
+// nothing on the screen explains — the counter simply stays where it was —
+// so every read says what was asked and what TDLib answered, and the cause
+// goes to the diagnostic stream and not to the screen (§11.3, §19).
+func TestEveryReadSaysWhatItAskedAndWhatItGot(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		kind ChatKind
+		err  error
+	}{
+		{name: "read", kind: ChatKindPrivate},
+		{
+			name: "refused",
+			kind: ChatKindChannel,
+			err:  errors.New("viewMessages: TDLib response: code=400 message=\"Chat not found\""),
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			log := &recordingWriter{}
+			viewer := &recordingViewer{err: testCase.err}
 
-	model, err := NewModelWithDependencies(context.Background(), Dependencies{
-		Source:           source,
-		MessageSubmitter: &recordingSubmitter{},
-		PresenceOpener:   &recordingOpener{},
-		MessageViewer:    viewer,
-		Diagnostics:      log,
-		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
-		ColorProfile:     theme.ProfileNoColor,
-	})
-	if err != nil {
-		t.Fatalf("NewModelWithDependencies: %v", err)
-	}
+			model, _ := viewingModelWithLog(t, viewer, log, []Chat{
+				readChatOf(testCase.kind, 89, 40),
+			}, 100, 24)
+			model = openReadChat(t, model)
 
-	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: 100, Height: 24})
-	model, _ = updateModel(t, model, chatsLoadedMsg{chats: []Chat{readChat(3, 40)}})
-	model, cmd := updateModel(t, model, press(tea.KeyEnter))
-	msgs := collectMsgs(cmd)
-	runCommands(t, cmd)
+			if viewer.count() == 0 {
+				t.Fatal("nothing was marked read in an open chat")
+			}
+			if viewer.kind != testCase.kind {
+				t.Fatalf("kind = %v, want %v", viewer.kind, testCase.kind)
+			}
 
-	if _, read := lastRead(msgs); !read {
-		t.Fatal("the read did not report back")
+			line := log.String()
+			if !strings.Contains(line, "viewMessages chat=7") {
+				t.Fatalf("diagnostics = %q, want the chat of the read", line)
+			}
+			if !strings.Contains(line, "kind="+testCase.kind.String()) {
+				t.Fatalf("diagnostics = %q, want the kind of the chat", line)
+			}
+			if !strings.Contains(line, "ids=7") {
+				t.Fatalf("diagnostics = %q, want how many identifiers went", line)
+			}
+			// TDLib reads up to the newest identifier it is given, so that
+			// one is the number a stuck counter is read by.
+			if !strings.Contains(line, "highest=40") {
+				t.Fatalf("diagnostics = %q, want the highest identifier", line)
+			}
+			if strings.Contains(plain(model.View()), "Chat not found") {
+				t.Fatal("the cause of a refused read is on the screen")
+			}
+
+			if testCase.err == nil {
+				if !strings.Contains(line, "answer=ok") {
+					t.Fatalf("diagnostics = %q, want the answer", line)
+				}
+
+				return
+			}
+			if !strings.Contains(line, "answer=error:") {
+				t.Fatalf("diagnostics = %q, want a refused answer", line)
+			}
+			if !strings.Contains(line, "Chat not found") {
+				t.Fatalf("diagnostics = %q, want the cause TDLib gave", line)
+			}
+		})
 	}
-	if !strings.Contains(log.String(), "CHAT_INVALID") {
-		t.Fatalf("diagnostics = %q, want the cause", log.String())
-	}
-	if strings.Contains(plain(model.View()), "CHAT_INVALID") {
-		t.Fatal("the cause of a failed read is on the screen")
-	}
-	if model.screen != ScreenConversation {
-		t.Fatalf("screen = %v, want the conversation", model.screen)
+}
+
+// Without a diagnostics writer there is nowhere to put the line, and a read
+// that cannot be written about is still a read.
+func TestAReadWithoutDiagnosticsDoesNotStop(t *testing.T) {
+	viewer := &recordingViewer{}
+	model, _ := viewingModelWithLog(t, viewer, nil, []Chat{readChat(89, 40)}, 100, 24)
+	openReadChat(t, model)
+
+	if viewer.count() == 0 {
+		t.Fatal("nothing was marked read in an open chat")
 	}
 }
 
@@ -463,6 +616,59 @@ func TestReloadingTheListKeepsTheConversation(t *testing.T) {
 	}
 	if strings.Contains(plain(model.View()), "Loading chats") {
 		t.Fatal("the reload put a wait in place of the conversation")
+	}
+}
+
+// The list is read again after every read, and a list whose order moved must
+// not take the conversation with it: a chat that received a message while
+// this one was being read is enough to move it. The chat under the cursor is
+// remembered by its identifier.
+func TestAReorderedListKeepsTheChatUnderTheCursor(t *testing.T) {
+	viewer := &recordingViewer{}
+	model, source := viewingModel(t, viewer, []Chat{
+		readChat(89, 40),
+		{ID: 8, Title: "Dev Team", Kind: ChatKindGroup},
+	}, 100, 24)
+	model = openReadChat(t, model)
+
+	if model.selectedChatID() != 7 {
+		t.Fatalf("selected chat = %d, want the open one", model.selectedChatID())
+	}
+
+	// The same two chats, the other one first: the list a source answers
+	// with is ordered by Telegram and moves when a chat gets a message.
+	source.chats = []Chat{
+		{ID: 8, Title: "Dev Team", Kind: ChatKindGroup},
+		{ID: 7, Title: "Anna", Unread: 89, Kind: ChatKindPrivate},
+	}
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: source.chats})
+
+	if got := model.selectedChatID(); got != 7 {
+		t.Fatalf("selected chat = %d, want the one that was open", got)
+	}
+	if len(model.chats[model.selectedChat].Messages) != 40 {
+		t.Fatal("the conversation on the screen was lost")
+	}
+}
+
+// The list is read with a limit, so the open chat can fall outside it without
+// anything having removed it. The row it is drawn from stays.
+func TestAnOpenChatOutsideTheListKeepsItsRow(t *testing.T) {
+	viewer := &recordingViewer{}
+	model, source := viewingModel(t, viewer, []Chat{readChat(89, 40)}, 100, 24)
+	model = openReadChat(t, model)
+
+	// A list that no longer answers with the open chat, which is what a
+	// limit of fifty does to the fiftieth-first chat of an account.
+	source.chats = []Chat{{ID: 8, Title: "Dev Team", Kind: ChatKindGroup}}
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: source.chats})
+
+	index, found := model.indexOfChat(7)
+	if !found {
+		t.Fatalf("the open chat is not in the list: %v", model.chats)
+	}
+	if len(model.chats[index].Messages) != 40 {
+		t.Fatal("the row the conversation is drawn from lost its messages")
 	}
 }
 

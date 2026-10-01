@@ -66,8 +66,15 @@ type Model struct {
 	// presenceOpener is told which chat the user is looking at, and
 	// openedChat is the one it was last told about. It is nil in a program
 	// built without Telegram.
+	//
+	// openedAck is the chat whose openChat has been answered. It is a
+	// separate word because having sent the call is not knowing that it
+	// worked, and the messages of a chat TDLib has not loaded yet cannot
+	// be read: a broadcast chat is loaded by openChat, and a read that
+	// arrives first is refused with nothing on the screen to say so.
 	presenceOpener ChatPresenceOpener
 	openedChat     int64
+	openedAck      int64
 
 	// messageViewer is told which messages of the open chat are on the
 	// screen, and viewedChat and viewedIDs are the window it was last told
@@ -477,6 +484,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case composerSubmissionMsg:
 		return m.updateComposerSubmission(msg)
 
+	case chatOpenedMsg:
+		return m.updateChatOpened(msg), nil
+
 	case messagesViewedMsg:
 		return m.updateMessagesViewed(msg)
 
@@ -572,11 +582,19 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 
 	m.loadErr = nil
 
+	// The chat under the cursor is remembered by its identifier and not by
+	// its place in the list. The list is read again after every read of a
+	// chat (updateMessagesViewed), and a list whose order moved under the
+	// cursor would otherwise show another conversation than the one that was
+	// on the screen a moment ago — a chat that received a message while this
+	// one was being read is enough to move it.
+	selected := m.selectedChatID()
+
 	// The list crosses into the model here, and it is cleaned on the way:
 	// every name and every preview in it is text from Telegram, and a name
 	// the terminal acts on is a row of the list that moves the cursor
 	// instead of being drawn. See screen_text.go.
-	m.chats = mergeLoadedChats(safeChats(msg.chats), m.chats)
+	m.chats = mergeLoadedChats(safeChats(msg.chats), m.chats, m.openedChat)
 
 	if len(msg.chats) == 0 {
 		m.chatsState = loadStateEmpty
@@ -586,7 +604,9 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 
 	m.chatsState = loadStateLoaded
 
-	if m.selectedChat >= len(m.chats) {
+	if index, found := m.indexOfChat(selected); found {
+		m.selectedChat = index
+	} else if m.selectedChat >= len(m.chats) {
 		m.selectedChat = len(m.chats) - 1
 	}
 
@@ -601,8 +621,7 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// mergeLoadedChats keeps the messages a chat had when the list is read
-// again.
+// mergeLoadedChats keeps what a chat had when the list is read again.
 //
 // A row of the list carries no messages: the history of a conversation is a
 // separate read, and a list that arrived without it would empty the
@@ -611,24 +630,64 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 // chat asks for its newest page anyway (openSelectedChat), so keeping them
 // costs nothing and takes away a screen that goes blank for no reason.
 //
-// A chat the source no longer lists is gone, and nothing of it is kept.
-func mergeLoadedChats(loaded, previous []Chat) []Chat {
+// The row of the open chat is kept as well, and for the same reason. The
+// list is read with a limit, so a chat can fall outside it without anything
+// having removed it, and the conversation on the screen is drawn from that
+// row: a read that took the open chat off the screen would be a read that
+// cost the user the chat they were in.
+func mergeLoadedChats(loaded, previous []Chat, openChat int64) []Chat {
 	if len(previous) == 0 {
 		return loaded
 	}
 
-	byID := make(map[int64][]Message, len(previous))
+	byID := make(map[int64]Chat, len(previous))
 	for _, chat := range previous {
-		byID[chat.ID] = chat.Messages
+		byID[chat.ID] = chat
 	}
 
 	for index := range loaded {
-		if messages, known := byID[loaded[index].ID]; known {
-			loaded[index].Messages = messages
+		if was, known := byID[loaded[index].ID]; known {
+			loaded[index].Messages = was.Messages
 		}
 	}
 
-	return loaded
+	if openChat == 0 {
+		return loaded
+	}
+	if _, listed := byID[openChat]; !listed {
+		return loaded
+	}
+	for _, chat := range loaded {
+		if chat.ID == openChat {
+			return loaded
+		}
+	}
+
+	return append(loaded, byID[openChat])
+}
+
+// selectedChatID is the chat under the cursor, or zero where there is none.
+func (m Model) selectedChatID() int64 {
+	if m.selectedChat < 0 || m.selectedChat >= len(m.chats) {
+		return 0
+	}
+
+	return m.chats[m.selectedChat].ID
+}
+
+// indexOfChat returns where a chat is in the list, and whether it is there.
+func (m Model) indexOfChat(chatID int64) (int, bool) {
+	if chatID == 0 {
+		return 0, false
+	}
+
+	for index, chat := range m.chats {
+		if chat.ID == chatID {
+			return index, true
+		}
+	}
+
+	return 0, false
 }
 
 // clock returns the model's clock, building a default one for a model that

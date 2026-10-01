@@ -53,8 +53,8 @@ func TestAMeasurementWithoutATerminalFallsBackToTheRule(t *testing.T) {
 	}
 
 	model, choice := termwidth.Select(termwidth.ModeAuto, measured)
-	if choice.Mode != termwidth.ModeCodepoint {
-		t.Fatalf("the screen is drawn in %v, want the codepoint rule", model.Mode())
+	if choice.Mode != termwidth.ModeGrapheme {
+		t.Fatalf("the screen is drawn in %v, want the grapheme rule", model.Mode())
 	}
 }
 

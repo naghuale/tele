@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -65,7 +66,7 @@ func RunAuthContext(ctx context.Context, prompt AuthPromptKind) (string, error) 
 	model.authPrompt = prompt
 
 	program := newProgramWithContext(ctx, model)
-	finalModel, err := program.Run()
+	finalModel, err := owningTheScreen(os.Stdout, program.Run)
 	if err != nil {
 		return "", err
 	}

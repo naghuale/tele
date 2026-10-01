@@ -48,7 +48,7 @@
 - Terminal readiness: golang.org/x/sys/unix v0.48.0 Poll, unix only, so
   the width measurement waits for the terminal without holding a read
   on it. A platform without it is not measured and is drawn with the
-  codepoint rule
+  grapheme rule
 - Configuration library: github.com/BurntSushi/toml
 - Configuration format: TOML
 - Logging library: standard library log/slog (outbox dispatcher)
@@ -1213,16 +1213,40 @@
     the feed and a row over the width of the feed is a row the terminal
     wraps
   - auto measures the terminal before the first frame, with the standard
-    cursor position request (ESC[6n) over six probes, inside a total
+    cursor position request (ESC[6n) over nine probes, inside a total
     budget of 150 ms, erasing the line it wrote on and restoring the
     terminal. Answers that agree with the grapheme rule everywhere give
-    grapheme; anything else gives codepoint; no answer gives codepoint
+    grapheme; anything else gives codepoint; no answer gives grapheme,
+    because the renderer draws every row with the grapheme rule and a row
+    counted by code points reaches the last column of the window in the
+    terminal's own count, and a terminal wraps such a row onto the row
+    below it, which moves every row under it (the owner, 01.10)
+  - the probes are the strings of the chats that broke it: a hand with a
+    selector, a flag, a runner joined to a sign, a thumb with a skin tone,
+    a pagoda with a selector (the same character without one is one
+    letter), a cup of coffee and a heart in open hands (both have emoji
+    presentation of their own and neither has a selector), a Han
+    character, and an e with a combining acute
   - bytes read that were not an answer are handed back to the program as
     input rather than dropped, so a key pressed during the measurement
     is not eaten
   - telecli doctor does not measure: it reports the rule and whether it
     was measured, configured or the default, and says that auto is
     measured when the TUI starts
+- Terminal modes: internal/tui/screen_own.go
+  - while the interface owns the screen the auto-wrap mode of the terminal
+    is off (DECAWM, ESC[?7l before the program runs, ESC[?7h after it
+    stops), written through the same writer the frames go to, so a mode
+    cannot land inside a frame
+  - the restore is a defer plus a watcher for SIGQUIT: a run that stops
+    with an error, a panic and the one signal the Go runtime answers
+    without unwinding the stack all give the terminal back
+  - why: a row the program measured a column narrower than the terminal
+    draws it reaches the last column, the terminal wraps it onto the row
+    below and every row under it moves down one row, which is the chat
+    list with its search line twice and a preview under the wrong name
+    (the owner, 01.10). Clipped at the edge, a mis-measured row costs a
+    character and moves nothing
 - Cache directory: TBD
 
 ## Secrets

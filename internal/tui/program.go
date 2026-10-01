@@ -56,7 +56,7 @@ func RunWithSource(source ChatSource) error {
 
 	program := newProgram(model)
 
-	_, err := program.Run()
+	_, err := owningTheScreen(os.Stdout, program.Run)
 	return err
 }
 
@@ -93,7 +93,10 @@ func RunWithDependencies(
 
 	program := newProgramWithContext(ctx, model, options...)
 
-	_, err = program.Run()
+	// The modes of the terminal go through the same output the frames go
+	// through: one writer, one lock, so a mode cannot land in the middle of
+	// a frame.
+	_, err = owningTheScreen(output, program.Run)
 	return err
 }
 

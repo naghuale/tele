@@ -103,9 +103,12 @@ func TestDoctorReportsTheWidth(t *testing.T) {
 			want:  "Interface width: codepoint (configured)",
 		},
 		{
+			// The fallback is the rule the renderer draws with, so that a
+			// terminal nobody could be asked about cannot be drawn a row
+			// that wraps (the owner, 01.10).
 			name:  "no rule at all",
 			width: "",
-			want:  "Interface width: codepoint (default)",
+			want:  "Interface width: grapheme (default)",
 		},
 	}
 

@@ -13,6 +13,153 @@ import (
 // flag, a runner and a Han character as easily as it carries a letter, and
 // the two rules put them in different columns. Everything a user of this
 // program reads as a broken screen comes out of one of these rows.
+//
+// The strings the owner's screen of 01.10 broke on, and what each of them
+// takes.
+//
+// These are not exotic. A Chinese channel name with a pagoda in it, a
+// trading chat behind the flag of its country, a coffee in a preview, a
+// hug and a ball and a heart in a message: the widths of the two rules are
+// the difference between a row that fits the window and one that runs past
+// the last column of it, and a row past the last column is a row the
+// terminal wraps.
+//
+// The grapheme rule is the one the whole interface has to be drawn with,
+// because the renderer counts with it whatever the mode says and a row that
+// disagrees with the renderer is a row it cuts. The codepoint rule keeps
+// saying what wcwidth says, because that is what the macOS Terminal and
+// iTerm2 draw and what a configured `tui.width = "codepoint"` asks for.
+func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
+	cases := []struct {
+		name     string
+		value    string
+		grapheme int
+	}{
+		{
+			name:     "a pagoda as a letter",
+			value:    "⛩",
+			grapheme: 1,
+		},
+		{
+			name:     "the same pagoda asking for the emoji drawing",
+			value:    "⛩️",
+			grapheme: 2,
+		},
+		{
+			name:     "a flag of two regional indicators",
+			value:    "🇨🇳",
+			grapheme: 2,
+		},
+		{
+			name:     "a cup of coffee, drawn wide on its own",
+			value:    "☕",
+			grapheme: 2,
+		},
+		{
+			name:     "a heart in open hands",
+			value:    "🫶",
+			grapheme: 2,
+		},
+		{
+			name:     "a hug",
+			value:    "🤗",
+			grapheme: 2,
+		},
+		{
+			name:     "a hug, a ball and a heart in a row",
+			value:    "🤗 🎾🔥🫶",
+			grapheme: 9,
+		},
+		{
+			name:     "a runner with a sign, joined into one glyph",
+			value:    "🏃‍♂️",
+			grapheme: 2,
+		},
+		{
+			name:     "the whole title, symbols among the letters",
+			value:    "⛩ФУЮАНЬ⛩ЖАОХЭ🇨🇳САХЭКСПО",
+			grapheme: 23,
+		},
+		{
+			name:     "letters and nothing else",
+			value:    "САХЭКСПО",
+			grapheme: 8,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			model := Unmeasured(ModeGrapheme)
+
+			if got := model.StringWidth(testCase.value); got != testCase.grapheme {
+				t.Errorf(
+					"grapheme: StringWidth(%q) = %d, want %d",
+					testCase.value, got, testCase.grapheme,
+				)
+			}
+
+			// The renderer counts the row with its own rule, and the row
+			// has to satisfy it whichever mode drew it.
+			if got := RendererWidth(testCase.value); got != testCase.grapheme {
+				t.Errorf(
+					"renderer: StringWidth(%q) = %d, want %d",
+					testCase.value, got, testCase.grapheme,
+				)
+			}
+		})
+	}
+}
+
+// The measure and select over the owner's strings.
+//
+// The rule a terminal is given is the rule its own answers fit, and the
+// rule of a terminal nobody could ask has to be the one the renderer and
+// every terminal that follows the emoji rules agree on.
+func TestTheRuleIsPickedFromTheOwnersStrings(t *testing.T) {
+	measured := Measurement{
+		Widths: map[string]int{
+			"⛩":    1,
+			"⛩️":   2,
+			"🇨🇳":   2,
+			"☕":    2,
+			"🫶":    2,
+			"🤗":    2,
+			"🏃‍♂️": 2,
+		},
+	}
+
+	model, choice := Select(ModeAuto, measured)
+	if model.Mode() != ModeGrapheme {
+		t.Errorf(
+			"a terminal that answers for emoji chose %s, want grapheme",
+			model.Mode(),
+		)
+	}
+	if choice.Source != SourceMeasured {
+		t.Errorf("the rule was %s, want measured", choice.Source)
+	}
+	if got := model.StringWidth("🤗 🎾🔥🫶"); got != 9 {
+		t.Errorf("the measured model counts %q as %d, want 9", "🤗 🎾🔥🫶", got)
+	}
+
+	// Nothing answered: the rule of a terminal nobody was asked about is
+	// the one the renderer counts with, so no row is ever a column wider to
+	// the renderer than to the program that fitted it.
+	quiet, choice := Select(ModeAuto, Measurement{})
+	if quiet.Mode() != ModeGrapheme {
+		t.Errorf("an unmeasured terminal chose %s, want grapheme", quiet.Mode())
+	}
+	if choice.Source != SourceDefault {
+		t.Errorf("the unmeasured rule was %s, want default", choice.Source)
+	}
+}
+
+// The two rules of this package, over the strings they disagree about.
+//
+// The table is the whole case: a chat title in Telegram carries a hand, a
+// flag, a runner and a Han character as easily as it carries a letter, and
+// the two rules put them in different columns. Everything a user of this
+// program reads as a broken screen comes out of one of these rows.
 func TestStringWidthOfTheDifficultStrings(t *testing.T) {
 	cases := []struct {
 		name  string

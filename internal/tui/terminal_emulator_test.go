@@ -76,6 +76,13 @@ type screenEmulator struct {
 	pending []rune
 	wrap    bool
 
+	// autowrap is DECAWM, which is on in a terminal that was found as it
+	// was: what is written past the last column of a row is wrapped onto
+	// the row below. The interface turns it off, because a row it measured
+	// a column too narrow is a row that reaches the last column, and a row
+	// that reaches the last column is a row that moves every row under it.
+	autowrap bool
+
 	// painted is how many cells have been written since the terminal was
 	// made, a wide character counting for the two of them it takes. A
 	// screen drawn again from the top paints every cell of it, and a
@@ -109,11 +116,12 @@ func newScreenEmulator(width, height int, widths termwidth.WidthModel) *screenEm
 	}
 
 	emulator := &screenEmulator{
-		widths:  widths,
-		width:   width,
-		cells:   make([][]string, height),
-		taken:   make([][]bool, height),
-		changed: make(chan struct{}),
+		widths:   widths,
+		width:    width,
+		cells:    make([][]string, height),
+		taken:    make([][]bool, height),
+		changed:  make(chan struct{}),
+		autowrap: true,
 	}
 	for row := range emulator.cells {
 		emulator.cells[row] = make([]string, width)
@@ -328,6 +336,11 @@ func (e *screenEmulator) draw() {
 // every preview, so a row that moves up under a row of a narrower one lands
 // a narrow glyph on the flag's second half often enough to be a name in
 // this file.
+//
+// With the auto-wrap mode off a cluster that does not fit the rest of the
+// row is written into the last columns the row has instead, and the cursor
+// stays there: the row is clipped at the edge of the window and the row
+// below is left exactly where it was.
 func (e *screenEmulator) put(cluster string) {
 	width := maxInt(e.widths.StringWidth(cluster), 1)
 
@@ -335,7 +348,12 @@ func (e *screenEmulator) put(cluster string) {
 		e.index()
 	}
 	if e.col+width > e.width {
-		e.index()
+		if !e.autowrap {
+			e.col = maxInt(e.width-width, 0)
+			e.wrap = false
+		} else {
+			e.index()
+		}
 	}
 
 	e.cells[e.row][e.col] = cluster
@@ -349,7 +367,7 @@ func (e *screenEmulator) put(cluster string) {
 	e.col += width
 	if e.col >= e.width {
 		e.col = e.width - 1
-		e.wrap = true
+		e.wrap = e.autowrap
 	}
 }
 
@@ -482,6 +500,10 @@ func (e *screenEmulator) control(final rune) {
 		e.savedRow, e.savedCol = e.row, e.col
 	case 'u':
 		e.row, e.col = e.savedRow, e.savedCol
+	case 'h', 'l':
+		if e.private == '?' && e.modeNumber() == autoWrapMode {
+			e.autowrap = final == 'h'
+		}
 	}
 
 	// m (SGR), h and l (modes), r (scroll region), n (reports), c (device
@@ -493,12 +515,20 @@ func (e *screenEmulator) control(final rune) {
 
 // at returns the nth parameter of the sequence, or fallback where the
 // parameter was left out — which every terminal reads as its own default.
+//
+// A parameter is a number that may carry a private marker in front of it,
+// as the modes of DECAWM do (ESC [ ? 7 l), and the number is the part after
+// it. Reading the field as it is written and parsing that is what tells
+// ESC [ 3 B (three rows down) from ESC [ ? 7 l (a mode): the first moves the
+// cursor, the second changes what happens to a row that reaches the edge of
+// the window, and a terminal that read them the same way would move the
+// cursor for one and not the other.
 func (e *screenEmulator) at(index int, fallback int) int {
 	if index > len(e.params) {
 		return fallback
 	}
 
-	field := strings.TrimLeft(string(e.params[index-1]), "0123456789;")
+	field := strings.TrimLeft(string(e.params[index-1]), "?<=>")
 	if field == "" {
 		return fallback
 	}
@@ -512,6 +542,27 @@ func (e *screenEmulator) at(index int, fallback int) int {
 	}
 
 	return value
+}
+
+// autoWrapMode is the number of DECAWM, the mode that says whether what is
+// written past the last column of a row is wrapped onto the row below.
+const autoWrapMode = 7
+
+// modeNumber returns the number of the private mode a finished sequence
+// sets, or 0 where it sets none.
+//
+// It is read out of the parameters as they were written, private marker and
+// all, because a mode sequence names one mode: ESC [ ? 7 l is the mode of the
+// auto-wrap and nothing else.
+func (e *screenEmulator) modeNumber() int {
+	first, _, _ := strings.Cut(string(e.params), ";")
+
+	number, err := strconv.Atoi(strings.TrimLeft(first, "?<=>"))
+	if err != nil {
+		return 0
+	}
+
+	return number
 }
 
 // eraseDisplay clears the cells of the screen the mode names: from the

@@ -13,22 +13,34 @@ import (
 // it is the emoji, which is two columns. Both are right, and a program that
 // counts the width the other one uses shifts every line under it.
 var (
-	// appleTerminalAnswers is a terminal that counts code points.
+	// appleTerminalAnswers is a terminal that counts code points: the hand
+	// is one column whatever is behind it, the pagoda is one letter with or
+	// without its selector, and a cup of coffee is one column unless the
+	// font has a wide glyph for it.
 	appleTerminalAnswers = map[string]int{
 		"✌️":   1,
 		"🇨🇳":   2,
 		"🏃‍♂️": 2,
 		"👍🏽":   2,
+		"⛩️":   1,
+		"☕":    1,
+		"🫶":    1,
 		"中":    2,
 		"é":    1,
 	}
 
-	// graphemeTerminalAnswers is a terminal that counts clusters.
+	// graphemeTerminalAnswers is a terminal that counts clusters: the
+	// selector widens the pagoda, a character with emoji presentation of
+	// its own is two columns whether it has a selector or not, and the rest
+	// is the same as it is everywhere.
 	graphemeTerminalAnswers = map[string]int{
 		"✌️":   2,
 		"🇨🇳":   2,
 		"🏃‍♂️": 2,
 		"👍🏽":   2,
+		"⛩️":   2,
+		"☕":    2,
+		"🫶":    2,
 		"中":    2,
 		"é":    1,
 	}
@@ -86,23 +98,36 @@ func TestAPartialAnswerIsStillAnAnswer(t *testing.T) {
 }
 
 // A terminal that says nothing is a terminal nobody could ask: the output
-// is a file, or the question went somewhere that does not answer. The rule
-// it is drawn with is the one the macOS Terminal follows, because that is
-// the terminal this program is written for and because being wrong about a
-// symbol costs a column rather than the whole screen.
-func TestATerminalThatAnswersNothingIsDrawnByCodePoints(t *testing.T) {
+// is a file, or the question went somewhere that does not answer.
+//
+// It is drawn by the grapheme rule, which is the rule the renderer counts
+// with and the rule every terminal that follows the emoji rules draws by.
+// Guessing the other way is not the safe half of the coin: a row counted by
+// code points is a column narrower than the row the renderer is about to
+// write, and a row that reaches the last column of the window in the
+// terminal's own count is a row the terminal wraps, which moves everything
+// under it down a row (the owner, 01.10). Where the terminal answered, the
+// answer still wins.
+func TestATerminalThatAnswersNothingIsDrawnByGraphemes(t *testing.T) {
 	for _, measured := range []Measurement{
 		{},
 		{TimedOut: true},
 	} {
 		model, choice := Select(ModeAuto, measured)
 
-		if choice.Mode != ModeCodepoint || choice.Source != SourceDefault {
-			t.Fatalf("Select(auto, %+v) = %v, want codepoint (default)", measured, choice)
+		if choice.Mode != ModeGrapheme || choice.Source != SourceDefault {
+			t.Fatalf("Select(auto, %+v) = %v, want grapheme (default)", measured, choice)
 		}
-		if got := model.StringWidth("✌️"); got != 1 {
-			t.Fatalf("the hand is %d columns, want 1", got)
+		if got := model.StringWidth("✌️"); got != 2 {
+			t.Fatalf("the hand is %d columns, want 2", got)
 		}
+	}
+
+	// A terminal that answered for code points is counted by code points,
+	// whatever the default is.
+	model, _ := Select(ModeAuto, Measurement{Widths: appleTerminalAnswers})
+	if got := model.StringWidth("✌️"); got != 1 {
+		t.Fatalf("a measured terminal counts the hand as %d, want 1", got)
 	}
 }
 
@@ -133,7 +158,7 @@ func TestDescribe(t *testing.T) {
 		configured Mode
 		want       string
 	}{
-		{configured: ModeAuto, want: "codepoint (default)"},
+		{configured: ModeAuto, want: "grapheme (default)"},
 		{configured: ModeGrapheme, want: "grapheme (configured)"},
 		{configured: ModeCodepoint, want: "codepoint (configured)"},
 	}
@@ -151,8 +176,8 @@ func TestDescribe(t *testing.T) {
 // A model built without a measurement is the model of a terminal nobody
 // could ask, and it is the model a program draws its first frame with.
 func TestUnmeasured(t *testing.T) {
-	if got := Unmeasured(ModeAuto); got.Mode() != ModeCodepoint {
-		t.Fatalf("Unmeasured(auto) counts in %v, want codepoint", got.Mode())
+	if got := Unmeasured(ModeAuto); got.Mode() != ModeGrapheme {
+		t.Fatalf("Unmeasured(auto) counts in %v, want grapheme", got.Mode())
 	}
 	if got := Unmeasured(ModeGrapheme); got.Mode() != ModeGrapheme {
 		t.Fatalf("Unmeasured(grapheme) counts in %v, want grapheme", got.Mode())

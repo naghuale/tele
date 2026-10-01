@@ -122,16 +122,16 @@ func assertNoWidthCalls(
 	})
 }
 
-// A model built without a program counts by code points, because that is
-// the rule of a terminal nobody could ask, and because a model that had to
-// be told a rule before it could be drawn would leave a zero model
-// undrawable.
-func TestAModelWithoutAMeasurementCountsByCodePoints(t *testing.T) {
-	if got := NewModel().WidthMode(); got != termwidth.ModeCodepoint {
-		t.Fatalf("NewModel counts in %v, want %v", got, termwidth.ModeCodepoint)
+// A model built without a program counts by grapheme cluster, because that
+// is the rule the renderer draws with and the rule of every terminal that
+// follows the emoji rules, and because a model that had to be told a rule
+// before it could be drawn would leave a zero model undrawable.
+func TestAModelWithoutAMeasurementCountsByGraphemes(t *testing.T) {
+	if got := NewModel().WidthMode(); got != termwidth.ModeGrapheme {
+		t.Fatalf("NewModel counts in %v, want %v", got, termwidth.ModeGrapheme)
 	}
-	if got := NewModelWithSource(nil).WidthMode(); got != termwidth.ModeCodepoint {
-		t.Fatalf("NewModelWithSource counts in %v, want %v", got, termwidth.ModeCodepoint)
+	if got := NewModelWithSource(nil).WidthMode(); got != termwidth.ModeGrapheme {
+		t.Fatalf("NewModelWithSource counts in %v, want %v", got, termwidth.ModeGrapheme)
 	}
 }
 
@@ -158,9 +158,12 @@ func TestTheModelIsDrawnWithTheResolvedRule(t *testing.T) {
 			want:       termwidth.ModeCodepoint,
 		},
 		{
-			name:       "nothing measured is the rule of a terminal nobody asked",
+			// The fallback is the rule the renderer counts with, so that a
+			// terminal nobody could be asked about cannot be drawn a row
+			// wider than the window in its own count (the owner, 01.10).
+			name:       "nothing measured is the rule the renderer draws with",
 			configured: termwidth.ModeAuto,
-			want:       termwidth.ModeCodepoint,
+			want:       termwidth.ModeGrapheme,
 		},
 	}
 

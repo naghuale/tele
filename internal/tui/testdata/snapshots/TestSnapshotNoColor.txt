@@ -4,7 +4,7 @@
 # size:    120x30
 # theme:   catppuccin-mocha
 # profile: no-color
-# width:   codepoint
+# width:   grapheme
 #
 # Plain text: the screen as a user reads it, without escape sequences.
     Chats              3 unread     Anna Example                                                                        

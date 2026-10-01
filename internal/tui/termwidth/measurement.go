@@ -16,6 +16,17 @@ import "sort"
 //     code points has to keep it at the width of the first one;
 //   - `👍🏽` is a thumb and a skin tone, and the tone is not a second
 //     thumb;
+//   - `⛩️` is a pagoda and a selector, and it is a different question from
+//     the hand: `⛩` on its own is one letter and `⛩️` is the same letter
+//     asking to be drawn as an emoji, which is the whole of what a terminal
+//     with emoji support and a terminal without it disagree about;
+//   - `☕` is a character that has no selector and is still drawn two
+//     columns wide, because it has emoji presentation of its own. A
+//     terminal that has to be asked about it is a terminal whose font, not
+//     its rules, is the question;
+//   - `🫶` is that too, and a newer one: a terminal that has never heard of
+//     it draws a box, and a box is not two columns of the glyph a message
+//     was written with;
 //   - `中` is a Han character, which every terminal that speaks about
 //     East Asian widths draws two columns wide;
 //   - `é` written as an e and a combining acute is two code points and one
@@ -24,11 +35,22 @@ import "sort"
 // The last one is in the list to catch a terminal that answers with
 // nonsense. A rule that agreed with the others and disagreed here is not
 // measuring glyphs.
+//
+// The probes are the ones the strings of real chats are made of, and the
+// strings of real chats came from the owner's screen of 01.10: a Chinese
+// channel name with a pagoda in it, a trading chat behind a flag, a coffee
+// in a preview and a hug in a message. A measurement that cannot answer for
+// those falls back to the rule the renderer draws with, which costs a column
+// of air where the terminal would have drawn one and saves the screen
+// everywhere else.
 var Probes = []string{
 	"✌️",
 	"🇨🇳",
 	"🏃‍♂️",
 	"👍🏽",
+	"⛩️",
+	"☕",
+	"🫶",
 	"中",
 	"é",
 }
@@ -72,9 +94,21 @@ func (m Measurement) Usable() bool { return len(m.Widths) > 0 }
 // The rule of the decision is one line: a terminal that agrees with the
 // grapheme rule about every probe it answered about is a terminal that
 // draws graphemes, and a terminal that does not is counted by code points.
-// Everything else is a rule from the configuration, and no measurement at
-// all is the codepoint rule, which is what the macOS Terminal and iTerm2
-// follow and what a terminal that cannot be asked is assumed to follow.
+// Everything else is a rule from the configuration, and a terminal that
+// answered nothing at all is the grapheme rule as well.
+//
+// The fallback is the grapheme rule and not the code point one, and that is
+// the whole of the reason the two are not interchangeable. The renderer
+// draws every row with its own counting, which is the grapheme rule,
+// whatever the mode says: a row counted by code points is a column narrower
+// than the row the renderer is about to write, and a row that reaches the
+// last column of the window in the terminal's own count is a row the
+// terminal wraps, which moves everything under it down a row. So a program
+// that guesses wrong in the direction of code points does not merely leave
+// a column of air on a symbol: it shifts the screen under a title with a
+// flag in it (the owner, 01.10). Where the terminal answered, the answer
+// still wins, and `tui.width = "codepoint"` is still a way to ask for the
+// other rule by name.
 //
 // The measured widths are carried into the model either way. They are the
 // terminal's own answer about a flag, and no rule knows what a terminal
@@ -97,14 +131,14 @@ func Select(configured Mode, m Measurement) (WidthModel, Choice) {
 		return newWidthModel(rule, m.Widths), Choice{Mode: rule, Source: source}
 	}
 
-	return newWidthModel(ModeCodepoint, nil), Choice{
-		Mode:   ModeCodepoint,
+	return newWidthModel(ModeGrapheme, nil), Choice{
+		Mode:   ModeGrapheme,
 		Source: SourceDefault,
 	}
 }
 
 // Unmeasured returns the model of a program that measured nothing: the
-// configured rule, or the codepoint rule where the configuration left the
+// configured rule, or the grapheme rule where the configuration left the
 // choice to the terminal.
 //
 // It is what a model built without a program is drawn with, and it says

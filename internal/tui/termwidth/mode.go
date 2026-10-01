@@ -129,7 +129,7 @@ func (c Choice) String() string {
 // the real one is decided when the TUI starts.
 func Describe(configured Mode) Choice {
 	if configured == ModeAuto {
-		return Choice{Mode: ModeCodepoint, Source: SourceDefault}
+		return Choice{Mode: ModeGrapheme, Source: SourceDefault}
 	}
 
 	return Choice{Mode: configured, Source: SourceConfigured}

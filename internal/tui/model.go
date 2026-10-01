@@ -63,6 +63,26 @@ type Model struct {
 	// an empty one.
 	statusSummaries StatusSummarySource
 
+	// chatAccessSource is the optional source of whether this account can
+	// write in the open chat, and chatAccess is what it last said.
+	//
+	// chatAccessKnown is what keeps the two apart. Without it the composer
+	// would have to be drawn from a read that has not happened, and a chat
+	// nobody asked about is a chat that can be written in: a field in a chat
+	// Telegram refuses is the failure this answers, and it must not become
+	// a composer that is missing in every chat TDLib was slow to answer
+	// about.
+	//
+	// chatAccessChatID is the chat the read is about, and it is a field of
+	// its own because an answer that arrives after the user has walked into
+	// another chat is an answer about a chat that is no longer on the
+	// screen.
+	chatAccessSource  ChatAccessSource
+	chatAccess        ChatAccess
+	chatAccessKnown   bool
+	chatAccessChatID  int64
+	chatAccessLoading bool
+
 	// presenceOpener is told which chat the user is looking at, and
 	// openedChat is the one it was last told about. It is nil in a program
 	// built without Telegram.
@@ -501,6 +521,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusSummaryFailedMsg:
 		return m.handleStatusSummaryFailed(msg)
+
+	case chatAccessLoadedMsg:
+		return m.handleChatAccessLoaded(msg)
+
+	case chatAccessFailedMsg:
+		return m.handleChatAccessFailed(msg)
 
 	case chatsLoadDeadlineMsg:
 		return m.updateChatsLoadDeadline(msg)
@@ -1580,6 +1606,15 @@ func (m Model) openSelectedChat(
 		m.chats[m.selectedChat].ID,
 	)
 
+	// What this account may write in the chat it is about to look at. The
+	// composer of a channel it may not post in is a line, and which of the
+	// two this is has to be known before the first frame of the
+	// conversation rather than after the next poll.
+	m.setChatAccessTarget(m.chats[m.selectedChat].ID)
+	if accessCmd := m.loadChatAccess(); accessCmd != nil {
+		statusCmd = tea.Batch(statusCmd, accessCmd)
+	}
+
 	// TDLib only counts the online members of a chat that has been opened,
 	// so the chat the user is looking at is the chat TDLib is told about.
 	openCmd := m.switchConversationChat(m.chats[m.selectedChat].ID)
@@ -1724,6 +1759,10 @@ func (m Model) leaveConversation() (Model, tea.Cmd) {
 	// in-flight response of the chat that is no longer active.
 	m.invalidateMessageStatusPolling()
 
+	// The rights of a chat are read for the chat that is open, and nothing
+	// on the chat list has an opinion about them.
+	m.setChatAccessTarget(0)
+
 	m.screen = ScreenChats
 	m.focus = FocusChatList
 
@@ -1783,9 +1822,16 @@ func (m Model) normalizeFocus() Model {
 
 	// The focus was on a region this size does not draw. The composer is
 	// where a conversation is written, so a conversation lands there and
-	// every other screen on the only region it has.
+	// every other screen on the only region it has. A conversation that
+	// cannot be written in lands on the messages instead: the composer of
+	// such a chat is a line and not a place the keys are.
 	if m.screen == ScreenConversation {
-		m.focus = FocusComposer
+		if m.canWrite() {
+			m.focus = FocusComposer
+		} else {
+			m.focus = FocusHistory
+		}
+
 		return m
 	}
 
@@ -1800,11 +1846,25 @@ func (m Model) visibleFocusRegions() []Focus {
 		return m.chatListFocusRegions()
 	}
 
-	if !LayoutFor(m.width, m.height).TwoPane() {
-		return []Focus{FocusHistory, FocusComposer}
+	// A chat this account cannot write in has no composer to visit: the
+	// region under the messages is a line that says why, and Tab has no use
+	// for stopping on a place with no keys.
+	regions := m.conversationFocusRegions()
+	if m.canWrite() {
+		regions = append(regions, FocusComposer)
 	}
 
-	return append(m.chatListFocusRegions(), FocusHistory, FocusComposer)
+	return regions
+}
+
+// conversationFocusRegions returns the regions of a conversation before the
+// composer: the chat list beside it, and the timeline of the open chat.
+func (m Model) conversationFocusRegions() []Focus {
+	if !LayoutFor(m.width, m.height).TwoPane() {
+		return []Focus{FocusHistory}
+	}
+
+	return append(m.chatListFocusRegions(), FocusHistory)
 }
 
 // chatListFocusRegions returns the regions of the chat list, which are the
@@ -1830,8 +1890,19 @@ func (m Model) chatListFocusRegions() []Focus {
 // Bubble Tea v1 cannot tell it from Enter in most terminals — divergence 3
 // of the specification — so the key that starts a line is the one that
 // works everywhere, and the hint bar names it.
+//
+// A chat this account cannot write in has no keys here at all. The region
+// under the messages is a line that says why, and every key of this function
+// would be editing a draft that goes nowhere: a send refused by Telegram is
+// a message that stays in the feed with `! failed` under it, and the field
+// that invited it is the defect. The composer of such a chat is inert, which
+// is also what makes the hint bar honest — it names the keys of the timeline
+// because the timeline is where the keys are.
 func (m Model) updateComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.sendState == sendStateSending {
+		return m, nil
+	}
+	if !m.canWrite() {
 		return m, nil
 	}
 
@@ -2036,11 +2107,22 @@ func (m Model) composerWidth() int {
 	return maxInt(layout.ChatContentWidth()-composerPromptWidth(), 1)
 }
 
+// handleComposerEnter sends the draft.
+//
+// The guards before the text are the whole of what stands between a person and
+// a message they cannot send: a chat with no source, a send already in flight,
+// and a chat this account has no right to write in. The last one is here and
+// not only in the keys above it because this is the function that owns the
+// send, and a guard that exists somewhere else is a guard that a later key
+// can walk around.
 func (m Model) handleComposerEnter() (tea.Model, tea.Cmd) {
 	if m.source == nil && m.submitter == nil {
 		return m, nil
 	}
 	if m.sendState == sendStateSending {
+		return m, nil
+	}
+	if !m.canWrite() {
 		return m, nil
 	}
 

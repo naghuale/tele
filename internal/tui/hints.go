@@ -1,5 +1,7 @@
 package tui
 
+import "strings"
+
 // The hint bar names the keys that work, in the focus the user is in and
 // at the width they are looking at.
 //
@@ -53,7 +55,12 @@ func (m Model) hintText(layout Layout) string {
 		return m.chatListHint()
 	}
 
-	if m.focus == FocusComposer {
+	// A chat this account cannot write in has no composer, and the keys that
+	// work are the keys of the messages. The bar says that rather than
+	// "Enter send": §4.6 asks for the keys of the focus, and a bar that
+	// promises a send in a chat that refuses it is the same defect as the
+	// field it would be under.
+	if m.focus == FocusComposer && m.canWrite() {
 		return m.composerHint(layout)
 	}
 
@@ -84,17 +91,25 @@ func (m Model) composerHint(layout Layout) string {
 // The action key is in every one of them, because §13 gives every message a
 // menu and a key the user has to know exists is a key they will not press.
 func (m Model) timelineHint(layout Layout) string {
-	prefix := "j/k scroll · a actions"
+	keys := []string{"j/k scroll", "a actions"}
+
+	// A chat this account cannot write in has no composer to go into, so
+	// neither the key that enters it nor the key that cycles the focus to
+	// it is in the bar. §4.6 asks for the keys of the focus, and a bar that
+	// names a key that does nothing is a promise about nothing.
+	composable := m.canWrite()
+	if composable {
+		keys = append(keys, "Enter composer")
+	}
 
 	if !layout.TwoPane() {
-		return prefix + " · Enter composer · Esc back"
+		return strings.Join(append(keys, "Esc back"), " · ")
+	}
+	if composable && layout.Kind == LayoutWide {
+		keys = append(keys, "Tab focus")
 	}
 
-	if layout.Kind == LayoutMedium {
-		return prefix + " · Enter composer · Esc chats"
-	}
-
-	return prefix + " · Enter composer · Tab focus · Esc chats"
+	return strings.Join(append(keys, "Esc chats"), " · ")
 }
 
 // chatListHint is what the chat list says, with the retry key when a

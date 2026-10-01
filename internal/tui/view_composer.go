@@ -42,6 +42,13 @@ const composerMaxShare = 0.3
 // of cutting into the last line of them, and the band reads as a band
 // rather than as a background that happens to be there.
 func (m Model) composerLines(layout Layout, width int) []string {
+	// A chat Telegram refuses is drawn as one line where the field would be,
+	// and there is nothing else in the region: no draft to lay out, no
+	// cursor to place, and no send whose failure has to be explained.
+	if !m.canWrite() {
+		return m.blockedComposerLines(layout, width)
+	}
+
 	rows := m.composerRowCount(layout, width)
 	lines := []string{""}
 	lines = append(lines, m.composerTextLines(layout, width, rows)...)
@@ -56,6 +63,31 @@ func (m Model) composerLines(layout Layout, width int) []string {
 	lines = append(lines, m.bandHintLines(layout, width)...)
 
 	return lines
+}
+
+// blockedComposerLines returns the rows of a chat this account cannot write
+// in: the space above the composer and one line that says why.
+//
+// The line is drawn in the muted step and has no prompt marker and no
+// cursor, because there is nothing to type into and a blinking cursor in a
+// place that ignores every key is a thing on the screen that says the user
+// is somewhere else. A draft typed while the chat could be written in is
+// kept and comes back with the field; what is not drawn is the draft, not
+// the draft's home.
+func (m Model) blockedComposerLines(
+	layout Layout,
+	width int,
+) []string {
+	styles := m.styles()
+	line := styles.dimmed(m.tokens().MutedText).
+		Render(m.widths.Fit(m.chatAccess.Blocked.line(), width, ellipsis))
+
+	lines := []string{"", line}
+	if layout.ComposerOnly() {
+		return lines
+	}
+
+	return append(lines, m.bandHintLines(layout, width)...)
 }
 
 // bandHintLines returns the hints as they are drawn inside the composer's

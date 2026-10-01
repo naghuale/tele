@@ -227,6 +227,12 @@ func dumpLiveState(state *LiveState) string {
 	for id, record := range state.users {
 		out.WriteString(fmt.Sprintf("user %d: %#v\n", id, record))
 	}
+	for id, facts := range state.access {
+		out.WriteString(fmt.Sprintf("access %d: %#v\n", id, facts))
+	}
+	for supergroup, id := range state.bySupergroup {
+		out.WriteString(fmt.Sprintf("supergroup %d: chat %d\n", supergroup, id))
+	}
 	for id, messages := range state.messages {
 		out.WriteString(fmt.Sprintf("messages %d: %#v\n", id, *messages))
 	}
@@ -239,10 +245,12 @@ func dumpLiveState(state *LiveState) string {
 // this test noticing, so a new one has to be added to the list.
 func TestThePrivacyDumpReadsEveryFieldOfTheStore(t *testing.T) {
 	read := map[string]bool{
-		"chats":      true,
-		"users":      true,
-		"messages":   true,
-		"connection": true,
+		"chats":        true,
+		"users":        true,
+		"messages":     true,
+		"access":       true,
+		"bySupergroup": true,
+		"connection":   true,
 	}
 
 	store := reflect.TypeOf(*NewLiveState())

@@ -185,9 +185,17 @@ func chatTypePatch(chatType chatTypeJSON) (kind chatKind, userID int64) {
 // so a field that nobody thought of cannot be added later without someone
 // noticing that this is where a user becomes a person. The privacy test
 // reads the whole store and checks that nothing personal is in it.
+//
+// reachable is the one field that is not a presence, and it is a fact
+// about the account rather than about the person: `have_access` is false
+// for an account that deleted itself or that was blocked, and it is what
+// says whether a chat with that person can be written in at all.
 type userRecord struct {
 	status UserStatus
 	bot    bool
+
+	reachable      bool
+	reachableKnown bool
 }
 
 // chatTypeJSON is the chatType of a chat, with the one field that says who
@@ -217,6 +225,7 @@ type updateUserJSON struct {
 		Type   struct {
 			Type string `json:"@type"`
 		} `json:"type"`
+		HaveAccess *bool `json:"have_access"`
 	} `json:"user"`
 }
 
@@ -463,6 +472,17 @@ func (l *LiveState) applyUser(raw RawMessage) (bool, error) {
 	if status, known := decodeUserStatus(update.User.Status); known &&
 		status != record.status {
 		record.status = status
+		changed = true
+	}
+
+	// A pointer and not a bool, because an update without the field is not
+	// an update that says the account is gone: it says nothing about it,
+	// and reading it as false would put a read-only line over the personal
+	// chat of every user a TDLib had stopped writing the field for.
+	if reachable := update.User.HaveAccess; reachable != nil &&
+		(*reachable != record.reachable || !record.reachableKnown) {
+		record.reachable = *reachable
+		record.reachableKnown = true
 		changed = true
 	}
 

@@ -584,6 +584,9 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotChannelAlbum", func(t *testing.T) Model {
 			return snapshotChannel(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotReadOnlyChannel", func(t *testing.T) Model {
+			return snapshotReadOnlyChannel(t, wide(theme.ProfileTrueColor))
+		}},
 		{"TestSnapshotShortFeedAboveComposer", func(t *testing.T) Model {
 			return snapshotShortFeed(t, wide(theme.ProfileTrueColor))
 		}},
@@ -1154,6 +1157,70 @@ func snapshotLongConversation() []Message {
 // unread badge in the muted step rather than the accent.
 func TestSnapshotChannelAlbum(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChannelAlbum"))
+}
+
+// TestSnapshotReadOnlyChannel is the screen of a channel this account is only
+// subscribed to: no field, one line that says what the chat is, and the keys
+// of the messages underneath it. It is the screen of the report of 01.10,
+// where two messages went into a channel that refuses them and both of them
+// stayed on the screen with `! failed` under them.
+func TestSnapshotReadOnlyChannel(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotReadOnlyChannel"))
+}
+
+// snapshotChannelChats is a chat list with a channel in it, so that a screen
+// which is about what can be written in is drawn over a channel rather than
+// over a chat with one other person in it.
+func snapshotChannelChats() []Chat {
+	return []Chat{
+		{
+			ID: snapshotChatID, Title: "Release Notes", Unread: 3,
+			Preview: "build 12 is green", Time: "12:07", Kind: ChatKindChannel,
+		},
+		{
+			ID: 2, Title: "Anna Example", Unread: 2,
+			Preview: "the build is green again", Time: "12:05",
+		},
+	}
+}
+
+// snapshotChannelMessages is a page of a channel: every message is from the
+// channel, which is the whole of what a channel is to a reader, and none of
+// them is from this account — it does not post here, or the line is not on
+// the screen.
+func snapshotChannelMessages() []Message {
+	return []Message{
+		{ID: 3, Text: "build 12 is green", Time: "12:07", Author: "Release Notes"},
+		{ID: 2, Text: "and 13 too", Time: "12:05", Author: "Release Notes"},
+		{ID: 1, Text: "the tag is pushed", Time: "12:02", Author: "Release Notes"},
+	}
+}
+
+// snapshotReadOnlyChannel is a conversation in a chat Telegram refuses: the
+// line that stands where the composer would be, and nothing else of it.
+func snapshotReadOnlyChannel(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = snapshotChannelChats()
+	source := &stubChatAccess{access: ChatAccess{Blocked: ChatBlockedChannel}}
+
+	m := snapshotModel(t, f, Dependencies{
+		AccountKey: snapshotAccountKey,
+		ChatAccess: source,
+	})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: snapshotChannelMessages()},
+	})
+	m = m.scrollToNewest()
+	m, _ = updateModel(t, m, chatAccessLoadedMsg{
+		chatID: snapshotChatID,
+		access: source.access,
+	})
+
+	return m
 }
 
 // A conversation with fewer messages than the feed has rows for: the

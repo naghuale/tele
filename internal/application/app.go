@@ -71,6 +71,12 @@ type AuthRunResult struct {
 	// read. It is nil when the program has no queue to cancel in.
 	MessageCanceller tui.MessageCanceller
 
+	// ChatAccess reads whether this account can write in the chat that is
+	// open, and the composer is drawn as a line where it cannot. It is nil
+	// when there is no Telegram to ask, and then the composer is drawn as it
+	// always was.
+	ChatAccess tui.ChatAccessSource
+
 	// PresenceOpener tells Telegram which chat the user is looking at.
 	//
 	// TDLib counts the online members of a chat only while it is open, so
@@ -442,6 +448,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						PresenceOpener:   authResult.PresenceOpener,
 						MessageViewer:    authResult.MessageViewer,
 						MessageCanceller: authResult.MessageCanceller,
+						ChatAccess:       authResult.ChatAccess,
 						SendError:        sendError,
 						// The causes the screen must not show go here:
 						// why a message could not be queued and why the

@@ -691,6 +691,7 @@ func (m Model) handleMessageStatusPollTick(
 	// tick after that one.
 	m.messageStatusLoading = false
 	m.summaryLoading = false
+	m.chatAccessLoading = false
 	// This tick has arrived, so the loop is open until the next one is
 	// armed. Clearing it here rather than in the reader is what lets a
 	// poll that decides not to read still leave the loop able to restart.
@@ -711,6 +712,9 @@ func (m Model) deliveryPolling() bool {
 	if m.statusSummaries != nil {
 		return true
 	}
+	if m.chatAccessSource != nil && m.chatAccessChatID != 0 {
+		return true
+	}
 
 	return (m.messageStatuses != nil || m.pendingMessages != nil) &&
 		m.messageStatusAccountKey != ""
@@ -722,11 +726,14 @@ func (m *Model) pollDeliverySources() tea.Cmd {
 		return nil
 	}
 
-	cmds := make([]tea.Cmd, 0, 3)
+	cmds := make([]tea.Cmd, 0, 4)
 	if cmd := m.loadStatusSummary(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if cmd := m.loadMessageStatuses(); cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if cmd := m.loadChatAccess(); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
 	if tick := m.armPollTick(); tick != nil {

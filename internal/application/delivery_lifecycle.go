@@ -22,6 +22,7 @@ type deliverySession interface {
 	TelegramSender
 	TelegramChatLifecycle
 	TelegramMessageViewing
+	TelegramChatAccessReader
 
 	// LiveState is the store TDLib updates are applied to, and the only
 	// place the connection state exists. It is a required capability
@@ -377,6 +378,20 @@ func prepareDeliveryAuthResult(
 		statusSummaries = summarySource
 	}
 
+	// What this account may write in the chat that is open, so that a
+	// channel it does not post in is drawn with a line where the composer
+	// would be. It is built whether or not there is a queue: the rights of a
+	// chat are a property of the account, and a mode without a durable
+	// store has no reason to offer a field Telegram will refuse.
+	chatAccess, err := NewTelegramChatAccessSource(session, session.LiveState())
+	if err != nil {
+		return AuthRunResult{}, errors.Join(
+			fmt.Errorf("create chat access source: %w", err),
+			delivery.Close(),
+			closeDeliverySession(session, cfg.TDLib.ShutdownTimeoutMS),
+		)
+	}
+
 	return AuthRunResult{
 		Source:           NewTelegramChatServiceFor(session, ownUserID),
 		Submitter:        tuiSubmitter,
@@ -384,6 +399,7 @@ func prepareDeliveryAuthResult(
 		MessageStatuses:  newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
 		PendingMessages:  newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
 		StatusSummaries:  statusSummaries,
+		ChatAccess:       chatAccess,
 		PresenceOpener:   &TelegramChatPresenceOpener{session: session},
 		MessageViewer:    &TelegramMessageViewer{session: session},
 		MessageCanceller: canceller,

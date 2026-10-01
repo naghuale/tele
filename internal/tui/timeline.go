@@ -483,7 +483,12 @@ func (m Model) updateHistoryKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.scrollToNewest(), nil
 
 	case msg.Type == tea.KeyEnter || isInsertMode(msg):
-		m.focus = FocusComposer
+		// The keys go to the composer, which is the one place a message is
+		// written — and there is no composer in a chat this account cannot
+		// write in, so the key does nothing there, the way `g` does.
+		if m.canWrite() {
+			m.focus = FocusComposer
+		}
 
 		return m, nil
 

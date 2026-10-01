@@ -439,6 +439,21 @@ func citations() []struct {
 		{name: "openChat", line: 13220},
 		{name: "closeChat", line: 13223},
 		{name: "viewMessages", line: 13231},
+		// The rights of a chat, as chat_access.go and live_state_access.go
+		// read them.
+		{name: "chatPermissions", line: 1070},
+		{name: "chatAdministratorRights", line: 1092},
+		{name: "user", line: 2403},
+		{name: "chatMemberStatusCreator", line: 2493},
+		{name: "chatMemberStatusAdministrator", line: 2500},
+		{name: "chatMember", line: 2526},
+		{name: "supergroup", line: 2747},
+		{name: "chatTypePrivate", line: 3440},
+		{name: "chatTypeSupergroup", line: 3446},
+		{name: "updateChatPermissions", line: 10501},
+		{name: "updateSupergroup", line: 10739},
+		{name: "getUser", line: 11499},
+		{name: "getSupergroup", line: 11511},
 	}
 }
 

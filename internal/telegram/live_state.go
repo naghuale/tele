@@ -107,15 +107,23 @@ type LiveState struct {
 	// and nothing else about them: no names, no phone numbers, no
 	// usernames. See live_state_presence.go.
 	users map[int64]userRecord
+
+	// access is what the store knows about writing in a chat, and
+	// bySupergroup is the index that places an update about a supergroup on
+	// the chat it belongs to. See live_state_access.go.
+	access       map[ChatID]chatAccessFacts
+	bySupergroup map[int64]ChatID
 }
 
 // NewLiveState returns an empty store.
 func NewLiveState() *LiveState {
 	return &LiveState{
-		chats:    make(map[ChatID]*liveChatEntry),
-		messages: make(map[ChatID]*chatMessages),
-		users:    make(map[int64]userRecord),
-		changed:  make(chan struct{}, 1),
+		chats:        make(map[ChatID]*liveChatEntry),
+		messages:     make(map[ChatID]*chatMessages),
+		users:        make(map[int64]userRecord),
+		access:       make(map[ChatID]chatAccessFacts),
+		bySupergroup: make(map[int64]ChatID),
+		changed:      make(chan struct{}, 1),
 	}
 }
 
@@ -225,6 +233,12 @@ func (l *LiveState) apply(raw RawMessage) (bool, error) {
 
 	case updateChatOnlineMemberCountType:
 		return l.applyOnlineMemberCount(raw)
+
+	case updateChatPermissionsType:
+		return l.applyChatPermissions(raw)
+
+	case updateSupergroupType:
+		return l.applySupergroup(raw)
 	}
 
 	if _, isMessageUpdate := messageUpdateTypes[envelope.Type]; isMessageUpdate {
@@ -434,6 +448,13 @@ func (p chatPositionRaw) isMain() bool {
 
 // liveStateUpdateTypes are the update @types the main-list store
 // consumes. Every other type is ignored.
+//
+// The two updates about the rights of a chat are consumed by the store and
+// are not in this list, and that is not an oversight: a right is recorded
+// for a chat the store has been asked about, and nothing is asked before the
+// login is over. Held here they would be applied to a store that holds no
+// rights for the chat they are about, and dropped — while the read that
+// follows the login asks TDLib, whose answer is newer than the update was.
 var liveStateUpdateTypes = map[string]struct{}{
 	"updateNewChat":           {},
 	"updateChatTitle":         {},

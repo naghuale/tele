@@ -55,6 +55,15 @@ type Dependencies struct {
 	// draws no status line.
 	StatusSummaries StatusSummarySource
 
+	// ChatAccess is optional.
+	//
+	// It reads whether this account can write in the chat that is open, and
+	// the composer is drawn as a line instead of a field where it cannot.
+	// A nil source is a program that knows nothing about the rights of any
+	// chat, which is the truth about one that has no Telegram to ask: it
+	// draws the composer as it always did.
+	ChatAccess ChatAccessSource
+
 	// MessageStatuses is optional.
 	//
 	// A nil source is the direct delivery mode and disables durable status
@@ -184,6 +193,7 @@ func NewModelWithDependencies(
 	model.messageStatuses = deps.MessageStatuses
 	model.pendingMessages = deps.PendingMessages
 	model.statusSummaries = deps.StatusSummaries
+	model.chatAccessSource = deps.ChatAccess
 	model.canceller = deps.MessageCanceller
 	if deps.Clipboard != nil {
 		model.clipboard = newTerminalOutput(deps.Clipboard, true)

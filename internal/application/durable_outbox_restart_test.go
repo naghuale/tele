@@ -231,6 +231,13 @@ func (s *h7dSession) LiveState() *telegram.LiveState {
 	return nil
 }
 
+func (s *h7dSession) GetChatAccess(
+	context.Context,
+	telegram.ChatID,
+) (telegram.ChatAccess, error) {
+	return telegram.ChatAccess{CanSend: true}, nil
+}
+
 func (s *h7dSession) Close(context.Context) error {
 	s.closed.Store(true)
 	return nil

@@ -181,6 +181,11 @@ func (m Model) overlayRow(behind, popup string, firstColumn int) string {
 	head := m.widths.Truncate(behind, maxInt(firstColumn, 0), "")
 	head += spaces(maxInt(firstColumn-behindWidth, 0))
 
+	// The rows of the popup say where they start, at the column of the
+	// popup: the row behind them ends wherever it ends, and the row above
+	// it ends wherever that one did (columns.go).
+	popup = cursorColumn(maxInt(firstColumn, 0)+1) + popup
+
 	popupEnd := maxInt(firstColumn, 0) + m.widths.StringWidth(popup)
 	if behindWidth <= popupEnd {
 		return head + popup + spaces(behindWidth-popupEnd)

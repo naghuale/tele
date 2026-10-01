@@ -570,16 +570,44 @@ type rowPainter struct {
 	styles  viewStyles
 	widths  termwidth.WidthModel
 	surface theme.Color
+
+	// origin is the column the first cell of this row is in on the screen,
+	// counting from one. The cursor positions the painter writes are the
+	// ones the terminal would act on, so they are absolute, and an absolute
+	// column of a row of the conversation is not the column the row starts
+	// the screen at (columns.go).
+	origin int
+
 	written strings.Builder
 }
 
-// painter returns a painter for a row with the given surface, which is the
-// Selected token of a selected row and nothing anywhere else.
+// painter returns a painter for a row of the chat list with the given
+// surface, which is the Selected token of a selected row and nothing
+// anywhere else.
 func (m Model) painter(surface theme.Color) *rowPainter {
+	return m.painterIn(firstPaneOrigin, surface)
+}
+
+// firstPaneOrigin is the column the chat list starts in, and the column of
+// the conversation on a screen that has only one pane.
+const firstPaneOrigin = 1
+
+// painterIn returns a painter for a row of the pane whose first cell is in
+// the given column of the screen, counting from one.
+//
+// A pane draws its rows inside a region, and the region puts the column of
+// the focus marker and the air inside the pane in front of every one of
+// them. The cursor positions a painter writes are absolute, so a painter
+// that did not know about those two columns would put the letters after an
+// emoji two columns to the left of where the block is — which is a letter
+// inside the picture on a terminal that draws the emoji two cells wide
+// (columns.go).
+func (m Model) painterIn(pane int, surface theme.Color) *rowPainter {
 	return &rowPainter{
 		styles:  m.styles(),
 		widths:  m.widths,
 		surface: surface,
+		origin:  maxInt(pane, 1) + focusColumnWidth + contentInsetWidth,
 	}
 }
 
@@ -596,7 +624,7 @@ func (m Model) selectedSurface(selected bool) theme.Color {
 
 // add writes one run of the row in the given style.
 func (p *rowPainter) add(style lipgloss.Style, text string) *rowPainter {
-	p.written.WriteString(p.styles.on(p.surface, style).Render(text))
+	p.write(p.styles.on(p.surface, style), text)
 
 	return p
 }
@@ -649,9 +677,56 @@ func (p *rowPainter) own(style lipgloss.Style, text string) *rowPainter {
 		return p
 	}
 
-	p.written.WriteString(style.Render(text))
+	p.write(style, text)
 
 	return p
+}
+
+// write writes the text of a run, with the cursor placed at the end of
+// every emoji-like cluster in it.
+//
+// The cluster is written in the style of the run and the column after it is
+// written after the cluster, so the terminal's own advance decides nothing:
+// a terminal that draws a symbol two cells wide and advances one puts the
+// next run where the two cells of the symbol end, which is where this row
+// says it goes (columns.go).
+//
+// The runs in between are written together, because a position after every
+// letter would be a sequence per character and a frame nobody can read in a
+// log. So a row of letters is a row of letters with no position in it, and
+// only a row with an emoji in it pays for one.
+func (p *rowPainter) write(style lipgloss.Style, text string) {
+	if text == "" {
+		return
+	}
+
+	rendered := style
+	plain := &strings.Builder{}
+
+	for _, cluster := range graphemes([]rune(text)) {
+		glyph := string(cluster)
+		if !termwidth.EmojiLike(glyph) {
+			plain.WriteString(glyph)
+
+			continue
+		}
+
+		p.flush(rendered, plain)
+		p.written.WriteString(rendered.Render(glyph))
+		p.written.WriteString(cursorColumn(p.origin + p.width()))
+	}
+
+	p.flush(rendered, plain)
+}
+
+// flush writes what has been collected of a run of letters.
+func (p *rowPainter) flush(style lipgloss.Style, plain *strings.Builder) {
+	if plain.Len() == 0 {
+		return
+	}
+
+	p.written.WriteString(style.Render(plain.String()))
+	plain.Reset()
 }
 
 // width returns how many columns have been written so far, escape

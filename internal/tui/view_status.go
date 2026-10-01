@@ -45,7 +45,14 @@ type statusPart struct {
 // The block is at most two lines, and one on a short screen (§3.4 hides the
 // second line): a status that grows into the conversation costs the
 // messages it is meant to explain.
-func (m Model) statusBlock(layout Layout, width int) []string {
+//
+// The origin is the column the first cell of the block is in: the block is
+// drawn in the conversation header and in the header of the chat list, and
+// the two are not in the same column of the screen. A cursor position of an
+// emoji in it is absolute, and an absolute position counted from the first
+// column of a pane that is not the first pane puts the letters after the
+// emoji a pane to the left (columns.go).
+func (m Model) statusBlock(layout Layout, width, origin int) []string {
 	lines, parts := m.statusLines(layout, width)
 	if len(lines) == 0 {
 		return nil
@@ -58,7 +65,7 @@ func (m Model) statusBlock(layout Layout, width int) []string {
 	// middle of a sentence is a colour the reader has to work out rather
 	// than one that tells them something.
 	if len(lines) == 1 {
-		return []string{m.styledStatusLine(parts, width)}
+		return []string{m.styledStatusLine(parts, width, origin)}
 	}
 
 	style := m.statusStyle()
@@ -120,13 +127,13 @@ func (m Model) statusLines(layout Layout, width int) ([]string, []statusPart) {
 
 // styledStatusLine draws one row of the status block: every part in its own
 // colour and the separator of §3.3 between the parts in the block's own.
-func (m Model) styledStatusLine(parts []statusPart, width int) string {
+func (m Model) styledStatusLine(parts []statusPart, width, origin int) string {
 	// The separator and the parts that have no colour of their own are in
 	// the dim step of the text ramp, and not in the colour of the part that
 	// ranks highest: a line whose separators are green is a line in green
 	// with a word of it in a different green.
 	own := m.styles().dimmed(m.tokens().SecondaryText)
-	row := m.painter(theme.Color{}).add(parts[0].style, parts[0].text)
+	row := m.painterIn(origin, theme.Color{}).add(parts[0].style, parts[0].text)
 	for _, part := range parts[1:] {
 		row = row.add(own, statusSeparator).add(part.style, part.text)
 	}

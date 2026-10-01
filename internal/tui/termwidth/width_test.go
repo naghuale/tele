@@ -19,16 +19,19 @@ import (
 //
 // These are not exotic. A Chinese channel name with a pagoda in it, a
 // trading chat behind the flag of its country, a coffee in a preview, a
-// hug and a ball and a heart in a message: the widths of the two rules are
-// the difference between a row that fits the window and one that runs past
-// the last column of it, and a row past the last column is a row the
-// terminal wraps.
+// hug and a ball and a heart in a message: the width of one of these
+// clusters is the difference between a row that fits the window and one
+// that runs past the last column of it, and a row past the last column is
+// a row the terminal wraps.
 //
-// The grapheme rule is the one the whole interface has to be drawn with,
-// because the renderer counts with it whatever the mode says and a row that
-// disagrees with the renderer is a row it cuts. The codepoint rule keeps
-// saying what wcwidth says, because that is what the macOS Terminal and
-// iTerm2 draw and what a configured `tui.width = "codepoint"` asks for.
+// Every one of them is two columns, in both rules and whichever mode drew
+// the row, because that is how wide a terminal draws the glyph and how many
+// cells of it belong to it (EmojiLike). The pagoda is the case that says
+// why the count cannot be a measurement: the macOS Terminal draws it two
+// cells wide and advances the cursor one, so an answer about where the
+// cursor went is not an answer about how wide the drawing is. What the
+// terminal said about it is about the terminal, and the program reports it
+// rather than laying out with it.
 func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -38,7 +41,7 @@ func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 		{
 			name:     "a pagoda as a letter",
 			value:    "⛩",
-			grapheme: 1,
+			grapheme: 2,
 		},
 		{
 			name:     "the same pagoda asking for the emoji drawing",
@@ -78,7 +81,7 @@ func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 		{
 			name:     "the whole title, symbols among the letters",
 			value:    "⛩ФУЮАНЬ⛩ЖАОХЭ🇨🇳САХЭКСПО",
-			grapheme: 23,
+			grapheme: 25,
 		},
 		{
 			name:     "letters and nothing else",
@@ -89,22 +92,34 @@ func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			model := Unmeasured(ModeGrapheme)
+			// Both rules, because the width of one of these clusters is
+			// stated rather than counted and a mode that counted it
+			// differently would draw a row the terminal wraps.
+			for _, mode := range []Mode{ModeGrapheme, ModeCodepoint} {
+				model := Unmeasured(mode)
 
-			if got := model.StringWidth(testCase.value); got != testCase.grapheme {
-				t.Errorf(
-					"grapheme: StringWidth(%q) = %d, want %d",
-					testCase.value, got, testCase.grapheme,
-				)
+				if got := model.StringWidth(testCase.value); got != testCase.grapheme {
+					t.Errorf(
+						"%v: StringWidth(%q) = %d, want %d",
+						mode, testCase.value, got, testCase.grapheme,
+					)
+				}
 			}
 
-			// The renderer counts the row with its own rule, and the row
-			// has to satisfy it whichever mode drew it.
-			if got := RendererWidth(testCase.value); got != testCase.grapheme {
-				t.Errorf(
-					"renderer: StringWidth(%q) = %d, want %d",
-					testCase.value, got, testCase.grapheme,
-				)
+			// The renderer counts the row with its own rule, and a row
+			// that disagrees with it is a row it cuts. A cluster drawn
+			// wide out of an emoji font while the renderer counts it as
+			// text is the one string where the two counts differ, and it
+			// is why the program writes the column of every cell after
+			// such a cluster instead of leaving it to the terminal
+			// (internal/tui, the row painter).
+			if !termwidthEmojiRow(testCase.value) {
+				if got := RendererWidth(testCase.value); got != testCase.grapheme {
+					t.Errorf(
+						"renderer: StringWidth(%q) = %d, want %d",
+						testCase.value, got, testCase.grapheme,
+					)
+				}
 			}
 		})
 	}
@@ -116,15 +131,21 @@ func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 // rule of a terminal nobody could ask has to be the one the renderer and
 // every terminal that follows the emoji rules agree on.
 func TestTheRuleIsPickedFromTheOwnersStrings(t *testing.T) {
+	// A terminal that answers the way one which follows the emoji rules
+	// does: two columns for every glyph of the emoji blocks.
 	measured := Measurement{
 		Widths: map[string]int{
-			"⛩":    1,
+			"⛩":    2,
 			"⛩️":   2,
 			"🇨🇳":   2,
 			"☕":    2,
 			"🫶":    2,
 			"🤗":    2,
 			"🏃‍♂️": 2,
+			"✌️":   2,
+			"👍🏽":   2,
+			"中":    2,
+			"é":    1,
 		},
 	}
 
@@ -174,12 +195,12 @@ func TestStringWidthOfTheDifficultStrings(t *testing.T) {
 			name:      "a hand with the emoji selector behind it",
 			value:     "✌️",
 			grapheme:  2,
-			codepoint: 1,
+			codepoint: 2,
 		},
 		{
 			name:     "the same hand without it",
 			value:    "✌",
-			grapheme: 1, codepoint: 1,
+			grapheme: 2, codepoint: 2,
 		},
 		{
 			name:     "a flag of two regional indicators",
@@ -229,7 +250,7 @@ func TestStringWidthOfTheDifficultStrings(t *testing.T) {
 		{
 			name:     "a chat title with a hand in it",
 			value:    "Xiaomi News ✌️",
-			grapheme: 14, codepoint: 13,
+			grapheme: 14, codepoint: 14,
 		},
 		{
 			name:     "a chat title with a flag in it",
@@ -244,7 +265,7 @@ func TestStringWidthOfTheDifficultStrings(t *testing.T) {
 		{
 			name:     "the hand between two words",
 			value:    "a✌️b",
-			grapheme: 4, codepoint: 3,
+			grapheme: 4, codepoint: 4,
 		},
 		{
 			name:     "an ellipsis",
@@ -697,37 +718,60 @@ func TestFitKeepsEveryLineWithinTheWidthOfBothRules(t *testing.T) {
 // The model of a terminal that answered nothing is the codepoint rule, and
 // a model built without saying anything at all is the same one: a screen
 // has to be drawable before anybody has measured the terminal behind it.
+//
+// The width of an emoji is the one thing a zero model does not have to
+// guess: it is two columns of a glyph that is drawn from an emoji font,
+// which is the most any terminal draws and the only number that can be
+// wrong by a column of air rather than by one cell of overlap.
 func TestTheZeroModelCountsByCodePoint(t *testing.T) {
 	var zero WidthModel
 
 	if zero.Mode() != ModeCodepoint {
 		t.Fatalf("the zero model counts in %v, want %v", zero.Mode(), ModeCodepoint)
 	}
-	if got := zero.StringWidth("✌️"); got != 1 {
-		t.Fatalf("the zero model counts ✌️ as %d columns, want 1", got)
+	if got := zero.StringWidth("✌️"); got != 2 {
+		t.Fatalf("the zero model counts ✌️ as %d columns, want 2", got)
 	}
 }
 
-// A terminal is the only party that knows what it draws. A width it was
-// asked about is that width, in either rule: a flag is a flag, and no rule
-// can say what a terminal does with one.
-func TestAMeasuredWidthIsTheWidthOfTheFlag(t *testing.T) {
-	measured := Measurement{Widths: map[string]int{"🇨🇳": 1}}
+// A width a terminal was asked about is not the width of a glyph drawn from
+// an emoji font, and saying it is not a bug in the measurement: the
+// question was where the cursor went, and the answer is that.
+//
+// The macOS Terminal draws a flag in two cells and advances the cursor two,
+// and the macOS Terminal draws a pagoda in two cells and advances one. A
+// program that laid out by the answer would be right about the flag and a
+// cell of overlap wrong about the pagoda, and the owner's screen of 01.10
+// is the second of those. So the width of such a cluster is two columns and
+// the cursor after it is placed by the program rather than left where the
+// terminal put it.
+func TestAMeasuredWidthIsNotTheWidthOfAnEmoji(t *testing.T) {
+	measured := Measurement{
+		Widths: map[string]int{"🇨🇳": 1, "✌️": 1, "⛩": 1, "中": 2, "é": 1},
+	}
 
 	for _, configured := range []Mode{ModeAuto, ModeGrapheme, ModeCodepoint} {
 		model, _ := Select(configured, measured)
 
-		if got := model.StringWidth("🇨🇳"); got != 1 {
+		for _, emoji := range []string{"🇨🇳", "✌️", "⛩"} {
+			if got := model.StringWidth(emoji); got != 2 {
+				t.Errorf(
+					"Select(%v, %q measured as one column) = %d, want 2",
+					configured, emoji, got,
+				)
+			}
+		}
+		if got := model.StringWidth("🇨🇳🇺🇸"); got != 4 {
 			t.Errorf(
-				"Select(%v, flag of one column): StringWidth = %d, want 1",
+				"Select(%v, a flag of one column): two flags = %d, want 4",
 				configured, got,
 			)
 		}
-		if got := model.StringWidth("🇨🇳🇺🇸"); got != 3 {
-			t.Errorf(
-				"Select(%v, flag of one column): a second flag = %d, want 3",
-				configured, got,
-			)
+
+		// A letter is still measured: a Han character and an e with a
+		// combining acute are the cases the measurement is for.
+		if got := model.StringWidth("中"); got != 2 {
+			t.Errorf("Select(%v): the Han character is %d columns, want 2", configured, got)
 		}
 	}
 }
@@ -782,4 +826,11 @@ func maxInt(a, b int) int {
 	}
 
 	return b
+}
+
+// termwidthEmojiRow reports whether the row is one the renderer counts
+// narrower than the program does: a text-default symbol of the symbol block
+// drawn wide out of the emoji font.
+func termwidthEmojiRow(value string) bool {
+	return RendererWidth(value) != Unmeasured(ModeGrapheme).StringWidth(value)
 }

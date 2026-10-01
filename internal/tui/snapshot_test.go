@@ -547,6 +547,12 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotANSI16", func(t *testing.T) Model {
 			return snapshotFallback(t, theme.ProfileANSI16)
 		}},
+		{"TestSnapshotSearchClosed", func(t *testing.T) Model {
+			return snapshotConversation(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotSearchEmpty", func(t *testing.T) Model {
+			return snapshotSearch(t, wide(theme.ProfileTrueColor), "")
+		}},
 		{"TestSnapshotSearchMatches", func(t *testing.T) Model {
 			return snapshotSearch(t, wide(theme.ProfileTrueColor), "release")
 		}},
@@ -1021,8 +1027,22 @@ func TestSnapshotANSI16(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotANSI16"))
 }
 
-// The search of §9 with a query that found something, and with one that did
-// not: the second is a screen of its own and it is not an error.
+// The four states of the search of §9: closed, open and empty, open with a
+// query that found something, and open with one that did not.
+//
+// They are four screens rather than one because the row of the hint and the
+// row of the field are the same row: closed shows the hint, the other three
+// show the field on that row, and only the last two move the list under it.
+// A search that opened a row of its own above the header is a search that
+// pushed all four down a row (the owner, 01.10).
+func TestSnapshotSearchClosed(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotSearchClosed"))
+}
+
+func TestSnapshotSearchEmpty(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotSearchEmpty"))
+}
+
 func TestSnapshotSearchMatches(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotSearchMatches"))
 }

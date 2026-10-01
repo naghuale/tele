@@ -111,14 +111,12 @@ func assertPanelRule(t *testing.T, m Model, want pane) {
 	// The rule closes the header of its pane: the header of a
 	// conversation is a title and the rule, so its rule is the second row;
 	// the header of the list is a title, the line under it and the rule,
-	// so its rule is the third — or the fourth with the search region
-	// open above it.
+	// so its rule is the third — and it is the third with the search open,
+	// because the field is that line of the header and not a row of its
+	// own above it.
 	wantRow := 1
 	if want == listPane {
 		wantRow = 2
-		if m.chatSearch.open {
-			wantRow += searchRegionHeight
-		}
 	}
 
 	found := panelRuleLines(lines)

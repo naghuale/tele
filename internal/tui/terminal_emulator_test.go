@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,6 +84,17 @@ type screenEmulator struct {
 	// that reaches the last column is a row that moves every row under it.
 	autowrap bool
 
+	// tap is where a copy of everything written goes, for a test that has
+	// to read the bytes rather than the cells.
+	tap io.Writer
+
+	// advanceOneCellPerEmoji is the macOS Terminal's pagoda: drawn two cells
+	// wide, cursor advanced one (the owner, 01.10). The glyph takes the two
+	// cells it is drawn in and the cursor goes one, so whatever is written
+	// after it lands inside its own picture unless the program says where
+	// the next cell is.
+	advanceOneCellPerEmoji bool
+
 	// painted is how many cells have been written since the terminal was
 	// made, a wide character counting for the two of them it takes. A
 	// screen drawn again from the top paints every cell of it, and a
@@ -141,6 +153,10 @@ func newScreenEmulator(width, height int, widths termwidth.WidthModel) *screenEm
 func (e *screenEmulator) Write(p []byte) (int, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	if e.tap != nil {
+		_, _ = e.tap.Write(p)
+	}
 
 	e.feed(string(p))
 	e.paintedFrames++
@@ -343,6 +359,7 @@ func (e *screenEmulator) draw() {
 // below is left exactly where it was.
 func (e *screenEmulator) put(cluster string) {
 	width := maxInt(e.widths.StringWidth(cluster), 1)
+	advance := e.advanceOf(cluster, width)
 
 	if e.wrap {
 		e.index()
@@ -364,11 +381,28 @@ func (e *screenEmulator) put(cluster string) {
 	}
 	e.painted += width
 
-	e.col += width
+	e.col += advance
 	if e.col >= e.width {
 		e.col = e.width - 1
 		e.wrap = e.autowrap
 	}
+}
+
+// advanceOf returns how far the cursor goes after a cluster of the given
+// width, which is not always the width of it.
+//
+// The two are the same in every terminal that follows the emoji rules and
+// not in the macOS Terminal, where a symbol with text presentation by
+// default — a pagoda, a pagoda with a selector behind it — is drawn from
+// the emoji font in two cells and leaves the cursor one further along. The
+// glyph occupies what it occupies either way, so the cells it hides are the
+// cells of it.
+func (e *screenEmulator) advanceOf(cluster string, width int) int {
+	if e.advanceOneCellPerEmoji && width > 1 && termwidth.EmojiLike(cluster) {
+		return width - 1
+	}
+
+	return width
 }
 
 // index moves the cursor down a row, scrolling the screen when it is on
@@ -516,28 +550,20 @@ func (e *screenEmulator) control(final rune) {
 // at returns the nth parameter of the sequence, or fallback where the
 // parameter was left out — which every terminal reads as its own default.
 //
-// A parameter is a number that may carry a private marker in front of it,
-// as the modes of DECAWM do (ESC [ ? 7 l), and the number is the part after
-// it. Reading the field as it is written and parsing that is what tells
-// ESC [ 3 B (three rows down) from ESC [ ? 7 l (a mode): the first moves the
-// cursor, the second changes what happens to a row that reaches the edge of
-// the window, and a terminal that read them the same way would move the
-// cursor for one and not the other.
+// The parameters are the bytes between the ESC [ and the final character,
+// one field per semicolon, each of which may carry a private marker in
+// front of it: ESC [ 35 G is the thirty-fifth column and ESC [ ? 7 l is the
+// mode of the auto-wrap. Reading the fields as they were written is what
+// tells the two apart, and it is what puts a two digit column where it
+// belongs: read one byte at a time, the thirty-fifth column is the third.
 func (e *screenEmulator) at(index int, fallback int) int {
-	if index > len(e.params) {
+	fields := strings.Split(string(e.params), ";")
+	if index > len(fields) {
 		return fallback
 	}
 
-	field := strings.TrimLeft(string(e.params[index-1]), "?<=>")
-	if field == "" {
-		return fallback
-	}
-
-	value, err := strconv.Atoi(field)
-	if err != nil {
-		return fallback
-	}
-	if value == 0 {
+	value, err := strconv.Atoi(strings.TrimLeft(fields[index-1], "?<=>"))
+	if err != nil || value == 0 {
 		return fallback
 	}
 
@@ -555,9 +581,9 @@ const autoWrapMode = 7
 // all, because a mode sequence names one mode: ESC [ ? 7 l is the mode of the
 // auto-wrap and nothing else.
 func (e *screenEmulator) modeNumber() int {
-	first, _, _ := strings.Cut(string(e.params), ";")
+	fields := strings.Split(string(e.params), ";")
 
-	number, err := strconv.Atoi(strings.TrimLeft(first, "?<=>"))
+	number, err := strconv.Atoi(strings.TrimLeft(fields[0], "?<=>"))
 	if err != nil {
 		return 0
 	}

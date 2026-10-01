@@ -236,6 +236,10 @@
     enough to find the request in a trace
   - TDLib error objects decode into *TDLibError with
     ErrTDLibResponse preserved for errors.Is
+- Search of the chat list: the row of the `/ search` hint becomes the
+  field (internal/tui/view_chat_search.go), so opening a search does not
+  push the list down; the list header, the rule under it and every row of
+  the list stay where they were
 - Chat projection: internal/telegram/chats.go
   - GetChats fetches an ordered snapshot and materializes each chat
     via GetChat
@@ -1198,20 +1202,29 @@
     internal/tui/termwidth, so the values are stored as plain strings
     here and validated there
 - Width rule: internal/tui/termwidth
-  - the two rules disagree about a grapheme cluster made of several code
-    points: "✌️" is two columns to a grapheme counter and one to a
-    terminal that follows wcwidth, which is what the macOS Terminal and
-    iTerm2 do
+  - the width of a glyph a terminal draws from an emoji font is stated
+    rather than counted and measured: two columns in both rules
+    (EmojiLike). A symbol with text presentation by default is drawn in
+    two cells out of the emoji font by the macOS Terminal while its
+    cursor advances one, so a model laid out by the answer puts the
+    letters after the symbol inside the picture (the owner, 01.10). The
+    measurement asks where the cursor went, which is not the same
+    question, and it decides the rule the program reports rather than the
+    width of a cluster
+  - what is left of the difference between the two rules is the letters
+    around the emoji; both rules say two columns for "✌️", "🇨🇳",
+    "🏃‍♂️", "⛩", "☕" and "🫶", and the program places the cursor after
+    each of them itself rather than leaving it to the terminal
   - grapheme: the width of a cluster as the Unicode emoji rules say it
     is drawn; codepoint: the widths of its code points added up, with
     U+FE0F, U+FE0E, ZWJ, a skin tone and whatever follows a ZWJ at
     nothing, and a flag at the width the terminal gave it
-  - two glyphs are stated rather than counted: the halves of a rounded
-    end of a message block (U+E0B6, U+E0B4) take one column in both
-    rules, whatever a measurement said about them, because a block that
-    is a column wider on one side is a row a column over the width of
-    the feed and a row over the width of the feed is a row the terminal
-    wraps
+  - two more glyphs are stated rather than counted: the halves of a
+    rounded end of a message block (U+E0B6, U+E0B4) take one column in
+    both rules, whatever a measurement said about them, because a block
+    that is a column wider on one side is a row a column over the width
+    of the feed and a row over the width of the feed is a row the
+    terminal wraps
   - auto measures the terminal before the first frame, with the standard
     cursor position request (ESC[6n) over nine probes, inside a total
     budget of 150 ms, erasing the line it wrote on and restoring the
@@ -1233,6 +1246,19 @@
   - telecli doctor does not measure: it reports the rule and whether it
     was measured, configured or the default, and says that auto is
     measured when the TUI starts
+- Cell positions: internal/tui/columns.go
+  - every drawn row begins with ESC[1G and every emoji-like cluster in it
+    is followed by ESC[<col>G naming the column after it, so the cursor
+    of a terminal that advances its own way never decides where a letter
+    is drawn; the renderer paints the rows that changed and no others, so
+    a row that does not say where it starts starts where the row above it
+    ended
+  - the position is absolute and the painter is told which pane it paints
+    in: the region of a pane puts the column of the focus marker and its
+    air in front of every row, and a spliced piece of a row is positioned
+    by the joiner that put it there
+  - a terminal whose advance is right is not disturbed by it, and one
+    whose advance is wrong is corrected on the next cell
 - Terminal modes: internal/tui/screen_own.go
   - while the interface owns the screen the auto-wrap mode of the terminal
     is off (DECAWM, ESC[?7l before the program runs, ESC[?7h after it
@@ -1533,6 +1559,10 @@
 - Authorization coordinator: internal/telegram/auth_coordinator.go
 - Authorized session: internal/telegram/session.go
 - Query correlation: internal/telegram/query.go
+- Search of the chat list: the row of the `/ search` hint becomes the
+  field (internal/tui/view_chat_search.go), so opening a search does not
+  push the list down; the list header, the rule under it and every row of
+  the list stay where they were
 - Chat projection: internal/telegram/chats.go
 - History projection: internal/telegram/history.go
 - Send projection: internal/telegram/send.go

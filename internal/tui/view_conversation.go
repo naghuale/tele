@@ -101,8 +101,8 @@ func (m Model) conversationRegion(
 	// the owner (30.09) has them: "Дмитрий С" and then "online · connected ·
 	// 1 queued". The rule that says this pane has the keys closes the
 	// header, because that is what a rule under a header is.
-	header := []string{m.conversationHeading(m.conversationTitle(layout, width), width)}
-	header = append(header, m.statusBlock(layout, width)...)
+	header := []string{m.conversationHeading(layout, m.conversationTitle(layout, width), width)}
+	header = append(header, m.statusBlock(layout, width, conversationOrigin(layout))...)
 	header = append(header, styles.focusRule(width, focused))
 
 	// The progress of an older-page request is at the top of the timeline,
@@ -195,9 +195,13 @@ func (m Model) olderPageLines(layout Layout, width int) []string {
 // chat is not a statement about the keyboard: it is the one thing a reader
 // of a conversation is looking for, and the owner has it in the bright text
 // of the theme in bold (30.09).
-func (m Model) conversationHeading(title string, width int) string {
-	return m.styles().text(m.tokens().PrimaryText).Bold(true).
-		Render(m.widths.Fit(title, width, ellipsis))
+func (m Model) conversationHeading(layout Layout, title string, width int) string {
+	fitted := m.widths.Fit(title, width, ellipsis)
+
+	return m.painterIn(conversationOrigin(layout), theme.Color{}).
+		add(m.styles().text(m.tokens().PrimaryText).Bold(true), fitted).
+		pad(width - m.widths.StringWidth(fitted)).
+		String()
 }
 
 // conversationTitle returns the title of the open chat, with the back
@@ -841,7 +845,7 @@ func (m Model) blockPaddingRow(
 	styles viewStyles,
 	block messageBlock,
 ) string {
-	return m.painter(theme.Color{}).
+	return m.painterIn(conversationOrigin(LayoutFor(m.width, m.height)), theme.Color{}).
 		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.offset)).
 		own(styles.on(m.blockSurface(selected), styles.unstyled()), spaces(block.width)).
 		own(styles.on(m.tokens().ChatBackground, styles.unstyled()), spaces(block.right)).
@@ -1208,7 +1212,7 @@ func (m Model) blockRow(
 	// background of the feed, and so is the marker: a cell of a row with
 	// no background at all is a cell the terminal paints with whatever it
 	// thinks its own background is.
-	row := m.painter(theme.Color{}).
+	row := m.painterIn(conversationOrigin(LayoutFor(m.width, m.height)), theme.Color{}).
 		own(feed, spaces(block.offset-selectionMarkerWidth)).
 		own(styles.on(m.tokens().ChatBackground, markStyle), mark)
 

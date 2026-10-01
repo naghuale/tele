@@ -57,6 +57,20 @@ func (m Model) panelFocused(which pane) bool {
 	}
 }
 
+// conversationOrigin returns the column the first cell of the conversation
+// pane is in, counting from one.
+//
+// It is the column of the chat list on its right, the gap between the panes
+// and one: on a screen with one pane the conversation is the screen, and
+// there is nothing to the left of it.
+func conversationOrigin(layout Layout) int {
+	if !layout.TwoPane() {
+		return 1
+	}
+
+	return layout.SidebarWidth() + paneGapWidth + 1
+}
+
 // View implements tea.Model.
 func (m Model) View() string {
 	if m.quitting {
@@ -69,6 +83,16 @@ func (m Model) View() string {
 
 	layout := LayoutFor(m.width, m.height)
 	view := m.viewWithoutPopup(layout)
+
+	// Every row of the screen says where it starts, once, here at the top:
+	// the renderer paints the rows that changed and leaves the cursor
+	// wherever the last of those ended, so a row that does not name its
+	// first column starts wherever the row above it happened to finish
+	// (columns.go). It is here and not in the regions because a region is
+	// a piece of a row and not always a whole one: the row of a two-pane
+	// screen is the row of the list and the row of the conversation, and
+	// the position of the second of those is the joiner’s to write.
+	view = positionRows(view)
 
 	// A popup is drawn over the screen and not instead of it: a menu
 	// without the message it acts on cannot be read, and a question
@@ -200,9 +224,14 @@ func (m Model) joinSides(left string, leftWidth int, right string, rightWidth in
 
 	side := make([]string, 0, rows)
 	for index := range rows {
+		// The right pane says where it starts rather than counting on
+		// the left one to have ended where it was measured to: both panes
+		// of a row begin by naming their first column, and the right one
+		// names the column its own first cell is in.
 		side = append(
 			side,
 			m.rowOf(left, index, leftWidth)+spaces(paneGapWidth)+
+				cursorColumn(leftWidth+paneGapWidth+1)+
 				m.rowOf(right, index, rightWidth),
 		)
 	}
@@ -261,7 +290,7 @@ func (m Model) emptyConversationRegion(layout Layout) string {
 	// yet. It is also the only place it is drawn on a two-pane screen with
 	// no chat open, and a user who cannot tell whether telecli is connected
 	// is the user who is about to press Enter.
-	lines = append(lines, m.statusBlock(layout, width)...)
+	lines = append(lines, m.statusBlock(layout, width, conversationOrigin(layout))...)
 
 	return m.renderRegion(
 		styles.conversation,
@@ -369,24 +398,13 @@ func (m Model) conversationPaneRegion(layout Layout) string {
 // chatListRegion draws the chat list pane at the given content width and
 // height.
 //
-// The search line of §9 is a region stacked above the list and not a
-// header line inside it: while it is open it is where the keys are, so it
-// is what carries the accent, and the list below gives up the column. The
-// two together take exactly the height the list alone would have taken,
-// so nothing under them moves.
+// The search of §9 is not a region of its own: the row of the header that
+// says the list can be searched becomes the field, so the pane is the same
+// pane with and without a search, the same height, and nothing under the
+// field moves while the query is typed. The keys being in that row is why
+// the accent of the pane follows them (panelFocused).
 func (m Model) chatListRegion(layout Layout, width, height int) string {
-	if !m.chatSearch.open {
-		return m.chatListBodyRegion(layout, width, height)
-	}
-
-	return m.joinRegions(
-		m.chatSearchRegion(width),
-		m.chatListBodyRegion(
-			layout,
-			width,
-			maxInt(height-searchRegionHeight, 1),
-		),
-	)
+	return m.chatListBodyRegion(layout, width, height)
 }
 
 // chatListBodyRegion draws the list itself: the header, the rows, and the

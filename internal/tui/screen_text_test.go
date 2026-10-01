@@ -399,6 +399,59 @@ func forbiddenOnAScreen() []rune {
 	return forbidden
 }
 
+// withoutTheSequencesTheProgramWrites returns the row as the words in it,
+// with the sequences the drawing is made of taken out.
+//
+// The program writes sequences of its own into every row: the colours, and
+// the absolute cursor positions that say where each row and each cell after
+// an emoji is (columns.go). Those are the sequences of a drawing, and the
+// claim this file proves is about the text — a chat name or a message that
+// carries an escape sequence of its own must not reach the terminal, and a
+// check over the whole row cannot tell the two apart.
+func withoutTheSequencesTheProgramWrites(row string) string {
+	var out strings.Builder
+
+	for index := 0; index < len(row); index++ {
+		if row[index] != 0x1b {
+			out.WriteByte(row[index])
+
+			continue
+		}
+
+		if index+1 < len(row) && row[index+1] == '[' {
+			index += 2
+			for index < len(row) && !isSequenceFinal(row[index]) {
+				index++
+			}
+
+			continue
+		}
+
+		// OSC, DCS and the rest: skipped to their terminator, which the
+		// drawing has none of.
+		if index+1 < len(row) && (row[index+1] == ']' || row[index+1] == 'P' ||
+			row[index+1] == 'X' || row[index+1] == '^' || row[index+1] == '_') {
+			index += 2
+			for index < len(row) && row[index] != 0x07 {
+				if row[index] == 0x1b && index+1 < len(row) && row[index+1] == '\\' {
+					index++
+
+					break
+				}
+				index++
+			}
+
+			continue
+		}
+
+		if index+1 < len(row) {
+			index++
+		}
+	}
+
+	return out.String()
+}
+
 // assertScreenIsSafe fails unless the screen is the size it was drawn at,
 // holds nothing a terminal would act on, and has no line wider than the
 // terminal it is drawn for.
@@ -417,7 +470,7 @@ func assertScreenIsSafe(t *testing.T, name string, m Model) {
 
 	for index, line := range lines {
 		for _, r := range forbiddenOnAScreen() {
-			if strings.ContainsRune(line, r) {
+			if strings.ContainsRune(withoutTheSequencesTheProgramWrites(line), r) {
 				t.Errorf(
 					"%s: row %d holds %U, which a terminal acts on: %q",
 					name, index+1, r, line,

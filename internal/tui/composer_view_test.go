@@ -443,6 +443,11 @@ func cursorOnCluster(t *testing.T, rendered, cluster string) bool {
 
 // splitStyleRuns returns the pieces of a rendered row between the escape
 // sequences, which is how a terminal reads it.
+//
+// A sequence is skipped whole: ESC [ and the final character of the control
+// function that follows it. Scanning for the `m` of an SGR instead would
+// swallow every sequence that is not one — the cursor positions of the rows
+// are those — and take the text after it with them.
 func splitStyleRuns(rendered string) []string {
 	var (
 		runs    []string
@@ -450,19 +455,25 @@ func splitStyleRuns(rendered string) []string {
 	)
 
 	for index := 0; index < len(rendered); index++ {
-		if rendered[index] == 0x1b {
-			if current.Len() > 0 {
-				runs = append(runs, current.String())
-				current.Reset()
-			}
-
-			for index < len(rendered) && rendered[index] != 'm' {
-				index++
-			}
+		if rendered[index] != 0x1b {
+			current.WriteByte(rendered[index])
 
 			continue
 		}
-		current.WriteByte(rendered[index])
+
+		if current.Len() > 0 {
+			runs = append(runs, current.String())
+			current.Reset()
+		}
+
+		if index+1 < len(rendered) && rendered[index+1] == '[' {
+			index += 2
+			for index < len(rendered) && !isSequenceFinal(rendered[index]) {
+				index++
+			}
+		} else if index+1 < len(rendered) {
+			index++
+		}
 	}
 
 	if current.Len() > 0 {
@@ -470,4 +481,9 @@ func splitStyleRuns(rendered string) []string {
 	}
 
 	return runs
+}
+
+// isSequenceFinal reports whether a byte ends a control sequence.
+func isSequenceFinal(value byte) bool {
+	return value >= '@' && value <= '~'
 }

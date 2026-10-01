@@ -147,12 +147,19 @@ func (m Model) chatListSummaryText() string {
 	return unreadBadge(unread) + " unread"
 }
 
-// chatListSearchLine is how the list says that it can be searched.
+// chatListSearchLine is how the list says that it can be searched, and
+// where the search is typed when it is.
 //
 // §4.1 puts the key in the header rather than only in the hint bar, because
 // the header is what a user reads before deciding to do anything at all, and
 // a list that can be searched has to say so somewhere that is not behind a
 // key they have to know.
+//
+// While the search is open this row IS the field: the same row, at the same
+// height, with the cursor in it. It was a row of its own above the header
+// and the header below it, and that pushed the whole list down one row the
+// moment `/` was pressed — so the results moved while the query was being
+// typed, and the results are what the user is watching (the owner, 01.10).
 func (m Model) chatListSearchLine(layout Layout, width int) string {
 	// The row carries the same air inside it as the row above it and as
 	// every row of the list under it, so the hint starts at the column the
@@ -160,8 +167,16 @@ func (m Model) chatListSearchLine(layout Layout, width int) string {
 	inset := layout.ChatListInset()
 	room := maxInt(width-2*inset, 1)
 
+	// The field takes this row whether the row said the list can be searched
+	// or, on a screen with one pane, what the connection is doing. It is the
+	// same row either way, and a search that pushed a row of its own above
+	// them would move the list under the query on every keystroke.
+	if m.chatSearch.open {
+		return m.chatSearchFieldRow(layout, width, inset, room)
+	}
+
 	if !layout.TwoPane() {
-		if status := m.statusBlock(layout, room); len(status) > 0 {
+		if status := m.statusBlock(layout, room, firstPaneOrigin); len(status) > 0 {
 			return m.painter(theme.Color{}).
 				add(m.styles().unstyled(), spaces(inset)).
 				own(m.styles().unstyled(), status[0]).

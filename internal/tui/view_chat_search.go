@@ -1,14 +1,18 @@
 package tui
 
-// This file draws the search of §9: the line above the chat list, and the
-// matched fragment inside the titles below it.
+import "telecli/internal/tui/theme"
+
+// This file draws the search of §9: the field in the row of the header that
+// says the list can be searched, and the matched fragment inside the titles
+// below it.
 //
-// The line is one row. It is the header of a list that is 24 columns wide
-// at its widest and 16 on a medium screen, and a label of its own would
-// leave a field of 11 columns to type a chat name into. What it does not
-// do is frame anything (§9, and §1 in general): the line sits on the
-// surface of the list, and the one thing that says where the keys are is
-// the accent column of the region, which is where the keys are.
+// The field is one row, and it is the row the hint was on rather than a row
+// of its own above the header. A search that pushed the list down while it
+// was being typed moved the results under the query on every keystroke, and
+// the results are what the user is watching (the owner, 01.10). What the
+// field does not do is frame anything (§9, and §1 in general): the row sits
+// on the surface of the list, and the one thing that says where the keys
+// are is the accent of the pane, which is where the keys are.
 
 // searchPlaceholder is what the line shows before anything is typed into
 // it.
@@ -18,13 +22,6 @@ package tui
 // a field that a user types the key into.
 const searchPlaceholder = "Search chats"
 
-// searchRegionHeight is how many rows the search line takes.
-//
-// One, at every width and on every height. A search that grew with the
-// query would be a search whose results move while it is being typed, and
-// the results are what the user is watching.
-const searchRegionHeight = 1
-
 // searchCursorWidth is the cell the cursor of the search line takes.
 //
 // The field keeps one cell for it out of its own width, whatever it is
@@ -33,52 +30,73 @@ const searchRegionHeight = 1
 // keeps a long query from growing the line past the width of the pane.
 const searchCursorWidth = 1
 
-// chatSearchRegion draws the line above the chat list.
+// chatSearchFieldRow draws the row of the header as the field the query is
+// typed into.
 //
-// It is a region of its own rather than the first line of the list: the
-// keys are in it while it is open (§5), so the accent belongs to it, and
-// the list below gives the column up. The two are stacked and not side by
-// side, so the screen still has exactly one accent column (§5.2) and the
-// list does not move when the focus crosses from one to the other.
-func (m Model) chatSearchRegion(width int) string {
-	return m.renderRegion(
-		m.styles().list,
-		width,
-		m.chatSearchLines(width),
-		searchRegionHeight,
-	)
-}
-
-// chatSearchLines returns the row of the search line: the query with its
-// cursor, or the placeholder while there is no query.
-func (m Model) chatSearchLines(width int) []string {
+// It is the row the "/ search" hint was on, drawn as the field instead: the
+// query with its cursor, or the placeholder while there is no query. The
+// field is drawn by the painter of the row so that it carries the surface of
+// the list and the accent of the pane exactly as the hint did, and it is
+// padded out to the width of the pane so the row is a rectangle of the same
+// height whatever is in it.
+func (m Model) chatSearchFieldRow(layout Layout, width, inset, room int) string {
 	styles := m.styles()
-	inset := spaces(contentInsetWidth)
 	cursor := styles.cursor(m.focus == FocusSearch)
+	row := m.painter(theme.Color{}).add(styles.unstyled(), spaces(inset))
+
+	// One cell of the row is kept for the cursor out of the room the query
+	// has, whatever it is drawn on: a query that filled the row would put
+	// its cursor past the last column of the pane.
+	room = maxInt(room-searchCursorWidth, 1)
 
 	if len(m.chatSearch.query) == 0 {
-		return []string{inset + cursor.Render(cursorBar) +
-			styles.dimmed(m.tokens().MutedText).Render(searchPlaceholder)}
+		row = row.add(cursor, cursorBar).
+			add(styles.dimmed(m.tokens().MutedText), m.searchPlaceholderFor(room))
+
+		return row.pad(width - inset - m.widths.StringWidth(row.String())).
+			String()
 	}
 
-	window, at := m.chatSearchWindow(
-		m.chatSearch.query,
-		m.chatSearch.queryCursor(),
-		maxInt(width-contentInsetWidth-searchCursorWidth, 1),
-	)
+	window, at := m.chatSearchWindow(m.chatSearch.query, m.chatSearch.queryCursor(), room)
 
 	before, under, after := splitAtCluster([]rune(window), at)
 	plain := styles.text(m.tokens().PrimaryText)
 
 	// The cursor is past the last cluster of the window, so the bar is the
-	// last thing on the line and nothing has to move.
+	// last thing on the row and nothing has to move.
 	if under == "" {
-		return []string{inset + plain.Render(before) + cursor.Render(cursorBar)}
+		return row.
+			add(plain, before).
+			add(cursor, cursorBar).
+			pad(width - inset - m.widths.StringWidth(before) - searchCursorWidth).
+			String()
 	}
 
-	return []string{inset + plain.Render(before) +
-		cursor.Render(under) +
-		plain.Render(after)}
+	return row.
+		add(plain, before).
+		add(cursor, under).
+		add(plain, after).
+		pad(width - inset - m.widths.StringWidth(window)).
+		String()
+}
+
+// searchPlaceholderFor returns what the field says about itself while there
+// is no query in it, at the width it has.
+//
+// It is the name of the thing — a field that shows a key is a field a user
+// types the key into — and the name it can afford is the one the row had
+// before it was a field. The narrowest list there is has thirteen columns
+// of text, and "Search chats" plus the cursor is fifteen, so there the
+// field says the words the row said while it was a hint. A field cut to
+// "Search cha" is a field nobody has read.
+func (m Model) searchPlaceholderFor(room int) string {
+	for _, candidate := range []string{searchPlaceholder, chatListSearchHint} {
+		if m.widths.StringWidth(candidate) <= room {
+			return candidate
+		}
+	}
+
+	return ""
 }
 
 // chatSearchWindow returns the part of the query the line draws and the

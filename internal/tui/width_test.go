@@ -196,11 +196,19 @@ var appleAnswers = map[string]int{
 	"é":    1,
 }
 
-// The measured width of a flag is the width of that flag, and the
-// measurement travels with the model: a terminal that was asked is the only
-// party that knows.
+// A measured width reaches the screen, where the width is not the width of a
+// glyph drawn from an emoji font.
+//
+// A flag of one column is the case the measurement cannot answer: the
+// question was where the cursor went, and the macOS Terminal draws a pagoda
+// in two cells and moves the cursor one, so a model laid out by the answer
+// puts the letters after it inside the picture (the owner, 01.10). A Han
+// character is the case it can: no terminal draws one in anything but two
+// columns, and a terminal with a font that does not has said so.
 func TestAMeasuredWidthReachesTheScreen(t *testing.T) {
-	measured := &termwidth.Measurement{Widths: map[string]int{"🇨🇳": 1}}
+	measured := &termwidth.Measurement{
+		Widths: map[string]int{"🇨🇳": 1, "⛩": 1, "中": 3},
+	}
 
 	model, err := NewModelWithDependencies(t.Context(), Dependencies{
 		MessageSubmitter: &recordingSubmitter{},
@@ -211,8 +219,13 @@ func TestAMeasuredWidthReachesTheScreen(t *testing.T) {
 		t.Fatalf("NewModelWithDependencies: %v", err)
 	}
 
-	if got := model.widths.StringWidth("🇨🇳"); got != 1 {
-		t.Fatalf("a flag of one column is %d columns in the model", got)
+	if got := model.widths.StringWidth("中"); got != 3 {
+		t.Errorf("the measured Han character is %d columns in the model, want 3", got)
+	}
+	for _, emoji := range []string{"🇨🇳", "⛩"} {
+		if got := model.widths.StringWidth(emoji); got != 2 {
+			t.Errorf("%q measured as one column is %d in the model, want 2", emoji, got)
+		}
 	}
 }
 

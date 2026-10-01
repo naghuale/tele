@@ -318,6 +318,14 @@ func (w WidthModel) itemWidth(item lineItem) int {
 		return columns
 	}
 
+	// A glyph a terminal draws from an emoji font is two columns in both
+	// rules and is not measured: the terminal's own answer is how far it
+	// moved the cursor, and the cursor of a terminal that draws such a
+	// glyph two cells wide can move one (EmojiLike).
+	if EmojiLike(item.text) {
+		return emojiWidth
+	}
+
 	if measured, ok := w.measured[item.text]; ok {
 		return measured
 	}
@@ -328,6 +336,10 @@ func (w WidthModel) itemWidth(item lineItem) int {
 
 	return codepointWidth(item.text)
 }
+
+// emojiWidth is how many columns a glyph a terminal draws from an emoji font
+// takes, in both rules and by measurement of none of them.
+const emojiWidth = 2
 
 // item is one piece of a line: an escape sequence, or a grapheme cluster.
 //
@@ -507,4 +519,105 @@ func codepointWidth(cluster string) int {
 	}
 
 	return total
+}
+
+// EmojiLike reports whether a grapheme cluster is one of the glyphs a
+// terminal draws from an emoji font, and therefore a glyph whose width is
+// stated rather than counted: two columns.
+//
+// It is a cluster of several code points joined into one drawing (anything
+// with a variation selector or a zero width joiner behind it), a pair of
+// regional indicators (a flag), a symbol of the blocks that carry emoji —
+// the miscellaneous symbols, the dingbats, the pictographs of the
+// supplementary planes, the enclosed characters — or a character with
+// emoji presentation of its own, whether or not a selector was written
+// after it.
+//
+// The last one is the pagoda of the owner's screen of 01.10: U+26E9 with
+// nothing behind it is a symbol with text presentation by default, and the
+// macOS Terminal draws it two cells wide out of the emoji font while
+// advancing the cursor one. The code points of a cluster cannot tell a
+// terminal how wide its glyph is, and the drawing is what the cells have to
+// match — so a cluster like this is two columns in both rules, and the
+// cursor is placed after it by the program rather than left where the
+// terminal put it.
+//
+// The characters that Unicode also calls pictographic and that every
+// terminal draws as text are not here: the digits, `#` and `*` are
+// Extended_Pictographic and take one column each, and a program that gave
+// them two would misplace every number it draws.
+func EmojiLike(cluster string) bool {
+	for _, value := range cluster {
+		switch {
+		case value == variationSelector16,
+			value == variationSelector15,
+			value == zeroWidthJoiner:
+			// A selector chooses the emoji drawing of the character
+			// before it and a joiner makes what follows it part of one
+			// glyph, so the cluster is one emoji of two columns whatever
+			// the characters in it are.
+
+			return true
+
+		case value >= firstSkinTone && value <= lastSkinTone:
+			// A skin tone changes the glyph it follows and is not a
+			// glyph of its own, so the cluster is the emoji that took
+			// it.
+
+			return true
+		}
+	}
+
+	for _, value := range cluster {
+		if isEmojiBlock(value) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isEmojiBlock reports whether a code point belongs to a block a terminal
+// draws emoji from, and that no terminal draws as text.
+//
+// The two are the miscellaneous symbols with the dingbats — the block the
+// pagoda and the cup of coffee are in — and the supplementary planes where
+// the pictographs, the symbols and the flags live. Both are blocks of signs
+// rather than of letters, so a character in them is a glyph out of an emoji
+// font or a sign nobody types.
+//
+// What is deliberately not here: the arrows, the geometric shapes, the
+// enclosed characters, the letters with a mark on them such as © and ™, and
+// the ASCII characters Unicode counts among its pictographs — the digits,
+// `#` and `*`. A terminal draws all of those as text in one column, and a
+// program that gave a star or a digit two columns would put a column of air
+// after every number it draws.
+func isEmojiBlock(value rune) bool {
+	switch {
+	case value >= 0x2600 && value <= 0x27bf && !textDrawnGlyph[value]:
+		return true
+
+	case value >= 0x1f000 && value <= 0x1faff:
+		// The pictographs, the symbols and the flags of the supplementary
+		// planes are emoji by definition: there is no letter in these
+		// blocks.
+
+		return true
+	}
+
+	return false
+}
+
+// textDrawnGlyph are the symbols of those blocks that every terminal draws
+// as text, in one column, and that this program draws itself.
+//
+// The check mark is the state of every message that went out, and a column
+// of air after it in every one of them is a worse screen than a symbol
+// somebody puts in a chat title. A glyph of the two blocks that Unicode
+// marks as a sign rather than as an emoji belongs here too; what is not here
+// is the rest of the block, where the pagoda and the cup of coffee and the
+// rest of the pictographs of it are.
+var textDrawnGlyph = map[rune]bool{
+	0x2713: true, // ✓ a check mark
+	0x2714: true, // ✔ a heavy check mark
 }

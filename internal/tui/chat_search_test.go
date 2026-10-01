@@ -916,24 +916,30 @@ func searchFieldLine(t *testing.T, m Model) string {
 		width = layout.FullContentWidth()
 	}
 
-	return m.chatSearchRegion(width)
+	return m.chatListSearchLine(layout, width)
 }
 
-// The placeholder fits the narrowest list there is. A field whose own name
-// is cut on a medium screen is a field nobody can read.
+// The field names itself at every width there is, and never cut: the
+// narrowest list cannot afford "Search chats" and says the words its row
+// said while it was a hint. A field cut to "Search cha" is a field nobody
+// has read.
 func TestThePlaceholderFitsTheNarrowestList(t *testing.T) {
-	m := searchable(t, 80, 24)
-	m, _ = updateModel(t, m, pressRunes("/"))
+	for _, size := range [][2]int{{176, 43}, {120, 24}, {80, 24}, {72, 20}} {
+		m := searchable(t, size[0], size[1])
+		m, _ = updateModel(t, m, pressRunes("/"))
 
-	layout := LayoutFor(80, 24)
-	field := plain(m.chatSearchRegion(layout.SidebarContentWidth()))
-	if !strings.Contains(field, searchPlaceholder) {
-		t.Fatalf("the search line = %q, want the placeholder", field)
+		field := plain(viewLines(m.View())[searchRow])
+		if strings.Contains(field, ellipsis) {
+			t.Errorf("at %dx%d the field is cut: %q", size[0], size[1], field)
+		}
+		if !containsAny(field, searchPlaceholder, chatListSearchHint) {
+			t.Errorf(
+				"at %dx%d the field names neither the thing nor its own keys: %q",
+				size[0], size[1], field,
+			)
+		}
+		assertRectangularView(t, m)
 	}
-	if strings.Contains(field, ellipsis) {
-		t.Fatalf("the search line = %q, want the whole placeholder", field)
-	}
-	assertRectangularView(t, m)
 }
 
 // ---- The matched fragment ----

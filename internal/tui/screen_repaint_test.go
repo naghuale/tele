@@ -181,6 +181,10 @@ func startProgram(
 	emulator := newScreenEmulator(width, height, widths)
 	log := &frameLog{}
 	reader, writer := io.Pipe()
+	if debugRaw != nil {
+		emulator = newScreenEmulator(width, height, widths)
+		emulator.tap = debugRaw
+	}
 
 	program := tea.NewProgram(
 		recordedModel{Model: model, log: log},
@@ -615,3 +619,7 @@ func TestEveryFrameIsTheSizeOfTheWindow(t *testing.T) {
 		}
 	}
 }
+
+// debugRaw is where the terminal of a harness is tapped, when a test has to
+// read the bytes rather than the cells.
+var debugRaw io.Writer

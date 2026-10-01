@@ -48,14 +48,20 @@ var (
 
 // A terminal that disagrees with the grapheme rule is counted by code
 // points, because that is the rule it is following.
+//
+// The width of the title is the same either way now: the hand in it is two
+// columns because that is how wide a terminal draws it, not because of the
+// rule. What the answers decide is the rule the program says it is drawing
+// with — in `telecli doctor`, in the shape of a block that has an emoji in
+// it — and not a cell of a row.
 func TestATerminalThatCountsCodePointsIsDrawnByCodePoints(t *testing.T) {
 	model, choice := Select(ModeAuto, Measurement{Widths: appleTerminalAnswers})
 
 	if choice.Mode != ModeCodepoint || choice.Source != SourceMeasured {
 		t.Fatalf("Select(auto, Apple Terminal) = %v, want codepoint (measured)", choice)
 	}
-	if got := model.StringWidth("Xiaomi News ✌️"); got != 13 {
-		t.Fatalf("the title is %d columns, want 13", got)
+	if got := model.StringWidth("Xiaomi News ✌️"); got != 14 {
+		t.Fatalf("the title is %d columns, want 14", got)
 	}
 }
 
@@ -125,9 +131,12 @@ func TestATerminalThatAnswersNothingIsDrawnByGraphemes(t *testing.T) {
 
 	// A terminal that answered for code points is counted by code points,
 	// whatever the default is.
-	model, _ := Select(ModeAuto, Measurement{Widths: appleTerminalAnswers})
-	if got := model.StringWidth("✌️"); got != 1 {
-		t.Fatalf("a measured terminal counts the hand as %d, want 1", got)
+	model, choice := Select(ModeAuto, Measurement{Widths: appleTerminalAnswers})
+	if choice.Mode != ModeCodepoint {
+		t.Fatalf("a terminal that answered for code points chose %v", choice.Mode)
+	}
+	if got := model.StringWidth("✌️"); got != 2 {
+		t.Fatalf("a measured terminal counts the hand as %d, want 2", got)
 	}
 }
 
@@ -257,24 +266,49 @@ func TestSourceNames(t *testing.T) {
 	}
 }
 
-// Every probe is a case the two rules disagree about, and a terminal that
-// agrees with none of them has not been asked what it does with letters.
-func TestTheProbesAreTheCasesTheRulesDisagreeAbout(t *testing.T) {
-	grapheme := Unmeasured(ModeGrapheme)
-	codepoint := Unmeasured(ModeCodepoint)
-
+// Every probe is one glyph, and every probe is a case a terminal can answer
+// differently from another one.
+//
+// It used to be asked that the two rules disagree about every probe, and
+// they no longer do: the width of a glyph drawn from an emoji font is two
+// columns in both rules, because it is the drawing that decides it and not
+// the counting (EmojiLike). What the probes are for now is to tell the
+// program which terminal it is talking to, so each one has to be a case
+// where two terminals answer differently — which is what the answers of a
+// wcwidth terminal and of one that follows the emoji rules say.
+func TestTheProbesAreTheCasesTerminalsDisagreeAbout(t *testing.T) {
 	if len(Probes) == 0 {
 		t.Fatal("there are no probes")
 	}
 
+	apple := Measurement{Widths: appleTerminalAnswers}
+	graphemeTerminal := Measurement{Widths: graphemeTerminalAnswers}
+
 	distinguishing := 0
 	for _, probe := range Probes {
-		if grapheme.StringWidth(probe) != codepoint.StringWidth(probe) {
+		if pieces := piecesOf(probe); pieces != 1 {
+			t.Errorf("%q is %d pieces, want one glyph", probe, pieces)
+		}
+
+		if apple.Widths[probe] != graphemeTerminal.Widths[probe] {
 			distinguishing++
 		}
 	}
 
 	if distinguishing == 0 {
-		t.Fatal("no probe tells the two rules apart")
+		t.Fatal("no probe tells two terminals apart")
 	}
+}
+
+// piecesOf returns how many grapheme clusters a string is, escape sequences
+// apart: a probe is one glyph or it is a string, and a terminal's answer
+// about a string is about several glyphs at once.
+func piecesOf(value string) int {
+	pieces := 0
+
+	for range Unmeasured(ModeGrapheme).items(value) {
+		pieces++
+	}
+
+	return pieces
 }

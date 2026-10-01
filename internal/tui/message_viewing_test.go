@@ -16,11 +16,9 @@ import (
 // What is on the screen of an open chat has been read, so the counter of
 // the row falls and the other side of the conversation is told it was seen.
 
-// recordingViewer records the windows it was told about and the kind of the
-// chat each one was told for.
+// recordingViewer records the windows it was told about.
 type recordingViewer struct {
 	chatID  int64
-	kind    ChatKind
 	windows [][]int64
 	err     error
 }
@@ -28,10 +26,9 @@ type recordingViewer struct {
 func (v *recordingViewer) ViewMessages(
 	_ context.Context,
 	chatID int64,
-	kind ChatKind,
 	messageIDs []int64,
 ) error {
-	v.chatID, v.kind = chatID, kind
+	v.chatID = chatID
 	v.windows = append(v.windows, append([]int64(nil), messageIDs...))
 
 	return v.err
@@ -540,10 +537,6 @@ func TestEveryReadSaysWhatItAskedAndWhatItGot(t *testing.T) {
 			if viewer.count() == 0 {
 				t.Fatal("nothing was marked read in an open chat")
 			}
-			if viewer.kind != testCase.kind {
-				t.Fatalf("kind = %v, want %v", viewer.kind, testCase.kind)
-			}
-
 			line := log.String()
 			if !strings.Contains(line, "viewMessages chat=7") {
 				t.Fatalf("diagnostics = %q, want the chat of the read", line)

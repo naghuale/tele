@@ -64,7 +64,6 @@ func (s *h5bSession) ViewMessages(
 	context.Context,
 	telegram.ChatID,
 	[]telegram.MessageID,
-	telegram.MessageSource,
 ) error {
 	s.viewed.Add(1)
 	return nil

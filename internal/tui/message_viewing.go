@@ -22,10 +22,9 @@ import (
 
 // MessageViewer is told which messages of a chat are on the screen.
 //
-// The kind of the chat travels with the call because it decides what TDLib
-// accepts as the source of a read, and it is the one thing the interface
-// knows that the adapter does not: a broadcast chat is read as a window of
-// its history and a chat with one other person is read in itself.
+// The kind of the chat does not travel with the call: there is one read for
+// every kind of chat, and the kind is kept here because it is what the
+// diagnostic line about the read says.
 //
 // The calls are best effort from the interface's point of view. A chat
 // whose messages could not be marked read still shows them, and a count
@@ -33,12 +32,7 @@ import (
 // diagnostic stream and never to the screen, because a TDLib error message
 // is not interface text (§11.3, §19).
 type MessageViewer interface {
-	ViewMessages(
-		ctx context.Context,
-		chatID int64,
-		kind ChatKind,
-		messageIDs []int64,
-	) error
+	ViewMessages(ctx context.Context, chatID int64, messageIDs []int64) error
 }
 
 // messagesViewedMsg is delivered by the command of
@@ -113,7 +107,7 @@ func (m *Model) markVisibleMessagesViewed() tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		err := viewer.ViewMessages(ctx, chatID, kind, ids)
+		err := viewer.ViewMessages(ctx, chatID, ids)
 		// Every read says what was asked and what TDLib answered, whether
 		// it worked or not: a read that leaves the counter where it was is
 		// the one thing nothing on the screen explains, and the line below

@@ -11,10 +11,10 @@ import (
 // TDLib does not know what is on the screen, so the session is told which
 // messages have been read and asks TDLib to move the read pointer there.
 //
-// The three kinds of chat are three recorded requests, because which source
-// a read carries decides whether TDLib takes it at all, and a source that is
-// refused leaves the counter exactly where it was and says nothing about
-// itself.
+// The source is the same for every kind of chat — the history of the chat
+// that is open — and the tests below are what keep it that name and not one
+// this build invented. TestEveryTDLibClassTheCodeNamesIsInThePinnedSchema
+// is the guard; these are the requests it guards.
 
 // viewMessagesSourceJSON reads the source of a recorded request as plain
 // JSON, so a test states the bytes TDLib is asked with rather than the Go
@@ -32,63 +32,16 @@ func viewMessagesSourceJSON(t *testing.T, raw []byte) map[string]any {
 	return decoded.Source
 }
 
-// A private chat is read in itself: that is the source an official client
-// sends for a chat with one other person, and it is what makes TDLib tell
-// the phone and the other devices of the account.
-func TestAPrivateChatIsReadInTheChatItself(t *testing.T) {
-	source := viewMessagesSourceJSON(
-		t,
-		recordedViewMessages(t, ChatKindPrivate, 991),
-	)
-
-	if source["@type"] != "messageSourceChat" {
-		t.Fatalf("source = %v, want messageSourceChat", source)
-	}
-	// A source that names no message carries no message field: the private
-	// chat is the whole of where the read happened.
-	if _, named := source["message_id"]; named {
-		t.Fatalf("source = %v, want no message_id on a chat source", source)
-	}
-}
-
-// A group and a channel are read in a window of their history, and the
-// window is named by the newest message of it. This is the source TDLib's
-// own clients send for a channel, and it is the one the owner's channel with
-// 89 unread was missing: messageSourceChat is a chat the messages do not
-// belong to, and a read that names it does not move a channel's pointer.
-func TestAGroupAndAChannelAreReadInAWindowOfTheirHistory(t *testing.T) {
-	for _, kind := range []ChatKind{ChatKindGroup, ChatKindSupergroup} {
-		t.Run(string(kind), func(t *testing.T) {
-			source := viewMessagesSourceJSON(
-				t,
-				recordedViewMessages(t, kind, 991),
-			)
-
-			if source["@type"] != "messageSourceHistory" {
-				t.Fatalf("source = %v, want messageSourceHistory", source)
-			}
-			// ttl 0 is this device: the read happened here and is not one
-			// another session left to expire.
-			if ttl, ok := source["ttl"].(float64); !ok || ttl != 0 {
-				t.Fatalf("ttl = %v, want 0", source["ttl"])
-			}
-			if id, ok := source["message_id"].(float64); !ok || id != 991 {
-				t.Fatalf("message_id = %v, want the newest read message", source["message_id"])
-			}
-		})
-	}
-}
-
 // recordedViewMessages is the bytes of a request for a read of the newest
 // message 991, built the way the interface builds one.
-func recordedViewMessages(t *testing.T, kind ChatKind, newest MessageID) []byte {
+func recordedViewMessages(t *testing.T, newest MessageID) []byte {
 	t.Helper()
 
 	raw, err := json.Marshal(viewMessagesRequest{
 		Type:       "viewMessages",
 		ChatID:     42,
 		MessageIDs: []tdInt{tdInt(newest)},
-		Source:     MessageSourceFor(kind, newest),
+		Source:     viewMessagesSource,
 		ForceRead:  true,
 	})
 	if err != nil {
@@ -98,16 +51,29 @@ func recordedViewMessages(t *testing.T, kind ChatKind, newest MessageID) []byte 
 	return raw
 }
 
+// The read is of the history of the chat that is open, and that is one
+// source for every kind of chat: there is nothing in the window that says
+// whether the chat is a channel, a group or a chat with one other person.
+func TestAReadIsOfTheHistoryOfTheChatThatIsOpen(t *testing.T) {
+	source := viewMessagesSourceJSON(t, recordedViewMessages(t, 991))
+
+	if source["@type"] != "messageSourceChatHistory" {
+		t.Fatalf("source = %v, want messageSourceChatHistory", source)
+	}
+	// The schema gives the class no field, and a field written into it is a
+	// field TDLib ignores.
+	if len(source) != 1 {
+		t.Fatalf("source = %v, want only its type", source)
+	}
+}
+
 func TestViewMessagesSendsTheWindowWithForcedRead(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	resultCh := make(chan error, 1)
 	go func() {
 		resultCh <- session.ViewMessages(
-			context.Background(),
-			42,
-			[]MessageID{7, 8, 9},
-			MessageSourceFor(ChatKindPrivate, 9),
+			context.Background(), 42, []MessageID{7, 8, 9},
 		)
 	}()
 
@@ -144,8 +110,8 @@ func TestViewMessagesSendsTheWindowWithForcedRead(t *testing.T) {
 	if !decoded.ForceRead {
 		t.Fatal("force_read = false, want true")
 	}
-	if decoded.Source.Type != "messageSourceChat" {
-		t.Fatalf("source = %q, want the source of the kind", decoded.Source.Type)
+	if decoded.Source.Type != "messageSourceChatHistory" {
+		t.Fatalf("source = %q, want messageSourceChatHistory", decoded.Source.Type)
 	}
 	if decoded.Extra == "" {
 		t.Fatal("@extra is empty")
@@ -165,19 +131,16 @@ func TestViewMessagesSendsTheWindowWithForcedRead(t *testing.T) {
 
 // The identifiers travel as numbers, not as the JSON strings TDLib writes
 // for its 64-bit integers: a request that quoted them would ask TDLib for a
-// string where the scheme has a number (see tdint.go). An identifier is
-// also the one TDLib knows the message by, which is what makes the read
-// reach the account rather than a local row.
+// string where the scheme has a number (see tdint.go). An identifier is also
+// the one TDLib knows the message by, which is what makes the read reach the
+// account rather than a local row.
 func TestViewMessagesWritesTheServerIdentifiersAsNumbers(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	resultCh := make(chan error, 1)
 	go func() {
 		resultCh <- session.ViewMessages(
-			context.Background(),
-			42,
-			[]MessageID{7, 9007199254740993},
-			MessageSourceFor(ChatKindSupergroup, 9007199254740993),
+			context.Background(), 42, []MessageID{7, 9007199254740993},
 		)
 	}()
 
@@ -185,10 +148,7 @@ func TestViewMessagesWritesTheServerIdentifiersAsNumbers(t *testing.T) {
 
 	var decoded struct {
 		MessageIDs []json.RawMessage `json:"message_ids"`
-		Source     struct {
-			MessageID json.RawMessage `json:"message_id"`
-		} `json:"source"`
-		Extra string `json:"@extra"`
+		Extra      string            `json:"@extra"`
 	}
 	if err := json.Unmarshal(request, &decoded); err != nil {
 		t.Fatalf("decode request: %v", err)
@@ -205,42 +165,29 @@ func TestViewMessagesWritesTheServerIdentifiersAsNumbers(t *testing.T) {
 			decoded.MessageIDs[1],
 		)
 	}
-	if string(decoded.Source.MessageID) != "9007199254740993" {
-		t.Fatalf(
-			"source.message_id = %s, want the bare number 9007199254740993",
-			decoded.Source.MessageID,
-		)
-	}
 
 	feedResponse(t, client, map[string]any{"@type": "ok"}, decoded.Extra)
 	<-resultCh
 }
 
-// A request that cannot say anything is not sent: a zero chat is no chat,
-// an empty list of identifiers is a read of nothing, and a read with no
-// source is a read TDLib cannot attribute to a place.
+// A request that cannot say anything is not sent: a zero chat is no chat
+// and an empty list of identifiers is a read of nothing.
 func TestViewMessagesRejectsARequestThatCouldNotBeSent(t *testing.T) {
 	session, sender, _, _ := newSessionWithFakes(t)
-	source := MessageSourceFor(ChatKindPrivate, 1)
 
-	err := session.ViewMessages(context.Background(), 0, []MessageID{1}, source)
+	err := session.ViewMessages(context.Background(), 0, []MessageID{1})
 	if !errors.Is(err, ErrInvalidChatID) {
 		t.Fatalf("zero chat id error = %v, want ErrInvalidChatID", err)
 	}
 	if err := session.ViewMessages(
-		context.Background(), 42, nil, source,
+		context.Background(), 42, nil,
 	); !errors.Is(err, ErrNoMessagesToView) {
 		t.Fatalf("no identifiers error = %v, want ErrNoMessagesToView", err)
 	}
 	if err := session.ViewMessages(
-		context.Background(), 42, []MessageID{0}, source,
+		context.Background(), 42, []MessageID{0},
 	); !errors.Is(err, ErrNoMessagesToView) {
 		t.Fatalf("zero identifier error = %v, want ErrNoMessagesToView", err)
-	}
-	if err := session.ViewMessages(
-		context.Background(), 42, []MessageID{1}, nil,
-	); !errors.Is(err, ErrMessageViewResponse) {
-		t.Fatalf("no source error = %v, want ErrMessageViewResponse", err)
 	}
 	if sender.count() != 0 {
 		t.Fatalf("sent requests = %d, want 0", sender.count())
@@ -249,19 +196,13 @@ func TestViewMessagesRejectsARequestThatCouldNotBeSent(t *testing.T) {
 
 // A refusal reaches the caller as a TDLib error: the interface logs it and
 // draws nothing, and the messages stay unread rather than being reported as
-// read. This is the recorded answer a channel gives when it has not been
-// opened, and the caller is what tells the log about it.
+// read.
 func TestViewMessagesReturnsTheTDLibError(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	resultCh := make(chan error, 1)
 	go func() {
-		resultCh <- session.ViewMessages(
-			context.Background(),
-			42,
-			[]MessageID{7},
-			MessageSourceFor(ChatKindSupergroup, 7),
-		)
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7})
 	}()
 
 	request := waitForRequestN(t, sender, "viewMessages", 1)
@@ -299,12 +240,7 @@ func TestViewMessagesRejectsAnUnexpectedAnswer(t *testing.T) {
 
 	resultCh := make(chan error, 1)
 	go func() {
-		resultCh <- session.ViewMessages(
-			context.Background(),
-			42,
-			[]MessageID{7},
-			MessageSourceFor(ChatKindPrivate, 7),
-		)
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7})
 	}()
 
 	request := waitForRequestN(t, sender, "viewMessages", 1)

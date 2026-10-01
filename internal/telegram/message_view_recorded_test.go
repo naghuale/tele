@@ -100,10 +100,11 @@ func askRecorded(
 	}
 }
 
-// The read of a channel, end to end, over recorded answers: the chat is
-// opened, the page of history gives the identifiers the window is made of,
-// the window is read with the source a channel is read with, and the
-// recorded updateChatReadInbox takes the list from 89 to 0.
+// The read of a channel, end to end, over recorded answers taken from the
+// pinned schema: the chat is opened, the page of history gives the
+// identifiers the window is made of, the window is read with the one source
+// the schema has for a chat history, and the recorded updateChatReadInbox
+// takes the list from 89 to 0.
 func TestTheRecordedRoundTripOfAChannelRead(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
@@ -146,10 +147,7 @@ func TestTheRecordedRoundTripOfAChannelRead(t *testing.T) {
 		map[string]any{"@type": "ok"},
 		func() error {
 			return session.ViewMessages(
-				context.Background(),
-				ChatID(recordedChannelID),
-				window,
-				MessageSourceFor(ChatKindSupergroup, window[len(window)-1]),
+				context.Background(), ChatID(recordedChannelID), window,
 			)
 		},
 	)
@@ -183,16 +181,10 @@ func TestTheRecordedRoundTripOfAChannelRead(t *testing.T) {
 	if !asked.ForceRead {
 		t.Fatal("force_read = false, want true")
 	}
-	// messageSourceChat is a chat the messages do not belong to, and a read
-	// that names it does not move a channel's pointer.
-	if asked.Source.Type != "messageSourceHistory" {
-		t.Fatalf("source = %q, want messageSourceHistory", asked.Source.Type)
-	}
-	if asked.Source.TTL != 0 || asked.Source.MessageID != 991 {
-		t.Fatalf(
-			"source = %+v, want ttl 0 and the newest message of the window",
-			asked.Source,
-		)
+	// The source is the history of this chat, which is what the window came
+	// from, and the schema gives the class no other field.
+	if asked.Source.Type != "messageSourceChatHistory" {
+		t.Fatalf("source = %q, want messageSourceChatHistory", asked.Source.Type)
 	}
 
 	changed, err := live.ApplyUpdate(RawMessage(recordedReadInbox))
@@ -273,6 +265,53 @@ func TestTheRecordedChannelChatCarriesTheCountAndTheKind(t *testing.T) {
 	}
 }
 
+// recordedBasicGroupChat is the recorded answer of getChat for a basic
+// group: chatTypeBasicGroup (td_api.tl:3443) with a basic_group_id, and no
+// user on the other side of it.
+const recordedBasicGroupChat = `{"@type":"chat","id":-500,"title":"Team",` +
+	`"unread_count":4,"last_message":null,"type":{"@type":"chatTypeBasicGroup",` +
+	`"basic_group_id":1234567890}}`
+
+// A basic group is a group. The name this build compared against was
+// chatTypeGroup, which the pinned schema does not have, so the comparison
+// matched nothing and a chat with many people was reported as a chat with
+// one: no author above its messages, and a private badge on its row.
+func TestTheRecordedBasicGroupIsRecognisedAsAGroup(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	var (
+		chat ChatSummary
+		err  error
+	)
+	askRecorded(
+		t, session, sender, client, "getChat",
+		recordedAnswer(t, recordedBasicGroupChat),
+		func() error {
+			chat, err = session.GetChat(context.Background(), ChatID(-500))
+
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("GetChat: %v", err)
+	}
+
+	if chat.Kind != ChatKindGroup {
+		t.Fatalf("Kind = %q, want a basic group", chat.Kind)
+	}
+	if !chat.Kind.Grouped() {
+		t.Fatal("a basic group has more than one person in it")
+	}
+	// A group has no single other side, so there is nobody to name above a
+	// message and nothing to tell apart from oneself.
+	if chat.PeerUserID != 0 {
+		t.Fatalf("PeerUserID = %d, want 0 for a group", chat.PeerUserID)
+	}
+	if chat.UnreadCount != 4 {
+		t.Fatalf("UnreadCount = %d, want the recorded 4", chat.UnreadCount)
+	}
+}
+
 // A chat TDLib has not loaded answers a read with the recorded refusal
 // rather than with nothing, and the caller is what says so: the interface
 // logs it and keeps showing the messages. This is the answer a channel gives
@@ -293,7 +332,6 @@ func TestARefusedReadOfAnUnopenedChatIsReportedAndReadsNothing(t *testing.T) {
 				context.Background(),
 				ChatID(recordedChannelID),
 				[]MessageID{991},
-				MessageSourceFor(ChatKindSupergroup, 991),
 			)
 		},
 	)
@@ -311,9 +349,10 @@ func TestARefusedReadOfAnUnopenedChatIsReportedAndReadsNothing(t *testing.T) {
 	}
 }
 
-// A chat with one other person is read in itself, and the recorded chat is
-// the one that says so: a private chat's source carries no message, because
-// the chat is the whole of where the read happened.
+// A chat with one other person is read exactly as a channel is: the source
+// is the history of the chat that is open, and nothing about the window says
+// otherwise. It is here because the previous attempt believed it was not so,
+// and the belief cost every kind of chat its read.
 func TestTheRecordedRoundTripOfAPrivateChatRead(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
@@ -325,7 +364,6 @@ func TestTheRecordedRoundTripOfAPrivateChatRead(t *testing.T) {
 				context.Background(),
 				ChatID(42),
 				[]MessageID{990, 991},
-				MessageSourceFor(ChatKindPrivate, 991),
 			)
 		},
 	)
@@ -341,10 +379,10 @@ func TestTheRecordedRoundTripOfAPrivateChatRead(t *testing.T) {
 		t.Fatalf("decode viewMessages: %v", err)
 	}
 
-	if asked.Source["@type"] != "messageSourceChat" {
-		t.Fatalf("source = %v, want messageSourceChat", asked.Source)
+	if asked.Source["@type"] != "messageSourceChatHistory" {
+		t.Fatalf("source = %v, want messageSourceChatHistory", asked.Source)
 	}
-	if _, named := asked.Source["message_id"]; named {
-		t.Fatalf("source = %v, want no message_id on a chat source", asked.Source)
+	if len(asked.Source) != 1 {
+		t.Fatalf("source = %v, want only its type", asked.Source)
 	}
 }

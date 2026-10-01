@@ -55,8 +55,11 @@ const (
 	// ChatKindPrivate is a chat with one other person, or with oneself.
 	ChatKindPrivate ChatKind = "chatTypePrivate"
 
-	// ChatKindGroup is a basic group.
-	ChatKindGroup ChatKind = "chatTypeGroup"
+	// ChatKindGroup is a basic group. TDLib calls it chatTypeBasicGroup
+	// (td_api.tl:3443) — it called it chatTypeGroup in an older version,
+	// and a name this build no longer sends matches nothing, so a basic
+	// group was drawn as a chat with one other person.
+	ChatKindGroup ChatKind = "chatTypeBasicGroup"
 
 	// ChatKindSupergroup is a supergroup, which is what a channel is as
 	// well: the two are told apart by IsChannel and not by the kind.

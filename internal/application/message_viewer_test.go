@@ -10,11 +10,9 @@ import (
 	"telecli/internal/tui"
 )
 
-// The viewer is the only place that turns "these messages are on the screen"
-// into a query. Two things in it decide whether TDLib takes the read at all,
-// and both are the owner's channel of 89 unread: the kind of the chat, which
-// decides the source, and the identifiers, which have to be the ones TDLib
-// knows the messages by.
+// The viewer is the one place that turns "these messages are on the screen"
+// into a query, and the window crosses over as it is: the source of the read
+// belongs to the session, which owns the names TDLib knows.
 
 // recordedViewerSession is a session that records the reads it was asked for
 // and answers with a recorded one.
@@ -26,19 +24,16 @@ type recordedViewerSession struct {
 type recordedRead struct {
 	chatID telegram.ChatID
 	ids    []telegram.MessageID
-	source telegram.MessageSource
 }
 
 func (s *recordedViewerSession) ViewMessages(
 	_ context.Context,
 	chatID telegram.ChatID,
 	messageIDs []telegram.MessageID,
-	source telegram.MessageSource,
 ) error {
 	s.reads = append(s.reads, recordedRead{
 		chatID: chatID,
 		ids:    append([]telegram.MessageID(nil), messageIDs...),
-		source: source,
 	})
 
 	return s.answer
@@ -55,116 +50,65 @@ func (s *recordedViewerSession) lastRead(t *testing.T) recordedRead {
 	return s.reads[len(s.reads)-1]
 }
 
-// recordedRequest is the bytes of the viewMessages the session would send for
-// a read, which is what a check of a stuck counter reads.
-func recordedRequest(t *testing.T, read recordedRead) map[string]any {
+// recordedWindow is the bytes of the message_ids the session was asked with.
+func recordedWindow(t *testing.T, read recordedRead) []any {
 	t.Helper()
 
-	raw, err := json.Marshal(struct {
-		Type       string                 `json:"@type"`
-		ChatID     int64                  `json:"chat_id"`
-		MessageIDs []telegram.MessageID   `json:"message_ids"`
-		Source     telegram.MessageSource `json:"source"`
-		ForceRead  bool                   `json:"force_read"`
-	}{
-		Type:       "viewMessages",
-		ChatID:     int64(read.chatID),
-		MessageIDs: read.ids,
-		Source:     read.source,
-		ForceRead:  true,
+	raw, err := json.Marshal(map[string]any{
+		"@type":       "viewMessages",
+		"chat_id":     int64(read.chatID),
+		"message_ids": read.ids,
 	})
 	if err != nil {
-		t.Fatalf("marshal viewMessages: %v", err)
+		t.Fatalf("marshal the window: %v", err)
 	}
 
-	var request map[string]any
+	var request struct {
+		MessageIDs []any `json:"message_ids"`
+	}
 	if err := json.Unmarshal(raw, &request); err != nil {
-		t.Fatalf("decode viewMessages: %v", err)
+		t.Fatalf("decode the window: %v", err)
 	}
 
-	return request
+	return request.MessageIDs
 }
 
-// The kind of the chat decides the source, and the three kinds are three
-// sources. A channel read with the source of a private chat is a read TDLib
-// refuses, which is how a count of 89 stayed at 89.
-func TestTheKindOfTheChatDecidesTheSourceOfTheRead(t *testing.T) {
-	for _, testCase := range []struct {
-		name       string
-		kind       tui.ChatKind
-		wantSource string
-	}{
-		{name: "private", kind: tui.ChatKindPrivate, wantSource: "messageSourceChat"},
-		{name: "group", kind: tui.ChatKindGroup, wantSource: "messageSourceHistory"},
-		{name: "channel", kind: tui.ChatKindChannel, wantSource: "messageSourceHistory"},
+// The window crosses into the session whole and in order, for every kind of
+// chat: nothing here decides how a read is to be described, and a decision
+// taken here is a name TDLib may not know.
+func TestTheWindowCrossesToTheSessionForEveryKindOfChat(t *testing.T) {
+	for _, kind := range []tui.ChatKind{
+		tui.ChatKindPrivate,
+		tui.ChatKindGroup,
+		tui.ChatKindChannel,
 	} {
-		t.Run(testCase.name, func(t *testing.T) {
+		t.Run(kind.String(), func(t *testing.T) {
 			session := &recordedViewerSession{}
 			viewer := &TelegramMessageViewer{session: session}
 
 			if err := viewer.ViewMessages(
-				context.Background(), 7, testCase.kind, []int64{34, 40},
+				context.Background(), 7, []int64{34, 39, 40},
 			); err != nil {
 				t.Fatalf("ViewMessages: %v", err)
 			}
 
-			request := recordedRequest(t, session.lastRead(t))
-			source, ok := request["source"].(map[string]any)
-			if !ok {
-				t.Fatalf("request = %v, want a source", request)
+			read := session.lastRead(t)
+			if read.chatID != 7 {
+				t.Fatalf("chat = %d, want 7", read.chatID)
 			}
-			if source["@type"] != testCase.wantSource {
-				t.Fatalf(
-					"source = %v, want %s", source, testCase.wantSource,
-				)
+			window := recordedWindow(t, read)
+			if len(window) != 3 {
+				t.Fatalf("message_ids = %v, want the whole window", window)
 			}
-
-			// force_read is what reads the page of older messages above the
-			// newest one; without it only the end of the chat is read.
-			if request["force_read"] != true {
-				t.Fatalf("force_read = %v, want true", request["force_read"])
-			}
-			// The window is the window, in order, with the identifiers TDLib
-			// knows the messages by.
-			if got := request["message_ids"]; len(got.([]any)) != 2 {
-				t.Fatalf("message_ids = %v, want two", got)
-			}
-			ids := request["message_ids"].([]any)
-			if ids[0].(float64) != 34 || ids[1].(float64) != 40 {
-				t.Fatalf("message_ids = %v, want 34 and 40", ids)
-			}
-
-			// A read of a chat with many people names where it stopped: the
-			// newest identifier of the window, which is the number a stuck
-			// counter is read by.
-			if testCase.kind.Grouped() {
-				if id, ok := source["message_id"].(float64); !ok || id != 40 {
+			for index, want := range []float64{34, 39, 40} {
+				if window[index] != want {
 					t.Fatalf(
-						"source = %v, want the newest identifier of the window",
-						source,
+						"message_ids = %v, want %v in order",
+						window, []float64{34, 39, 40},
 					)
 				}
 			}
 		})
-	}
-}
-
-// A window is read up to its newest identifier, so the source names the
-// newest one and not the first: a read that named the oldest of the window
-// would leave everything above it unread.
-func TestTheSourceNamesTheNewestMessageOfTheWindow(t *testing.T) {
-	session := &recordedViewerSession{}
-	viewer := &TelegramMessageViewer{session: session}
-
-	if err := viewer.ViewMessages(
-		context.Background(), 7, tui.ChatKindChannel, []int64{34, 35, 36, 37, 38, 39, 40},
-	); err != nil {
-		t.Fatalf("ViewMessages: %v", err)
-	}
-
-	source := recordedRequest(t, session.lastRead(t))["source"].(map[string]any)
-	if id, ok := source["message_id"].(float64); !ok || id != 40 {
-		t.Fatalf("source = %v, want the newest of the window", source)
 	}
 }
 
@@ -175,7 +119,7 @@ func TestTheViewerWithoutASessionDoesNothing(t *testing.T) {
 	viewer := &TelegramMessageViewer{}
 
 	if err := viewer.ViewMessages(
-		context.Background(), 42, tui.ChatKindChannel, []int64{7},
+		context.Background(), 42, []int64{7},
 	); err != nil {
 		t.Fatalf("ViewMessages: %v", err)
 	}
@@ -189,9 +133,7 @@ func TestTheViewerReturnsTheSessionError(t *testing.T) {
 	}
 	viewer := &TelegramMessageViewer{session: session}
 
-	err := viewer.ViewMessages(
-		context.Background(), 42, tui.ChatKindChannel, []int64{7},
-	)
+	err := viewer.ViewMessages(context.Background(), 42, []int64{7})
 	if err == nil {
 		t.Fatal("a refused read returned nothing")
 	}
@@ -206,7 +148,7 @@ func TestOnlyTheIdentifiersOfDeliveredMessagesAreRead(t *testing.T) {
 	viewer := &TelegramMessageViewer{session: session}
 
 	if err := viewer.ViewMessages(
-		context.Background(), 7, tui.ChatKindPrivate, []int64{40},
+		context.Background(), 7, []int64{40},
 	); err != nil {
 		t.Fatalf("ViewMessages: %v", err)
 	}

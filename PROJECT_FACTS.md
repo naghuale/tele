@@ -1335,9 +1335,10 @@
     user looks at another chat and comes back, and a history page that
     later brings the same message replaces the row that is already there
     instead of adding a second one
-  - `Queued`, `Sending`, `Retrying`, `Sent`, `Failed` and
-    `Delivery uncertain` are explained for the user in
-    docs/help/sending.md, listed from docs/help/README.md
+  - `queued`, `sending`, `retrying`, `sent`, `failed` and
+    `delivery uncertain` are the words under a message of this user, in
+    lower case (§4.4 of the specification), and they are explained for the
+    user in docs/help/sending.md, listed from docs/help/README.md
   - each read is numbered, so a read slower than the interval is discarded
     when it answers after a newer one instead of putting an old snapshot
     back on the screen

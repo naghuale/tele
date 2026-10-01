@@ -235,15 +235,15 @@ func TestOneSettledRecordDoesNotStopTheInterfaceReadingTheOthers(
 	// message in the same quarter of a second, and the screen that matters
 	// is the one after.
 	screen := m.View()
-	if strings.Contains(screen, "Queued") {
+	if strings.Contains(screen, "● queued") {
 		t.Fatalf(
 			"the queue sent the message and the screen still says "+
-				"Queued:\n%s\n\nthe interface wrote:\n%s",
+				"queued:\n%s\n\nthe interface wrote:\n%s",
 			screen, fixture.log.String(),
 		)
 	}
-	if !strings.Contains(screen, "Sent") {
-		t.Fatalf("the screen does not say Sent:\n%s", screen)
+	if !strings.Contains(screen, "✓ sent") {
+		t.Fatalf("the screen does not say sent:\n%s", screen)
 	}
 }
 

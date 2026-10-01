@@ -458,8 +458,8 @@ func TestTheInterfaceFollowsAMessageToSentAndKeepsItAcrossAChatSwitch(
 	// Accepted first: TDLib has the message, Telegram has not confirmed.
 	waitForProgramState(t, path, "e0", outbox.StateAccepted, 5*time.Second)
 	program.settle(t, quickWindow)
-	if screen := program.screen(); !strings.Contains(screen, "Sending") &&
-		!strings.Contains(screen, "Queued") {
+	if screen := program.screen(); !strings.Contains(screen, "◐ sending") &&
+		!strings.Contains(screen, "● queued") {
 		t.Fatalf(
 			"the message is on its way and the screen does not say so:\n%s",
 			screen,
@@ -481,7 +481,7 @@ func TestTheInterfaceFollowsAMessageToSentAndKeepsItAcrossAChatSwitch(
 	// was the reconciler. Nothing here presses a key: the wait is the poll,
 	// which is the two seconds the program waits between reads and the
 	// thing that was never armed.
-	program.awaitScreen(t, path, "Sent", 10*time.Second)
+	program.awaitScreen(t, path, "✓ sent", 10*time.Second)
 
 	// Telegram holds the message, which is what a later history page will
 	// bring back.

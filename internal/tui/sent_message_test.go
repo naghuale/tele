@@ -134,7 +134,7 @@ func TestAConfirmedMessageBecomesAMessageOfTheConversation(t *testing.T) {
 	m, _ = updateModel(t, m, deliverSubmission(m, "entry-1"))
 
 	// The queue still holds it, so it is drawn on its way out.
-	if view := plain(m.View()); !strings.Contains(view, "Queued") {
+	if view := plain(m.View()); !strings.Contains(view, "queued") {
 		t.Fatalf("the queued message is not on the screen:\n%s", view)
 	}
 
@@ -337,7 +337,7 @@ func TestAFailedMessageStaysOnTheScreenWithItsState(t *testing.T) {
 	if !strings.Contains(view, "не отправится") {
 		t.Fatalf("the failed message left the screen:\n%s", view)
 	}
-	if !strings.Contains(view, "Failed") {
+	if !strings.Contains(view, "failed") {
 		t.Fatalf("the failure is not on the screen:\n%s", view)
 	}
 	if len(m.selected().Messages) != 0 {

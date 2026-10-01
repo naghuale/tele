@@ -847,9 +847,16 @@
     are compared as a duration so the owner's UTC+10 is not involved, and
     is_outgoing is set on what the account sent.
     restart_settlement_shapes_test.go holds a real-shaped record and a
-    recorded getChatHistory page read by telegram.DecodeHistoryPage —
-    which is the same decoder GetChatHistory uses, extracted so a recorded
-    answer goes through the live code rather than a hand-built page
+    getChatHistory page in the shape a live answer has, read by
+    telegram.DecodeHistoryPage — which is the same decoder GetChatHistory
+    uses, extracted so a page of that shape goes through the live code
+    rather than a hand-built page. The values of that page are invented
+    (#74): the identifiers of a real account are a stable way to recognise
+    the owner, and the repository is read by everyone since 2026-10-01. Its
+    shape is what the tests prove — the chat and its sender share one
+    identifier, the two newest ids are consecutive, the three messages run
+    newest first with the moment each is dated, and total_count is above
+    the number of messages
   - a settlement is allowed to be wrong once, and it was. The records it
     marked uncertain are re-checked on the next run, which needs three
     things that did not exist: `uncertain -> sent`, a read

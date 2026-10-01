@@ -16,26 +16,39 @@ import (
 //
 // The synthetic version of this test passed and the owner's account matched
 // none of thirteen. So everything here is a real shape: the record is
-// written through the real store, so its payload is genuinely encrypted
-// and its acceptance time is a real Unix nanosecond count, and the page is
-// a recorded getChatHistory answer read by the real decoder — the same one
-// every page the interface draws goes through.
+// written through the real store, so its payload is genuinely encrypted and
+// its acceptance time is a real Unix nanosecond count, and the page is read
+// by the real decoder — the same one every page the interface draws goes
+// through.
 //
 // recordedSavedMessagesPage is a getChatHistory answer for Saved Messages,
 // in the shape TDLib writes: messages newest first, is_outgoing set on
 // the ones this account sent, the date in whole Unix seconds, and the
 // text under messageText/formattedText.
+//
+// Every value in it is invented, and the shape is the whole of what it
+// proves. The repository is read by everyone since 2026-10-01, and the
+// identifiers a real answer carries are a stable way to recognise the
+// account of the owner - so the identifiers here are written for this
+// file and the shape of the answer they sit in is what a live one has.
+// What the tests need from them is kept: the chat and the sender of a
+// message are the same identifier, because this is a chat with oneself;
+// the two newest messages are consecutive, because Telegram numbers a
+// chat upwards; the three messages run newest first and each carries the
+// moment it is dated, because that pairing is what the settlement
+// compares; and total_count stays above the number of messages, because
+// a live answer counts the whole chat and sends one page of it.
 const recordedSavedMessagesPage = `{
   "@type": "messages",
   "total_count": 4,
   "messages": [
     {
       "@type": "message",
-      "id": 100000000114,
-      "sender_id": {"@type": "messageSenderUser", "user_id": 1000100},
-      "chat_id": 1000100,
+      "id": 100000000140,
+      "sender_id": {"@type": "messageSenderUser", "user_id": 1234567},
+      "chat_id": 1234567,
       "is_outgoing": true,
-      "date": 1000000114,
+      "date": 1786908060,
       "content": {
         "@type": "messageText",
         "text": {"@type": "formattedText", "text": "вечерняя сводка", "entities": []}
@@ -43,11 +56,11 @@ const recordedSavedMessagesPage = `{
     },
     {
       "@type": "message",
-      "id": 100000000107,
-      "sender_id": {"@type": "messageSenderUser", "user_id": 1000100},
-      "chat_id": 1000100,
+      "id": 100000000139,
+      "sender_id": {"@type": "messageSenderUser", "user_id": 1234567},
+      "chat_id": 1234567,
       "is_outgoing": true,
-      "date": 1000000107,
+      "date": 1786904400,
       "content": {
         "@type": "messageText",
         "text": {"@type": "formattedText", "text": "проверяю сборку", "entities": []}
@@ -55,11 +68,11 @@ const recordedSavedMessagesPage = `{
     },
     {
       "@type": "message",
-      "id": 100000000100,
-      "sender_id": {"@type": "messageSenderUser", "user_id": 1000100},
-      "chat_id": 1000100,
+      "id": 100000000000,
+      "sender_id": {"@type": "messageSenderUser", "user_id": 1234567},
+      "chat_id": 1234567,
       "is_outgoing": true,
-      "date": 1000000100,
+      "date": 1786888000,
       "content": {
         "@type": "messageText",
         "text": {"@type": "formattedText", "text": "утренняя задача", "entities": []}
@@ -68,7 +81,8 @@ const recordedSavedMessagesPage = `{
   ]
 }`
 
-// recordedPage serves a recorded answer through the real decoder.
+// recordedPage serves an answer of the recorded shape through the real
+// decoder.
 type recordedPage struct {
 	chatID telegram.ChatID
 	raw    string
@@ -92,18 +106,18 @@ func (r *recordedPage) GetChatHistory(
 // A record the store really wrote is found in a page TDLib really sent.
 func TestARecordFromARealStoreIsFoundInARecordedPage(t *testing.T) {
 	const (
-		chatID   = int64(1000100)
-		finalID  = int64(100000000107)
+		chatID   = int64(1234567)
+		finalID  = int64(100000000139)
 		wantText = "проверяю сборку"
 	)
 
 	path := newSettlementPath(t)
 
 	// The acceptance time is the moment TDLib took the message, which is
-	// the moment the message is dated: 1000000107 in whole seconds. The
+	// the moment the message is dated: 1786904400 in whole seconds. The
 	// store keeps nanoseconds, and the queue stamped it from a real clock
 	// a moment after the second began.
-	accepted := time.Unix(1000000107, 0).UTC()
+	accepted := time.Unix(1786904400, 0).UTC()
 	path.leaveAcceptedIn("record-1", wantText, chatID, accepted)
 
 	history := &recordedPage{
@@ -148,15 +162,15 @@ func TestARecordFromARealStoreIsFoundInARecordedPage(t *testing.T) {
 // acceptance and the page reaches back.
 func TestARecordOlderThanTheNewestMessagesIsStillFound(t *testing.T) {
 	const (
-		chatID   = int64(1000100)
-		finalID  = int64(100000000100)
+		chatID   = int64(1234567)
+		finalID  = int64(100000000000)
 		wantText = "утренняя задача"
 	)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
 		"record-old", wantText, chatID,
-		time.Unix(1000000100, 0).UTC(),
+		time.Unix(1786888000, 0).UTC(),
 	)
 
 	history := &recordedPage{
@@ -185,13 +199,13 @@ func TestARecordOlderThanTheNewestMessagesIsStillFound(t *testing.T) {
 // nothing to match against the chat.
 func TestTheStoreGivesTheSettlementTheTextItStored(t *testing.T) {
 	const (
-		chatID   = int64(1000100)
+		chatID   = int64(1234567)
 		wantText = "проверяю сборку"
 	)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
-		"record-1", wantText, chatID, time.Unix(1000000107, 0).UTC(),
+		"record-1", wantText, chatID, time.Unix(1786904400, 0).UTC(),
 	)
 
 	unsettled, err := path.store.Store.(outbox.UnsettledAcceptedStore).
@@ -209,7 +223,7 @@ func TestTheStoreGivesTheSettlementTheTextItStored(t *testing.T) {
 			unsettled[0].Text, wantText,
 		)
 	}
-	if !unsettled[0].AcceptedAt.Equal(time.Unix(1000000107, 0).UTC()) {
+	if !unsettled[0].AcceptedAt.Equal(time.Unix(1786904400, 0).UTC()) {
 		t.Fatalf(
 			"accepted at %s, want the Unix second the message is dated",
 			unsettled[0].AcceptedAt,
@@ -228,13 +242,13 @@ func TestTheStoreGivesTheSettlementTheTextItStored(t *testing.T) {
 // obliged to try again.
 func TestARecordThisBuildMarkedUncertainIsCheckedAgain(t *testing.T) {
 	const (
-		chatID   = int64(1000100)
-		finalID  = int64(100000000107)
+		chatID   = int64(1234567)
+		finalID  = int64(100000000139)
 		wantText = "проверяю сборку"
 	)
 
 	path := newSettlementPath(t)
-	at := time.Unix(1000000107, 0).UTC()
+	at := time.Unix(1786904400, 0).UTC()
 	path.leaveAcceptedIn("record-1", wantText, chatID, at)
 
 	// The first run, with a lookup that cannot see the page.
@@ -297,7 +311,7 @@ func (emptyHistory) GetChatHistory(
 // asks the user to go and look in Telegram by hand.
 func TestARecordBeyondTheFirstPageIsFoundByReadingFurtherBack(t *testing.T) {
 	const (
-		chatID   = int64(1000100)
+		chatID   = int64(1234567)
 		accepted = int64(1789400000)
 		wantID   = int64(201)
 	)
@@ -353,7 +367,7 @@ func TestARecordBeyondTheFirstPageIsFoundByReadingFurtherBack(t *testing.T) {
 // A chat that runs out before every record is found is still settled, and
 // the page budget is what stops the reading.
 func TestTheSettlementStopsAtItsPageBudget(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
@@ -389,12 +403,12 @@ func TestTheSettlementStopsAtItsPageBudget(t *testing.T) {
 // One request when the first page holds the record, which is the common
 // case: a queue closed a moment ago.
 func TestOneRequestWhenTheFirstPageHoldsTheRecord(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
 		"record-1", "проверяю сборку", chatID,
-		time.Unix(1000000107, 0).UTC(),
+		time.Unix(1786904400, 0).UTC(),
 	)
 
 	history := &pagedHistory{
@@ -418,7 +432,7 @@ func TestOneRequestWhenTheFirstPageHoldsTheRecord(t *testing.T) {
 	}
 }
 
-// pagedHistory serves recorded pages by the boundary asked for.
+// pagedHistory serves pages of the recorded shape by the boundary asked for.
 type pagedHistory struct {
 	chatID  telegram.ChatID
 	pages   map[int64]string
@@ -460,10 +474,10 @@ func (h *pagedHistory) GetChatHistory(
 	return telegram.DecodeHistoryPage(telegram.RawMessage(raw), chatID)
 }
 
-// historyPage builds a recorded getChatHistory answer: count messages
-// newest first, all with the same text, the oldest dated at dateBase and
-// each newer one a second later — which is the order a real page is in and
-// the order a page is paged back through.
+// historyPage builds a getChatHistory answer in the recorded shape: count
+// messages newest first, all with the same text, the oldest dated at
+// dateBase and each newer one a second later — which is the order a real
+// page is in and the order a page is paged back through.
 func historyPage(
 	firstID, count int64,
 	text string,
@@ -474,8 +488,8 @@ func historyPage(
 		messages = append(messages, fmt.Sprintf(`{
           "@type": "message",
           "id": %d,
-          "sender_id": {"@type": "messageSenderUser", "user_id": 1000100},
-          "chat_id": 1000100,
+          "sender_id": {"@type": "messageSenderUser", "user_id": 1234567},
+          "chat_id": 1234567,
           "is_outgoing": true,
           "date": %d,
           "content": {
@@ -504,7 +518,7 @@ func historyPage(
 // The record here is accepted at a moment whose *local* date and *UTC*
 // date are different days, and the message is dated the same second.
 func TestTheWindowIsOnTheInstantAndNotOnTheCalendar(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	// The moment the page dates the message, as the owner would have seen
 	// it on their own clock: 04:20 on the 17th in UTC+10, where it is
@@ -512,7 +526,7 @@ func TestTheWindowIsOnTheInstantAndNotOnTheCalendar(t *testing.T) {
 	// be looking for a message from a different day than the one Telegram
 	// dated.
 	zone := time.FixedZone("UTC+10", 10*60*60)
-	instant := time.Unix(1000000107, 0)
+	instant := time.Unix(1786904400, 0)
 	accepted := instant.In(zone)
 	if accepted.Day() == instant.UTC().Day() {
 		t.Fatalf(
@@ -546,14 +560,15 @@ func TestTheWindowIsOnTheInstantAndNotOnTheCalendar(t *testing.T) {
 }
 
 // A message the user received is never this queue's message, and that is
-// asked from the recorded page rather than from a value built by hand.
+// asked from a page of the recorded shape rather than from a value built by
+// hand.
 func TestAnIncomingMessageInARecordedPageIsNotMatched(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
 		"record-1", "проверяю сборку", chatID,
-		time.Unix(1000000107, 0).UTC(),
+		time.Unix(1786904400, 0).UTC(),
 	)
 
 	// One message of the same words, from the other side.
@@ -565,11 +580,11 @@ func TestAnIncomingMessageInARecordedPageIsNotMatched(t *testing.T) {
           "messages": [
             {
               "@type": "message",
-              "id": 100000000107,
+              "id": 100000000139,
               "sender_id": {"@type": "messageSenderUser", "user_id": 99},
-              "chat_id": 1000100,
+              "chat_id": 1234567,
               "is_outgoing": false,
-              "date": 1000000107,
+              "date": 1786904400,
               "content": {
                 "@type": "messageText",
                 "text": {
@@ -607,12 +622,12 @@ func TestAnIncomingMessageInARecordedPageIsNotMatched(t *testing.T) {
 // Nothing about the records is wrong and nothing needed to change about
 // them: the record already says what it is going to say.
 func TestARecheckedRecordThatIsStillMissingDoesNotFailTheRun(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	path := newSettlementPath(t)
 	path.leaveAcceptedIn(
 		"record-1", "не найдётся", chatID,
-		time.Unix(1000000107, 0).UTC(),
+		time.Unix(1786904400, 0).UTC(),
 	)
 
 	// First run: cannot find it, so it becomes uncertain.
@@ -732,12 +747,12 @@ func TestATDLibAnswerIsNamedByItsCodeNotItsMessage(t *testing.T) {
 // A read that cannot be done leaves its records alone and is not a
 // settlement failure, and the log says which step it was.
 func TestAChatThatCannotBeReadIsNotASettlementFailure(t *testing.T) {
-	const chatID = int64(1000100)
+	const chatID = int64(1234567)
 
 	path := newSettlementPath(t)
 	accepted := path.leaveAcceptedIn(
 		"record-1", "проверяю сборку", chatID,
-		time.Unix(1000000107, 0).UTC(),
+		time.Unix(1786904400, 0).UTC(),
 	)
 
 	history := &failingHistory{err: fmt.Errorf("getChatHistory: %w",

@@ -371,10 +371,10 @@ status    символ + текст
 ### 3.1 Wide (≥ 100 колонок)
 
 ```text
- Chats                  Alex
+ Chats                  Anna
  Search chats           Online · Connected · 2 queued
 
-▌Alex                  Alex                         14:28
+▌Anna                    Anna                         14:28
  ● 2                     Привет, как дела?
 
  Dev Team                You                            14:30
@@ -404,10 +404,10 @@ status    символ + текст
 Скрываются: preview второго ряда, подробные timestamps, дополнительные индикаторы, длинные hints.
 
 ```text
- Chats         Alex
+ Chats         Anna
                Connected · 2 queued
 
-▌Alex        Alex                 14:28
+▌Anna          Anna                 14:28
  ● 2           Привет, как дела?
 
  Dev Team      You                    14:30
@@ -435,7 +435,7 @@ status    символ + текст
 
  Search chats
 
-▌Alex
+▌Anna
  ● 2  Привет, как дела?
 
  Dev Team
@@ -452,10 +452,10 @@ status    символ + текст
 ```text
 ‹ Chats
 
- Alex
+ Anna
  Online · Connected
 
- Alex  14:28
+ Anna  14:28
  Привет, как дела?
 
  You  14:30
@@ -529,7 +529,7 @@ muted   → ● без числа или muted цветом
 Выбранный чат:
 
 ```text
-▌Alex
+▌Anna
  ● 2  Привет, как дела?
 ```
 
@@ -538,7 +538,7 @@ muted   → ● без числа или muted цветом
 ### 4.3 Conversation header
 
 ```text
-Alex
+Anna
 Online · Connected · 2 queued · 1 retrying
 ```
 
@@ -547,14 +547,14 @@ Online · Connected · 2 queued · 1 retrying
 При ошибке:
 
 ```text
-Alex
+Anna
 Durable outbox unavailable
 ```
 
 При восстановлении:
 
 ```text
-Alex
+Anna
 Reconnecting…
 ```
 
@@ -563,7 +563,7 @@ Status block — не более двух строк в обычном режи�
 ### 4.4 Message timeline
 
 ```text
-Alex                                14:28
+Anna                                14:28
 Привет, как дела?
 ```
 
@@ -854,7 +854,7 @@ modal → search → composer → conversation (single-pane) → chat list
 Search chats
 query text
 
-▌Alex
+▌Anna
   Dev Team
   Release
 ```

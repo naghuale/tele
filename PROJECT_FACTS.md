@@ -5,7 +5,15 @@
 - Default branch: main
 - Go module: telecli
 - Minimum Go version: 1.27
-- License: TBD
+- License: Apache-2.0 (LICENSE, NOTICE)
+- Visibility: public since 2026-10-01 (owner decision of 2026-09-28, #74).
+  Everything the repository has ever held is readable by anyone, so the
+  rule is stronger than "no secrets": a fixture, a golden screen, a
+  recorded answer and a document carry nothing of a real account — no
+  name, no phone number, no account or chat identifier, no text of a
+  real message. Values are invented, as the fixtures of the presence
+  store already were. The mail of the author was rewritten to the
+  noreply address before the repository was published.
 
 ## Supported platforms
 - Development platform: macOS arm64

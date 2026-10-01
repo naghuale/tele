@@ -45,8 +45,13 @@ import (
 // The first name, the last name and the phone number are values a test can
 // look for, because the whole point of the fixture is that they are read
 // by the parser and then dropped.
+//
+// The values are invented. A repository that people can read keeps its
+// history, so a fixture of it carries nothing of a real account - not a
+// name, not a number, not an address. The same rule holds for a golden
+// screen and for a recorded answer.
 var presenceUserUpdate = RawMessage(`{"@type":"updateUser","user":{"@type":"user","id":700,` +
-	`"first_name":"Alex","last_name":"Morgan","phone_number":"+15550100",` +
+	`"first_name":"Anna","last_name":"Example","phone_number":"+15550100",` +
 	`"status":{"@type":"UserStatusOnline","expires":1800000000},"type":{"@type":"userTypeRegular"}}}`)
 
 func presenceUserStatusUpdate(userID int64, status string) RawMessage {
@@ -151,17 +156,17 @@ func TestAUserUpdateSetsTheStatus(t *testing.T) {
 // enough to print.
 func TestAUserUpdateKeepsNoPersonalData(t *testing.T) {
 	personal := []string{
-		"Alex",
-		"Morgan",
+		"Anna",
+		"Example",
 		"+15550100",
-		"@alex_morgan",
-		"alex.morgan@example.com",
+		"@anna_example",
+		"anna.example@example.com",
 	}
 	state := NewLiveState()
 	raw := RawMessage(`{"@type":"updateUser","user":{"@type":"user","id":700,` +
-		`"first_name":"Alex","last_name":"Morgan","phone_number":"+15550100",` +
+		`"first_name":"Anna","last_name":"Example","phone_number":"+15550100",` +
 		`"usernames":{"@type":"usernames","active_usernames":[` +
-		`{"@type":"username","username":"alex_morgan","is_active":true}]},` +
+		`{"@type":"username","username":"anna_example","is_active":true}]},` +
 		`"status":{"@type":"userStatusOnline","expires":1800000000},` +
 		`"type":{"@type":"userTypeRegular"}}}`)
 
@@ -190,12 +195,12 @@ func TestThePrivacyDumpSeesWhatTheStoreKeeps(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := state.apply(RawMessage(
-		`{"@type":"updateChatTitle","chat_id":10,"title":"Alex Morgan"}`,
+		`{"@type":"updateChatTitle","chat_id":10,"title":"Anna Example"}`,
 	)); err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(dumpLiveState(state), "Alex Morgan") {
+	if !strings.Contains(dumpLiveState(state), "Anna Example") {
 		t.Fatalf("the dump does not see a title the store keeps:\n%s", dumpLiveState(state))
 	}
 }

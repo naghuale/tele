@@ -98,6 +98,14 @@ type Dependencies struct {
 	// nothing.
 	PresenceOpener ChatPresenceOpener
 
+	// MessageViewer is optional.
+	//
+	// It is told which messages of the open chat are on the screen, so that
+	// what is read in telecli is read in Telegram and the counter of the
+	// row falls. A nil viewer marks nothing read, which is the truth about
+	// a program that has no Telegram to ask.
+	MessageViewer MessageViewer
+
 	// Diagnostics, when non-nil, receives the causes the screen must not
 	// show: why a message could not be queued, why the chat list could not
 	// be read.
@@ -181,6 +189,7 @@ func NewModelWithDependencies(
 		model.clipboard = newTerminalOutput(deps.Clipboard, true)
 	}
 	model.presenceOpener = deps.PresenceOpener
+	model.messageViewer = deps.MessageViewer
 	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile

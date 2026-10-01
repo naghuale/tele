@@ -21,6 +21,7 @@ type deliverySession interface {
 	TelegramChats
 	TelegramSender
 	TelegramChatLifecycle
+	TelegramMessageViewing
 
 	// LiveState is the store TDLib updates are applied to, and the only
 	// place the connection state exists. It is a required capability
@@ -384,6 +385,7 @@ func prepareDeliveryAuthResult(
 		PendingMessages:  newTUIPendingMessageSourceAdapter(delivery.PendingMessages()),
 		StatusSummaries:  statusSummaries,
 		PresenceOpener:   &TelegramChatPresenceOpener{session: session},
+		MessageViewer:    &TelegramMessageViewer{session: session},
 		MessageCanceller: canceller,
 		Close: func(shutdownCtx context.Context) error {
 			closing.Store(true)

@@ -1,0 +1,203 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+)
+
+// TDLib does not know what is on the screen, so the session is told which
+// messages have been read and asks TDLib to move the read pointer there.
+
+func TestViewMessagesSendsTheWindowWithForcedRead(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7, 8, 9})
+	}()
+
+	request := waitForRequestN(t, sender, "viewMessages", 1)
+
+	var decoded struct {
+		Type       string  `json:"@type"`
+		ChatID     int64   `json:"chat_id"`
+		MessageIDs []tdInt `json:"message_ids"`
+		Source     struct {
+			Type string `json:"@type"`
+		} `json:"source"`
+		ForceRead bool   `json:"force_read"`
+		Extra     string `json:"@extra"`
+	}
+	if err := json.Unmarshal(request, &decoded); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+
+	if decoded.Type != "viewMessages" {
+		t.Fatalf("@type = %q, want viewMessages", decoded.Type)
+	}
+	if decoded.ChatID != 42 {
+		t.Fatalf("chat_id = %d, want 42", decoded.ChatID)
+	}
+	if len(decoded.MessageIDs) != 3 ||
+		decoded.MessageIDs[0] != 7 ||
+		decoded.MessageIDs[1] != 8 ||
+		decoded.MessageIDs[2] != 9 {
+		t.Fatalf("message_ids = %v, want the window in order", decoded.MessageIDs)
+	}
+	// Without force_read TDLib only marks a message read at the end of the
+	// chat, which is not the page of older messages above the newest one.
+	if !decoded.ForceRead {
+		t.Fatal("force_read = false, want true")
+	}
+	// messageSourceChat is what makes TDLib tell the other devices of the
+	// account: the phone is where the chat has to be read too.
+	if decoded.Source.Type != "messageSourceChat" {
+		t.Fatalf("source = %q, want messageSourceChat", decoded.Source.Type)
+	}
+	if decoded.Extra == "" {
+		t.Fatal("@extra is empty")
+	}
+
+	feedResponse(t, client, map[string]any{"@type": "ok"}, decoded.Extra)
+
+	select {
+	case err := <-resultCh:
+		if err != nil {
+			t.Fatalf("ViewMessages: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ViewMessages did not return")
+	}
+}
+
+// The message identifiers travel as numbers, not as the JSON strings
+// TDLib writes for its 64-bit integers: a request that quoted them would
+// ask TDLib for a string where the scheme has a number (see tdint.go).
+func TestViewMessagesWritesTheIdentifiersAsNumbers(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7, 9007199254740993})
+	}()
+
+	request := waitForRequestN(t, sender, "viewMessages", 1)
+
+	var decoded struct {
+		MessageIDs []json.RawMessage `json:"message_ids"`
+		Extra      string            `json:"@extra"`
+	}
+	if err := json.Unmarshal(request, &decoded); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if len(decoded.MessageIDs) != 2 {
+		t.Fatalf("message_ids = %v, want two", decoded.MessageIDs)
+	}
+	if string(decoded.MessageIDs[0]) != "7" {
+		t.Fatalf("message_ids[0] = %s, want the bare number 7", decoded.MessageIDs[0])
+	}
+	if string(decoded.MessageIDs[1]) != "9007199254740993" {
+		t.Fatalf(
+			"message_ids[1] = %s, want the bare number 9007199254740993",
+			decoded.MessageIDs[1],
+		)
+	}
+
+	feedResponse(t, client, map[string]any{"@type": "ok"}, decoded.Extra)
+	<-resultCh
+}
+
+// A request that cannot say anything is not sent: a zero chat is no chat,
+// and an empty list of identifiers is a read of nothing.
+func TestViewMessagesRejectsARequestThatCouldNotBeSent(t *testing.T) {
+	session, sender, _, _ := newSessionWithFakes(t)
+
+	err := session.ViewMessages(context.Background(), 0, []MessageID{1})
+	if !errors.Is(err, ErrInvalidChatID) {
+		t.Fatalf("zero chat id error = %v, want ErrInvalidChatID", err)
+	}
+	if err := session.ViewMessages(context.Background(), 42, nil); !errors.Is(err, ErrNoMessagesToView) {
+		t.Fatalf("no identifiers error = %v, want ErrNoMessagesToView", err)
+	}
+	if err := session.ViewMessages(context.Background(), 42, []MessageID{0}); !errors.Is(err, ErrNoMessagesToView) {
+		t.Fatalf("zero identifier error = %v, want ErrNoMessagesToView", err)
+	}
+	if sender.count() != 0 {
+		t.Fatalf("sent requests = %d, want 0", sender.count())
+	}
+}
+
+// A refusal reaches the caller as a TDLib error: the interface logs it and
+// draws nothing, and the messages stay unread rather than being reported as
+// read.
+func TestViewMessagesReturnsTheTDLibError(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7})
+	}()
+
+	request := waitForRequestN(t, sender, "viewMessages", 1)
+	var decoded struct {
+		Extra string `json:"@extra"`
+	}
+	if err := json.Unmarshal(request, &decoded); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+
+	feedResponse(t, client, map[string]any{
+		"@type":   "error",
+		"code":    400,
+		"message": "CHAT_INVALID",
+	}, decoded.Extra)
+
+	select {
+	case err := <-resultCh:
+		var tdlibErr *TDLibError
+		if !errors.As(err, &tdlibErr) {
+			t.Fatalf("error = %v, want a TDLib error", err)
+		}
+		if tdlibErr.Code != 400 {
+			t.Fatalf("code = %d, want 400", tdlibErr.Code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ViewMessages did not return")
+	}
+}
+
+// The schema says viewMessages returns ok, so anything else is a protocol
+// surprise and is reported rather than read as a read.
+func TestViewMessagesRejectsAnUnexpectedAnswer(t *testing.T) {
+	session, sender, _, client := newSessionWithFakes(t)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		resultCh <- session.ViewMessages(context.Background(), 42, []MessageID{7})
+	}()
+
+	request := waitForRequestN(t, sender, "viewMessages", 1)
+	var decoded struct {
+		Extra string `json:"@extra"`
+	}
+	if err := json.Unmarshal(request, &decoded); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+
+	feedResponse(t, client, map[string]any{
+		"@type":   "updateChatReadInbox",
+		"chat_id": int64(42),
+	}, decoded.Extra)
+
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, ErrMessageViewResponse) {
+			t.Fatalf("error = %v, want ErrMessageViewResponse", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ViewMessages did not return")
+	}
+}

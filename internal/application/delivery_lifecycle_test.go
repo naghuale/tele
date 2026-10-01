@@ -23,6 +23,7 @@ type h5bSession struct {
 	live       *telegram.LiveState
 	openErr    error
 	closeChats atomic.Int32
+	viewed     atomic.Int32
 }
 
 func (s *h5bSession) GetChats(
@@ -56,6 +57,15 @@ func (s *h5bSession) OpenChat(context.Context, telegram.ChatID) error {
 
 func (s *h5bSession) CloseChat(context.Context, telegram.ChatID) error {
 	s.closeChats.Add(1)
+	return nil
+}
+
+func (s *h5bSession) ViewMessages(
+	context.Context,
+	telegram.ChatID,
+	[]telegram.MessageID,
+) error {
+	s.viewed.Add(1)
 	return nil
 }
 

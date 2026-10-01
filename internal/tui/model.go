@@ -69,6 +69,18 @@ type Model struct {
 	presenceOpener ChatPresenceOpener
 	openedChat     int64
 
+	// messageViewer is told which messages of the open chat are on the
+	// screen, and viewedChat and viewedIDs are the window it was last told
+	// about. It is nil in a program built without Telegram, and then
+	// nothing anywhere is marked read.
+	//
+	// The window is remembered rather than asked about every time, because
+	// a window that has not moved is a read that would say nothing, and a
+	// round trip to TDLib for it.
+	messageViewer MessageViewer
+	viewedChat    int64
+	viewedIDs     []int64
+
 	// canceller cancels a queued message by the version the screen read,
 	// and clipboard is the program's terminal: the frames and the copies
 	// both go through it, under one lock.
@@ -430,7 +442,25 @@ func (m Model) Init() tea.Cmd {
 }
 
 // Update implements tea.Model.
+//
+// The read of the window is asked here rather than in the places that move
+// it: the window moves on a key, on a resize, on a page of history and on a
+// message sent, and a place that forgets one is a message the owner can see
+// and nobody marked read. One question after every message is a question
+// that cannot be forgotten, and it asks nothing while the answer is the
+// window that was marked last.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	updated, cmd := m.update(msg)
+
+	next, isModel := updated.(Model)
+	if !isModel {
+		return updated, cmd
+	}
+
+	return next, tea.Batch(cmd, next.markVisibleMessagesViewed())
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.updateWindowSize(msg)
@@ -446,6 +476,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case composerSubmissionMsg:
 		return m.updateComposerSubmission(msg)
+
+	case messagesViewedMsg:
+		return m.updateMessagesViewed(msg)
 
 	case messageStatusesLoadedMsg:
 		return m.handleMessageStatusesLoaded(msg)
@@ -543,7 +576,7 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	// every name and every preview in it is text from Telegram, and a name
 	// the terminal acts on is a row of the list that moves the cursor
 	// instead of being drawn. See screen_text.go.
-	m.chats = safeChats(msg.chats)
+	m.chats = mergeLoadedChats(safeChats(msg.chats), m.chats)
 
 	if len(msg.chats) == 0 {
 		m.chatsState = loadStateEmpty
@@ -566,6 +599,36 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// mergeLoadedChats keeps the messages a chat had when the list is read
+// again.
+//
+// A row of the list carries no messages: the history of a conversation is a
+// separate read, and a list that arrived without it would empty the
+// conversation beside it and the one behind it on the way back in. The
+// messages are what the owner is reading at that moment, and re-opening the
+// chat asks for its newest page anyway (openSelectedChat), so keeping them
+// costs nothing and takes away a screen that goes blank for no reason.
+//
+// A chat the source no longer lists is gone, and nothing of it is kept.
+func mergeLoadedChats(loaded, previous []Chat) []Chat {
+	if len(previous) == 0 {
+		return loaded
+	}
+
+	byID := make(map[int64][]Message, len(previous))
+	for _, chat := range previous {
+		byID[chat.ID] = chat.Messages
+	}
+
+	for index := range loaded {
+		if messages, known := byID[loaded[index].ID]; known {
+			loaded[index].Messages = messages
+		}
+	}
+
+	return loaded
 }
 
 // clock returns the model's clock, building a default one for a model that

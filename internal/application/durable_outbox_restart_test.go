@@ -152,6 +152,7 @@ type h7dSession struct {
 	sendCall    chan struct{}
 	openedChats atomic.Int32
 	closedChats atomic.Int32
+	viewedChats atomic.Int32
 }
 
 func newH7dSession(
@@ -214,6 +215,15 @@ func (s *h7dSession) OpenChat(context.Context, telegram.ChatID) error {
 
 func (s *h7dSession) CloseChat(context.Context, telegram.ChatID) error {
 	s.closedChats.Add(1)
+	return nil
+}
+
+func (s *h7dSession) ViewMessages(
+	context.Context,
+	telegram.ChatID,
+	[]telegram.MessageID,
+) error {
+	s.viewedChats.Add(1)
 	return nil
 }
 

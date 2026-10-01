@@ -77,6 +77,11 @@ type AuthRunResult struct {
 	// without it a group header says nothing about its members.
 	PresenceOpener tui.ChatPresenceOpener
 
+	// MessageViewer tells Telegram which messages of the open chat are on
+	// the screen, so that what is read here is read there and the counter
+	// of the row falls.
+	MessageViewer tui.MessageViewer
+
 	// SendingPaused is non-nil when the durable outbox could not be
 	// opened. The TUI still starts: only sending is paused, and the
 	// submitter refuses rather than sending by another route.
@@ -435,6 +440,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						PendingMessages:  authResult.PendingMessages,
 						StatusSummaries:  authResult.StatusSummaries,
 						PresenceOpener:   authResult.PresenceOpener,
+						MessageViewer:    authResult.MessageViewer,
 						MessageCanceller: authResult.MessageCanceller,
 						SendError:        sendError,
 						// The causes the screen must not show go here:

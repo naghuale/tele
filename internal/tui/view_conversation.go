@@ -489,7 +489,7 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles, m.timelineCut)
 
 	selected := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
-	if selected < top || selected >= top+drawn {
+	if selected < top || selected >= top+len(drawn) {
 		// The cursor is not in the window the model placed, and the message
 		// it is on is drawn whole: the cut belongs to a window that is not
 		// this one.
@@ -508,7 +508,13 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 }
 
 // entryRowsFrom draws the entries from first onwards until the rows run
-// out, and returns how many entries it drew.
+// out, and returns the rows and the entries it drew.
+//
+// The entries are returned as well as the rows because the window is a
+// question with two answers: the view needs the rows, and the model needs
+// to know which messages are on the screen to mark them read. Both are
+// answered here, so the window that is drawn and the window that is read
+// are the same window by construction.
 //
 // cutRows are the rows left off the top of the first entry, and they are
 // the window the model placed: the rows of a feed are not a whole number of
@@ -525,10 +531,10 @@ func (m Model) entryRowsFrom(
 	rows int,
 	styles viewStyles,
 	cutRows int,
-) ([]string, int) {
+) ([]string, []timelineEntry) {
 	var (
 		lines []string
-		drawn int
+		drawn []timelineEntry
 	)
 
 	for index := first; index < len(entries); index++ {
@@ -561,7 +567,7 @@ func (m Model) entryRowsFrom(
 		}
 
 		lines = append(lines, block...)
-		drawn++
+		drawn = append(drawn, entry)
 
 		if len(lines) >= rows {
 			break

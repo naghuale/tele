@@ -165,3 +165,41 @@ func TestThePresenceOpenerReachesTheTUIDependencies(t *testing.T) {
 		)
 	}
 }
+
+// The viewer has to reach the interface: without it what is read in telecli
+// is not read in Telegram, and the counter of the row never falls.
+func TestTheMessageViewerReachesTheTUIDependencies(t *testing.T) {
+	viewer := &TelegramMessageViewer{}
+	var captured tui.Dependencies
+
+	app := NewWithAuthAndSubmitter(
+		config.Default(),
+		nil,
+		nil,
+		func(context.Context) (AuthRunResult, error) {
+			return AuthRunResult{
+				Submitter:     noopComposerSubmitter{},
+				MessageViewer: viewer,
+			}, nil
+		},
+		func(tui.ChatSource) error { return nil },
+		func(_ context.Context, deps tui.Dependencies) error {
+			captured = deps
+			return nil
+		},
+	)
+
+	if err := app.RunTUI(context.Background()); err != nil {
+		t.Fatalf("RunTUI: %v", err)
+	}
+
+	if captured.MessageViewer == nil {
+		t.Fatal("the message viewer did not reach the interface")
+	}
+	if captured.MessageViewer != viewer {
+		t.Fatalf(
+			"message viewer = %T, want the one the auth step built",
+			captured.MessageViewer,
+		)
+	}
+}

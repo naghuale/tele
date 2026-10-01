@@ -1360,6 +1360,21 @@ func entryText(entry timelineEntry) string {
 func messageText(message Message, parts int) string {
 	label := mediaLabel(message, parts)
 	if label == "" {
+		if message.Text == "" {
+			// A record with neither words nor a file in it is one this
+			// build cannot read: a service message, or a content TDLib
+			// has added. It is said rather than left blank, because a
+			// block with nothing in it is a block a user cannot read and
+			// cannot tell from a message that failed to load, and this
+			// one is at the top of the feed of every chat (the owner,
+			// 01.10).
+			//
+			// The projection already says the same thing about a chat
+			// preview: a placeholder such as [photo] or [unsupported
+			// message] (PROJECT_FACTS.md, the chat projection).
+			return unsupportedMessageWord
+		}
+
 		return message.Text
 	}
 
@@ -1369,6 +1384,9 @@ func messageText(message Message, parts int) string {
 
 	return label + " " + message.Text
 }
+
+// unsupportedMessageWord is what a message this build cannot read says.
+const unsupportedMessageWord = "[unsupported message]"
 
 // mediaLabel returns what a message carries, in the words §4.4 uses: the
 // kind in brackets, and the caption after it when the picture had one.

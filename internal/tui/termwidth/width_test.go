@@ -3,6 +3,8 @@ package termwidth
 import (
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The two rules of this package, over the strings they disagree about.
@@ -478,15 +480,69 @@ func TestFitPadsAndCuts(t *testing.T) {
 			}
 		}
 
-		// A line of a cluster the rules disagree about is padded to the
-		// width each of them gives it, which is the same number of
-		// columns and a different number of spaces.
+		// A line of a cluster the two rules disagree about is padded to
+		// the width, and the disagreement is paid for in a column of air
+		// at the right edge: the renderer counts the row the width it was
+		// given, and a row it counts wider than the window is a row it
+		// cuts, which is a row whose last cell belongs to the row above.
 		hand := model.Fit("✌️", 4, "…")
 		if !strings.HasPrefix(hand, "✌️") {
 			t.Errorf("%s: Fit(%q, 4) = %q, want the text kept", mode, "✌️", hand)
 		}
-		if width := model.StringWidth(hand); width != 4 {
-			t.Errorf("%s: Fit(%q, 4) is %d columns, want 4", mode, "✌️", width)
+		if width := ansi.StringWidth(hand); width != 4 {
+			t.Errorf(
+				"%s: Fit(%q, 4) is %d columns to the renderer, want 4",
+				mode, "✌️", width,
+			)
+		}
+		if width := model.StringWidth(hand); width > 4 {
+			t.Errorf(
+				"%s: Fit(%q, 4) is %d columns to this program, want at most 4",
+				mode, "✌️", width,
+			)
+		}
+	}
+}
+
+// No line of a region may be wider than the window to the rule of either
+// the program that laid it out or the renderer that draws it.
+//
+// This is the rule that keeps the frame a rectangle, and it is the whole
+// of it: a row the renderer counts wider than the window is a row it cuts,
+// and a row the terminal counts wider than the window is a row it wraps,
+// which moves everything under it down a row and leaves the row above the
+// wrap showing the tail of the one before it. The list that goes wrong when
+// that happens is a list with two search lines in it, a preview under the
+// wrong name, and a cell of an old background at the edge of a row.
+func TestFitKeepsEveryLineWithinTheWidthOfBothRules(t *testing.T) {
+	for _, mode := range []Mode{ModeGrapheme, ModeCodepoint} {
+		model := Unmeasured(mode)
+
+		for _, value := range []string{
+			"abc",
+			"привет",
+			"Елена ✌️ Батрашина",
+			"❤️",
+			"⚠️ ошибка",
+			"🏳️‍🌈 флаг",
+			"привет, как сборка?",
+		} {
+			for width := 1; width <= 40; width++ {
+				row := model.Fit(value, width, "…")
+
+				if got := ansi.StringWidth(row); got > width {
+					t.Errorf(
+						"%s: Fit(%q, %d) is %d columns to the renderer",
+						mode, value, width, got,
+					)
+				}
+				if got := model.StringWidth(row); got > width {
+					t.Errorf(
+						"%s: Fit(%q, %d) is %d columns to this program",
+						mode, value, width, got,
+					)
+				}
+			}
 		}
 	}
 }

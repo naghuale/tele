@@ -435,8 +435,14 @@ func TestAPhotoWithoutACaptionSaysOnlyWhatItCarries(t *testing.T) {
 	if got := entryText(entries[0]); got != "[photo]" {
 		t.Fatalf("the message reads %q, want %q", got, "[photo]")
 	}
-	if got := entryText(timelineEntries([]Message{{ID: 2, Time: "10:00"}})[0]); got != "" {
-		t.Fatalf("a message with no text and no media reads %q, want nothing", got)
+	// A record with neither words nor a file in it says that this build
+	// cannot read it, in the same words the chat projection uses for a
+	// content type it does not know: a block with nothing in it, at the top
+	// of the feed of every chat, is a message a user cannot tell from one
+	// that failed to load (the owner, 01.10).
+	got := entryText(timelineEntries([]Message{{ID: 2, Time: "10:00"}})[0])
+	if got != "[unsupported message]" {
+		t.Fatalf("the message reads %q, want %q", got, "[unsupported message]")
 	}
 }
 

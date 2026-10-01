@@ -1843,12 +1843,31 @@ func (m Model) updateComposerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // longer blank puts the lit placeholder out, and a send that failed
 // because of the text is forgotten.
 func (m Model) edit(change func(m *Model)) Model {
+	// A draft that grows takes rows from the feed, so the rows the window
+	// was placed against are not the rows it has afterwards. The question
+	// of where the user is has to be asked before the change, the same way
+	// updateWindowSize asks it before a resize.
+	following := m.timelineFollowsNewest()
+	rowsBefore := m.feedRows()
+
 	change(&m)
 
 	m.composerPlaceholderLit = false
 	m.forgetSendError()
 
 	m.composerCursor = clampIndex(m.composerCursor, len(m.composer))
+
+	// A window that is following is filled from the bottom again, because
+	// the rows of the feed are not the rows it was placed against: a draft
+	// that grew leaves the newest message above the last row of the feed,
+	// and the view answers that by drawing the message under the cursor
+	// alone — a feed with one message in it and blank rows above it (the
+	// owner, 01.10). A window a reader has scrolled away from keeps its
+	// message at the top, and the cut that belonged to the rows it was
+	// placed against is nothing to do with the new ones.
+	if following && m.feedRows() != rowsBefore {
+		m = m.anchorAtNewest()
+	}
 
 	return m
 }

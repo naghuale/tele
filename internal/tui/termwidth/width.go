@@ -222,10 +222,42 @@ func (w WidthModel) Fit(value string, width int, mark string) string {
 
 	missing := width - w.StringWidth(value)
 	if missing <= 0 {
-		return w.TruncateMarked(value, width, mark)
+		return w.drawnByWidthRenderer(w.TruncateMarked(value, width, mark), width)
 	}
 
-	return value + strings.Repeat(" ", missing)
+	return w.drawnByWidthRenderer(value+strings.Repeat(" ", missing), width)
+}
+
+// RendererWidth returns the number of columns row takes to the renderer
+// that draws the screen, which counts with a rule of its own.
+//
+// It is the second of the two counts of a row and not a third: the first is
+// the model's, and this one is the count the row is held to before it is
+// handed over. A row is a rectangle when both counts are the width of the
+// window, and the renderer is the one that decides first whether to cut a
+// row that is over.
+func RendererWidth(row string) int {
+	return ansi.StringWidth(row)
+}
+
+// drawnByWidthRenderer returns row no wider than width to either of the
+// two rules, and exactly width to the one that fitted it.
+//
+// The two rules part company over an emoji that asks for the emoji drawing:
+// a model that adds up its code points gives the cluster one column and the
+// renderer gives it two, so a row fitted here arrives a column too wide and
+// the renderer cuts it. A row the renderer cuts is a row whose last cell
+// keeps what the row before it drew, and that is what a dark cell at the
+// edge of a list is. The row is therefore cut by as many columns as the
+// renderer counts it over, which costs a column of air on a row with such
+// a cluster in it and saves the frame on every row.
+func (w WidthModel) drawnByWidthRenderer(row string, width int) string {
+	over := RendererWidth(row) - width
+	if over <= 0 {
+		return row
+	}
+
+	return w.Truncate(row, w.StringWidth(row)-over, "")
 }
 
 // keep returns the part of value that fits in budget columns, followed by

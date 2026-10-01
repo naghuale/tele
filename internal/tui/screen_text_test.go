@@ -301,7 +301,8 @@ func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
 		Aliases: []string{dirtyLine},
 		Messages: []Message{{
 			Text: dirtyBody, Time: dirtyLine, Author: dirtyLine,
-			Media: dirtyLine, Caption: dirtyBody,
+			Media: dirtyLine, MediaDetail: dirtyLine,
+			Caption: dirtyBody, Service: dirtyLine,
 		}},
 	})
 	if chat.Title != "a bc d" || chat.Preview != "a bc d" ||
@@ -323,6 +324,7 @@ func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
 		)
 	}
 	if message.Author != "a bc d" || message.Media != "a bc d" ||
+		message.MediaDetail != "a bc d" || message.Service != "a bc d" ||
 		message.Time != "a bc d" {
 		t.Fatalf("message = %+v, want every other string on one line", message)
 	}

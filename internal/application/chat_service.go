@@ -310,8 +310,16 @@ func (s *TelegramChatService) messageOf(
 		Author:   s.authorOf(ctx, chat, message),
 		AuthorID: message.Sender.ID,
 		Media:    message.Media,
-		Caption:  message.Caption,
-		AlbumID:  int64(message.MediaAlbumID),
+
+		// What the message carries is three fields and not one: the word,
+		// whatever else the payload says about it, and the caption under
+		// it. The screen puts the three in one pair of brackets and the
+		// plural of an album of them where the word goes; see
+		// internal/tui/view_conversation.go.
+		MediaDetail: message.MediaDetail,
+		Caption:     message.Caption,
+		Service:     message.Service,
+		AlbumID:     int64(message.MediaAlbumID),
 	}
 }
 

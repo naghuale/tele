@@ -614,6 +614,9 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotBlockRows", func(t *testing.T) Model {
 			return snapshotBlockRows(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotContentLabels", func(t *testing.T) Model {
+			return snapshotContentLabels(t, wide(theme.ProfileTrueColor))
+		}},
 		{"TestSnapshotOneRowBubbleSquare", func(t *testing.T) Model {
 			return snapshotOneRowBubble(t, false)
 		}},
@@ -853,9 +856,83 @@ func snapshotBlockRows(t *testing.T, f snapshotFixture) Model {
 	return m.scrollToNewest()
 }
 
-func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
+// The screen of the labels of a message: what a message says it carries
+// when it is not words, and what happened in the chat in a row of its own.
+//
+// The owner's report of 01.10 was three rows that said
+// `[unsupported message]` — one in the list and two in the feed — and a chat
+// whose last message could not be read at all. This screen is what those
+// rows say now, and the previews of the list beside it are the same
+// sentences: a label in the list and a different one in the feed is a chat a
+// user has to open to find out what it was about (#17).
+func snapshotContentLabels(t *testing.T, f snapshotFixture) Model {
 	t.Helper()
 
+	f.chats = []Chat{
+		{
+			ID: snapshotChatID, Title: "Большой теннис", Unread: 2,
+			Kind: ChatKindGroup, Preview: "[dice 🎲 4]", Time: "12:09",
+		},
+		{
+			ID: 2, Title: "Bills", Preview: "[file счёт.pdf] February",
+			Time: "12:06",
+		},
+		{
+			ID: 3, Title: "Court booking", Preview: "joined the chat",
+			Time: "12:01",
+		},
+	}
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page: HistoryPage{Messages: []Message{
+			{
+				// A content this build has no words for is named by the
+				// @type TDLib gave it, which is the name to add it under.
+				ID: 1, Time: "12:00", Author: "Дмитрий С",
+				Media: "messageUnsupported",
+			},
+			{
+				ID: 2, Time: "12:01", Author: "Дмитрий С",
+				Media: "sticker", MediaDetail: " 🎾",
+			},
+			{
+				// What happened in the chat, in a row of its own.
+				ID: 3, Time: "12:02", Service: "pinned a message",
+			},
+			{
+				ID: 4, Time: "12:06", Author: "Дмитрий С",
+				Media: "file", MediaDetail: " счёт.pdf", Caption: "February",
+			},
+			{
+				ID: 5, Time: "12:07", Author: "Дмитрий С",
+				Media: "poll", MediaDetail: ": Friday at 19:00?",
+			},
+			{
+				ID: 6, Time: "12:09", Author: "Дмитрий С",
+				Media: "dice", MediaDetail: " 🎲 4",
+			},
+		}},
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	return m
+}
+
+// TestSnapshotContentLabels is the screen of the labels of a message: a
+// sticker with its emoji, a file with its name and its caption, a poll with
+// its question, a dice with its number, a content this build has no words
+// for by its own @type, and what happened in the chat in a row of its own.
+func TestSnapshotContentLabels(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotContentLabels"))
+}
+
+func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
+	t.Helper()
 	f := wide(theme.ProfileTrueColor)
 	f.height = snapshotShortHeight
 	f.nerdFont = nerdFont

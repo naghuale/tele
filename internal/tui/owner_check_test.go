@@ -258,28 +258,41 @@ func manyMessages(count int) []Message {
 	return messages
 }
 
-// A record with no words and no media is a record this build cannot read:
-// a service message, or a content TDLib has added. It is drawn as one
-// block with nothing in it, at the top of the feed of every chat.
+// The owner's report of 01.10: two messages of the feed and one preview in
+// the chat list said `[unsupported message]`, and there was no way to tell
+// what had been sent (#17).
 //
-// The projection already says what it is: a placeholder such as
-// [photo] or [unsupported message] (PROJECT_FACTS.md, the chat
-// projection). The words of a message nobody wrote are the place for it.
-func TestAMessageWithNoWordsSaysWhatThisBuildCannotRead(t *testing.T) {
+// A service message is what happened in the chat rather than something
+// somebody wrote, and it is now a row of the feed of its own with the words
+// of what happened on it. The two rows of the report are the ones this test
+// draws: a member who joined and a message that was pinned.
+func TestWhatHappenedInTheChatIsSaidAsARowOfItsOwn(t *testing.T) {
 	model := ownerModel(t, termwidth.ModeCodepoint)
 	model.screen = ScreenConversation
 	model.focus = FocusComposer
 	model.chats[0].Messages = []Message{
-		{ID: 1, Author: "Дмитрий С", Time: "11:00"},
+		{ID: 1, Author: "Дмитрий С", Time: "11:00", Service: "joined the chat"},
 		{ID: 2, Outgoing: true, Text: "вижу", Time: "11:01"},
+		{
+			ID: 3, Author: "Дмитрий С", Time: "11:02",
+			Service: "pinned a message",
+		},
 	}
 
 	view := plain(model.View())
-	if !strings.Contains(view, "[unsupported message]") {
-		t.Fatalf(
-			"a message with no words and no media is drawn as nothing:\n%s",
-			view,
-		)
+	for _, phrase := range []string{"joined the chat", "pinned a message"} {
+		if !strings.Contains(view, phrase) {
+			t.Fatalf("the feed does not say %q:\n%s", phrase, view)
+		}
+	}
+	if strings.Contains(view, "unsupported") {
+		t.Fatalf("the feed says something about what it cannot read:\n%s", view)
+	}
+	// A service message is not somebody's message: nobody is named above
+	// it, because its sender is the chat and the chat is named at the top
+	// of the screen.
+	if strings.Contains(view, "Дмитрий С  11:00") {
+		t.Fatalf("a service message is signed with a name:\n%s", view)
 	}
 }
 

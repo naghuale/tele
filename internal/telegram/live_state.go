@@ -699,8 +699,8 @@ func parsePositionOrder(raw json.RawMessage) (int64, error) {
 }
 
 // liveMessageRaw mirrors the fields of a TDLib message used for a
-// preview. The preview text is built by parseLastMessage, which the
-// snapshot path already uses, so the two paths cannot drift apart.
+// preview. The label and the text of the message are read from the content
+// the way the history page reads them, so the two paths cannot drift apart.
 //
 // The numbers are tdInt, like every other number TDLib writes: see
 // tdint.go.
@@ -731,9 +731,12 @@ func decodeLiveMessage(raw json.RawMessage) *Message {
 // that a message exists. So the same decode is done strictly here, and
 // the caller reports the failure.
 //
-// The preview text comes from parseLastMessage, which the snapshot path
-// already uses, so a message cannot look different depending on which
-// path saw it.
+// The message is read the way a page of history reads it, so a message
+// cannot look different depending on which path saw it. A chat list says
+// what one of these last messages was with the same label the feed draws
+// (chats.go, parseLastMessage), and it is composed from these fields rather
+// than written into the text: a preview that a live update put into the text
+// of a message would have to be taken back out again by whoever draws it.
 func parseLiveMessage(raw json.RawMessage) (Message, error) {
 	if isAbsentJSON(raw) {
 		return Message{}, errors.New("telegram message is absent")
@@ -753,15 +756,17 @@ func parseLiveMessage(raw json.RawMessage) (Message, error) {
 		)
 	}
 
-	// parseLastMessage already extracts the preview text for a message
-	// payload, including the word for a file and the caption under it.
-	_, text, _ := parseLastMessage(raw)
+	label := readContentLabel(message.Content)
 
 	return Message{
-		ID:        MessageID(message.ID),
-		ChatID:    ChatID(message.ChatID),
-		Outgoing:  message.IsOutgoing,
-		Timestamp: time.Unix(int64(message.Date), 0).UTC(),
-		Text:      text,
+		ID:          MessageID(message.ID),
+		ChatID:      ChatID(message.ChatID),
+		Outgoing:    message.IsOutgoing,
+		Timestamp:   time.Unix(int64(message.Date), 0).UTC(),
+		Text:        extractMessageText(message.Content),
+		Media:       label.word,
+		MediaDetail: label.detail,
+		Caption:     label.caption,
+		Service:     label.service,
 	}, nil
 }

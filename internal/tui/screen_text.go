@@ -434,14 +434,19 @@ func safeMessages(messages []Message) []Message {
 //
 // Its text is the body of the feed and keeps its line breaks; everything
 // else about it — the time, the name above it, the word for what it
-// carries and the caption under it — is a row of something, and a row
-// cannot be two rows whatever the sender typed.
+// carries, the detail of that word and the caption under it — is a row of
+// something, and a row cannot be two rows whatever the sender typed. The
+// phrase of a service message is a row too, and it is the one row of the
+// feed that is not anybody's message: it names the chat, a topic or a
+// person, and all of them are things a person can send.
 func safeMessage(message Message) Message {
 	message.Text = screenBody(message.Text)
 	message.Time = screenLine(message.Time)
 	message.Author = screenLine(message.Author)
 	message.Media = screenLine(message.Media)
+	message.MediaDetail = screenLine(message.MediaDetail)
 	message.Caption = screenBody(message.Caption)
+	message.Service = screenLine(message.Service)
 
 	return message
 }

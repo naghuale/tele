@@ -116,14 +116,28 @@ type Message struct {
 	// between two conversations.
 	AuthorID int64
 
-	// Media is what the message carries when it is not only text: "photo",
-	// "video", "document", "voice", "sticker", "audio", "animation", or
-	// "" for a message with nothing but words.
+	// Media is the word for what the message carries when it is not only
+	// text: "photo", "video", "GIF", "file", "sticker", "voice note", or
+	// the @type of a content nothing is known about yet, and "" for a
+	// message with nothing but words.
 	Media string
+
+	// MediaDetail is what there is to say about what the message carries
+	// beyond the word: the emoji of a sticker, the name of a file, the
+	// question of a poll. It comes with its own separator — a colon for
+	// the poll, a space for the rest — and the screen puts the word and
+	// the detail inside one pair of brackets.
+	MediaDetail string
 
 	// Caption is the text under a picture or a file, which Telegram keeps
 	// apart from the text of the message.
 	Caption string
+
+	// Service is what happened in the chat rather than what was written
+	// in it — "joined the chat", "pinned a message" — and it is drawn as a
+	// row of the feed of its own, in the muted step of the text ramp,
+	// rather than as a message somebody wrote.
+	Service string
 
 	// AlbumID groups the parts of one album. Telegram sends an album as
 	// consecutive messages that share it, and the interface draws one

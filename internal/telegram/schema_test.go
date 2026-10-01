@@ -454,6 +454,15 @@ func citations() []struct {
 		{name: "updateSupergroup", line: 10739},
 		{name: "getUser", line: 11499},
 		{name: "getSupergroup", line: 11511},
+		// The types a message content is named by, the first and the last
+		// of them: the labels of a message are named after them, and a
+		// name that is not one of them is a label no message can carry
+		// (message_content.go).
+		{name: "messageText", line: 5141},
+		{name: "messageDice", line: 5232},
+		{name: "messageChatAddMembers", line: 5346},
+		{name: "messageForumTopicIsClosedToggled", line: 5406},
+		{name: "messageUnsupported", line: 5690},
 	}
 }
 

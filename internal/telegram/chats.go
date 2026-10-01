@@ -368,9 +368,12 @@ func parseChatType(raw json.RawMessage) (ChatKind, bool, int64) {
 // parseLastMessage extracts the message ID, a short preview and the moment
 // it was sent from a chat's last_message field.
 //
-// A message that carries a file gets the word for the file and its caption,
+// A message that carries a file gets the label for the file and its caption,
 // because "a picture" in a chat list is what the user needs to know and a
-// row of nothing is not. An empty or null last_message returns
+// row of nothing is not; a message that is only words gets the words, and a
+// service message gets the phrase of what happened. The label is the same
+// one the feed draws (message_content.go), so the two cannot disagree about
+// what a message was. An empty or null last_message returns
 // (0, "", time.Time{}).
 func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
 	if len(raw) == 0 || string(raw) == "null" {
@@ -388,79 +391,9 @@ func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
 	id := MessageID(msg.ID)
 	sent := time.Unix(int64(msg.Date), 0).UTC()
 
-	if len(msg.Content) == 0 || string(msg.Content) == "null" {
-		return id, "", sent
+	if text := extractMessageText(msg.Content); text != "" {
+		return id, text, sent
 	}
 
-	var envelope messageEnvelope
-	if err := json.Unmarshal(msg.Content, &envelope); err != nil {
-		return id, "", sent
-	}
-
-	if envelope.Type == "messageText" {
-		var content messageTextContentRaw
-		if err := json.Unmarshal(msg.Content, &content); err == nil {
-			return id, content.Text.Text, sent
-		}
-	}
-
-	if word, caption := extractMedia(msg.Content); word != "" {
-		return id, mediaPreview(word, caption), sent
-	}
-
-	return id, placeholderForContent(envelope.Type), sent
-}
-
-// mediaPreview is what a chat list says about a message that carries a
-// file: the word for the file, the caption if there is one, and the words
-// if the message has any as well.
-func mediaPreview(word, caption string) string {
-	preview := "[" + word + "]"
-	if caption != "" {
-		preview += " " + caption
-	}
-
-	return preview
-}
-
-// placeholderForContent maps a TDLib messageContent @type to a short
-// preview string. The list covers the common cases; unknown types fall
-// back to a generic placeholder.
-func placeholderForContent(contentType string) string {
-	switch contentType {
-	case "messageText":
-		return ""
-	case "messageAnimation":
-		return "[animation]"
-	case "messageAudio":
-		return "[audio]"
-	case "messageContact":
-		return "[contact]"
-	case "messageDocument":
-		return "[document]"
-	case "messageGame":
-		return "[game]"
-	case "messageLocation":
-		return "[location]"
-	case "messagePhoto":
-		return "[photo]"
-	case "messagePoll":
-		return "[poll]"
-	case "messageSticker":
-		return "[sticker]"
-	case "messageVenue":
-		return "[venue]"
-	case "messageVideo":
-		return "[video]"
-	case "messageVideoNote":
-		return "[video note]"
-	case "messageVoiceNote":
-		return "[voice note]"
-	case "messageCall":
-		return "[call]"
-	case "messageUnsupported":
-		return "[unsupported message]"
-	default:
-		return "[unsupported message]"
-	}
+	return id, readContentLabel(msg.Content).line(), sent
 }

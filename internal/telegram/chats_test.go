@@ -344,7 +344,70 @@ func TestGetChatExtractsTextContent(t *testing.T) {
 	}
 }
 
-func TestGetChatPlaceholderForUnsupportedContent(t *testing.T) {
+// A chat list says what the last message of a chat was, in the words the
+// feed draws it in.
+//
+// The label is the same one the feed of the open chat uses, so a sticker is
+// "[sticker 😀]" in both places and a message this build has no words for
+// is named by its own type in both (#17). The old preview for an unknown
+// content was the same "[unsupported message]" in both, which is what the
+// owner read in the list and could not act on (01.10).
+func TestGetChatPreviewSaysWhatTheLastMessageCarries(t *testing.T) {
+	for _, preview := range []struct {
+		name    string
+		content map[string]any
+		want    string
+	}{
+		{
+			name: "a sticker",
+			content: map[string]any{
+				"@type":   "messageSticker",
+				"sticker": map[string]any{"emoji": "😀"},
+			},
+			want: "[sticker 😀]",
+		},
+		{
+			name: "a file with a caption",
+			content: map[string]any{
+				"@type":    "messageDocument",
+				"document": map[string]any{"file_name": "счёт.pdf"},
+				"caption":  map[string]any{"text": "February"},
+			},
+			want: "[file счёт.pdf] February",
+		},
+		{
+			name:    "a service message",
+			content: map[string]any{"@type": "messageChatJoinByRequest"},
+			want:    "joined the chat",
+		},
+		{
+			name:    "a content this build has no words for",
+			content: map[string]any{"@type": "messageUnsupported"},
+			want:    "[messageUnsupported]",
+		},
+	} {
+		t.Run(preview.name, func(t *testing.T) {
+			last := map[string]any{
+				"@type":   "message",
+				"id":      5,
+				"content": preview.content,
+			}
+			raw, err := json.Marshal(last)
+			if err != nil {
+				t.Fatalf("marshal the last message: %v", err)
+			}
+
+			_, text, _ := parseLastMessage(raw)
+			if text != preview.want {
+				t.Errorf("the preview reads %q, want %q", text, preview.want)
+			}
+		})
+	}
+}
+
+// A chat whose last message is a picture says so, and the word for a
+// picture is the word the feed draws.
+func TestGetChatPreviewOfAPhoto(t *testing.T) {
 	session, sender, _, client := newSessionWithFakes(t)
 
 	type result struct {
@@ -485,7 +548,7 @@ func TestGetChatRejectsMismatchedResponseID(t *testing.T) {
 	}
 }
 
-// ---- parseLastMessage / placeholder unit coverage ----
+// ---- parseLastMessage unit coverage ----
 
 func TestParseLastMessageNil(t *testing.T) {
 	id, text, at := parseLastMessage(nil)
@@ -499,20 +562,17 @@ func TestParseLastMessageNil(t *testing.T) {
 	}
 }
 
-func TestPlaceholderForContent(t *testing.T) {
-	cases := map[string]string{
-		"messagePhoto":       "[photo]",
-		"messageVideo":       "[video]",
-		"messageDocument":    "[document]",
-		"messageSticker":     "[sticker]",
-		"messageVoiceNote":   "[voice note]",
-		"messageVideoNote":   "[video note]",
-		"messageUnsupported": "[unsupported message]",
-		"messageFuture":      "[unsupported message]",
-	}
-	for contentType, want := range cases {
-		if got := placeholderForContent(contentType); got != want {
-			t.Fatalf("placeholderForContent(%q) = %q, want %q", contentType, got, want)
-		}
+// A message of a chat list keeps its place in the row even where its words
+// could not be read.
+//
+// The identifier of a last message is what a read of that chat is placed by,
+// and a content this build cannot decode must not cost the row its number.
+func TestParseLastMessageOfAnUnreadableContentKeepsTheIdentifier(t *testing.T) {
+	raw := json.RawMessage(
+		`{"@type":"message","id":9,"date":1700000000,"content":{"@type":42}}`,
+	)
+	id, text, at := parseLastMessage(raw)
+	if id != 9 || text != "" || at.IsZero() {
+		t.Fatalf("got (%d, %q, %v), want (9, \"\", a moment)", id, text, at)
 	}
 }

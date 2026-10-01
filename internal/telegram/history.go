@@ -28,10 +28,22 @@ type Message struct {
 	Sender MessageSender
 
 	// Media is the word the interface writes for what the message carries,
-	// and Caption the words under it. Both are empty for a message that is
-	// only text.
-	Media   string
-	Caption string
+	// Caption the words under it and MediaDetail whatever else the payload
+	// says about it — the emoji of a sticker, the name of a file, the
+	// question of a poll. All three are empty for a message that is only
+	// text.
+	//
+	// The word is the interface's and not TDLib's, and a type it has no
+	// word for is drawn by the @type TDLib gave it: see message_content.go.
+	Media       string
+	MediaDetail string
+	Caption     string
+
+	// Service is what happened in the chat rather than what was written in
+	// it — "joined the chat", "pinned a message" — and it is set instead
+	// of the word: a service message carries nothing to label. The
+	// interface draws it as a row of the feed of its own.
+	Service string
 
 	// MediaAlbumID groups the parts of one album. Telegram sends an album
 	// as consecutive messages that share it, and sends the field on every
@@ -312,17 +324,19 @@ func decodeHistoryMessage(
 		)
 	}
 
-	media, caption := extractMedia(m.Content)
+	label := readContentLabel(m.Content)
 
 	return Message{
-		ID:        MessageID(m.ID),
-		ChatID:    ChatID(m.ChatID),
-		Outgoing:  m.IsOutgoing,
-		Timestamp: time.Unix(int64(m.Date), 0).UTC(),
-		Text:      extractMessageText(m.Content),
-		Sender:    parseMessageSender(m.SenderID),
-		Media:     media,
-		Caption:   caption,
+		ID:          MessageID(m.ID),
+		ChatID:      ChatID(m.ChatID),
+		Outgoing:    m.IsOutgoing,
+		Timestamp:   time.Unix(int64(m.Date), 0).UTC(),
+		Text:        extractMessageText(m.Content),
+		Sender:      parseMessageSender(m.SenderID),
+		Media:       label.word,
+		MediaDetail: label.detail,
+		Caption:     label.caption,
+		Service:     label.service,
 
 		// A media_album_id of zero is not an album: Telegram sends it on
 		// every message, and the timeline groups runs of messages that
@@ -372,12 +386,15 @@ func parseMessageSender(raw json.RawMessage) MessageSender {
 	}
 }
 
-// extractMessageText returns the message text for a message that is only
-// text, and nothing at all for a message that carries a file.
+// extractMessageText returns the words of a message that are the message:
+// the text of a text message and the emoji of an animated one, and nothing
+// at all for a message that carries something else.
 //
 // A placeholder such as "[photo]" used to stand in for the file; the
-// interface now says what the message carries in its own words, through
-// the Media field, and a message that is a picture has no text of its own.
+// interface now says what the message carries in its own words, through the
+// Media field, and a message that is a picture has no text of its own. An
+// animated emoji is on the other side of that line: the emoji is the whole
+// of the message and nothing is attached to it, so it is text.
 func extractMessageText(content json.RawMessage) string {
 	if len(content) == 0 || string(content) == "null" {
 		return ""
@@ -388,13 +405,15 @@ func extractMessageText(content json.RawMessage) string {
 		return ""
 	}
 
-	if envelope.Type != "messageText" {
-		return ""
-	}
+	switch envelope.Type {
+	case "messageText":
+		var contentText messageTextContentRaw
+		if err := json.Unmarshal(content, &contentText); err == nil {
+			return contentText.Text.Text
+		}
 
-	var contentText messageTextContentRaw
-	if err := json.Unmarshal(content, &contentText); err == nil {
-		return contentText.Text.Text
+	case "messageAnimatedEmoji":
+		return nestedString(content, "emoji")
 	}
 
 	return ""

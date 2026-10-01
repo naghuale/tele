@@ -141,15 +141,17 @@ func (s *AuthorizedSession) SendTextMessage(
 		)
 	}
 
-	media, caption := extractMedia(response.Content)
+	label := readContentLabel(response.Content)
 
 	return Message{
-		ID:        MessageID(response.ID),
-		ChatID:    ChatID(response.ChatID),
-		Outgoing:  response.IsOutgoing,
-		Timestamp: time.Unix(int64(response.Date), 0).UTC(),
-		Text:      extractMessageText(response.Content),
-		Media:     media,
-		Caption:   caption,
+		ID:          MessageID(response.ID),
+		ChatID:      ChatID(response.ChatID),
+		Outgoing:    response.IsOutgoing,
+		Timestamp:   time.Unix(int64(response.Date), 0).UTC(),
+		Text:        extractMessageText(response.Content),
+		Media:       label.word,
+		MediaDetail: label.detail,
+		Caption:     label.caption,
+		Service:     label.service,
 	}, nil
 }

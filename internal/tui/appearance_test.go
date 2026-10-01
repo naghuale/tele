@@ -435,14 +435,18 @@ func TestAPhotoWithoutACaptionSaysOnlyWhatItCarries(t *testing.T) {
 	if got := entryText(entries[0]); got != "[photo]" {
 		t.Fatalf("the message reads %q, want %q", got, "[photo]")
 	}
-	// A record with neither words nor a file in it says that this build
-	// cannot read it, in the same words the chat projection uses for a
-	// content type it does not know: a block with nothing in it, at the top
-	// of the feed of every chat, is a message a user cannot tell from one
-	// that failed to load (the owner, 01.10).
+}
+
+// A record with no words, no file and no phrase is a record the projection
+// never sends: every content type is named, down to the ones this build has
+// no words for yet (#17). The word is there so that such a record is still
+// said rather than drawn as a block of nothing — the old one said
+// "[unsupported message]", which is a sentence about the program rather than
+// about the message.
+func TestARecordWithNothingInItIsStillNamed(t *testing.T) {
 	got := entryText(timelineEntries([]Message{{ID: 2, Time: "10:00"}})[0])
-	if got != "[unsupported message]" {
-		t.Fatalf("the message reads %q, want %q", got, "[unsupported message]")
+	if got != "[message]" {
+		t.Fatalf("the message reads %q, want %q", got, "[message]")
 	}
 }
 

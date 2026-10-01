@@ -609,6 +609,20 @@ func (m Model) entryLines(
 		return append([]string{""}, rows...)
 	}
 
+	// A service message is what happened in the chat rather than what was
+	// written in it, and it is a row of the feed of its own: no block, no
+	// name above it, and the words in the muted step. A block would say
+	// that somebody said it, and nobody did — the sender of a service
+	// message is the chat, and its name is already at the top of the
+	// screen.
+	if entry.message.Service != "" {
+		rows := m.serviceMessageLines(entry, layout, width, styles)
+		if layout.Short() {
+			return rows
+		}
+		return append([]string{""}, rows...)
+	}
+
 	var block []string
 
 	switch {
@@ -625,6 +639,81 @@ func (m Model) entryLines(
 	}
 
 	return append([]string{""}, block...)
+}
+
+// ---- the rows of the feed that are not blocks ----
+
+// serviceMessageLines renders what happened in the chat: the phrase in the
+// middle of the feed, in the muted step of the text ramp, with the marker of
+// the selection in front of it when the cursor is on it.
+//
+// It is centred and not against an edge because it belongs to neither side.
+// An incoming message is on the left because somebody sent it, and a service
+// message is on the left for the same reason or in the middle; the middle is
+// the one place of the feed that is nobody's, which is what this is.
+//
+// There is no block around it, and there is no name above it: the sender of
+// a service message is the chat, and the chat is named at the top of the
+// screen already. The phrase of the message under the cursor is the one
+// exception — it is drawn on the Selected surface with the air a block has
+// inside it, because a selection of a message that cannot be seen is a
+// selection a user can only find by moving the cursor, and the block is the
+// only thing every other message is selected with.
+func (m Model) serviceMessageLines(
+	entry timelineEntry,
+	layout Layout,
+	width int,
+	styles viewStyles,
+) []string {
+	selected := m.entrySelected(entry)
+	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
+
+	// The surface of the phrase: the background of the feed while the
+	// cursor is elsewhere, and the selection of a message under it.
+	surface := m.tokens().ChatBackground
+	if selected {
+		surface = m.blockSurface(true)
+	}
+	raised := styles.on(surface, styles.unstyled())
+	phrase := styles.on(surface, styles.dimmed(m.tokens().SecondaryText))
+
+	lane := maxInt(width-2*layout.FeedMargin(), 1)
+	inset := layout.BlockInset()
+	mark := spaces(selectionMarkerWidth)
+	if selected {
+		mark = m.selectionMark(true)
+	}
+
+	rows := make([]string, 0, 2)
+	for _, line := range m.widths.Wrap(
+		entry.message.Service,
+		maxInt(lane-2*inset, 1),
+		ellipsis,
+	) {
+		// The air of the lane is split between the two sides, and the odd
+		// column goes to the right: a row written from the left edge has
+		// to end at the same column whatever the phrase in it is.
+		block := minInt(m.widths.StringWidth(line)+2*inset, lane)
+		air := maxInt(lane-block, 0)
+
+		rows = append(rows, m.painterIn(
+			conversationOrigin(LayoutFor(m.width, m.height)), theme.Color{},
+		).
+			own(feed, spaces(layout.FeedMargin()-selectionMarkerWidth)).
+			own(
+				styles.on(m.tokens().ChatBackground, m.selectionMarkStyle(selected)),
+				mark,
+			).
+			own(feed, spaces(air/2)).
+			own(raised, spaces(inset)).
+			own(phrase, line).
+			own(raised, spaces(inset)).
+			own(feed, spaces(air-air/2)).
+			own(feed, spaces(layout.FeedMargin())).
+			String())
+	}
+
+	return rows
 }
 
 // ---- the blocks of the two sides ----
@@ -1359,7 +1448,7 @@ func (m Model) selectionMarkStyle(selected bool) lipgloss.Style {
 // entryText returns what an entry says: the words under a picture when it
 // has some, and the text otherwise.
 //
-// A message with neither is a message whose media word is all there is — a
+// A message with neither is a message whose label is all there is — a
 // picture, a sticker, a voice note — and a row of empty columns where the
 // text should be says nothing at all.
 func entryText(entry timelineEntry) string {
@@ -1368,38 +1457,41 @@ func entryText(entry timelineEntry) string {
 
 // messageText returns what a message says, for a run of parts parts long.
 func messageText(message Message, parts int) string {
+	// A service message is what happened in the chat rather than what was
+	// written in it, and its phrase is the whole of it: there is nothing
+	// to put a label or a text around.
+	if message.Service != "" {
+		return message.Service
+	}
+
 	label := mediaLabel(message, parts)
-	if label == "" {
-		if message.Text == "" {
-			// A record with neither words nor a file in it is one this
-			// build cannot read: a service message, or a content TDLib
-			// has added. It is said rather than left blank, because a
-			// block with nothing in it is a block a user cannot read and
-			// cannot tell from a message that failed to load, and this
-			// one is at the top of the feed of every chat (the owner,
-			// 01.10).
-			//
-			// The projection already says the same thing about a chat
-			// preview: a placeholder such as [photo] or [unsupported
-			// message] (PROJECT_FACTS.md, the chat projection).
-			return unsupportedMessageWord
-		}
-
+	switch {
+	case label == "" && message.Text == "":
+		return wordlessMessageWord
+	case label == "":
 		return message.Text
-	}
-
-	if message.Text == "" {
+	case message.Text == "":
 		return label
+	default:
+		return label + " " + message.Text
 	}
-
-	return label + " " + message.Text
 }
 
-// unsupportedMessageWord is what a message this build cannot read says.
-const unsupportedMessageWord = "[unsupported message]"
+// wordlessMessageWord is what a record says when it has no words, no file
+// and no phrase of its own.
+//
+// The projection names every content type there is, down to the name TDLib
+// gives one this build has never heard of (#17), so a record with nothing in
+// it is not a message Telegram sent: it is a message that lost its label
+// somewhere between the adapter and the screen, or a fixture written by hand.
+// It is named rather than left blank, because a block with nothing in it is
+// a block a user cannot read and cannot tell from a message that failed to
+// load.
+const wordlessMessageWord = "[message]"
 
 // mediaLabel returns what a message carries, in the words §4.4 uses: the
-// kind in brackets, and the caption after it when the picture had one.
+// kind in brackets, whatever the message says about it inside them, and the
+// caption after it when the picture had one.
 //
 // The caption is part of the label and not part of the text, because
 // Telegram keeps them apart: the words under a picture are the picture's,
@@ -1410,7 +1502,16 @@ func mediaLabel(message Message, parts int) string {
 		return ""
 	}
 
-	label := "[" + mediaWord(message.Media, parts) + "]"
+	// The detail of an album is the detail of its first part, and an album
+	// is one entry: the name of one of three files is the name of a file
+	// the user cannot open, and "[3 files счёт.pdf]" is a sentence about
+	// one of the three.
+	detail := message.MediaDetail
+	if parts > 1 {
+		detail = ""
+	}
+
+	label := "[" + mediaWord(message.Media, parts) + detail + "]"
 	if message.Caption == "" {
 		return label
 	}
@@ -1424,7 +1525,9 @@ func mediaLabel(message Message, parts int) string {
 // The plural is not the singular with an "s" on it, because a file is not
 // a document in the words the interface uses: an album of documents is an
 // album of files, and a user who reads "[3 documents]" has to stop and
-// work out what a document is.
+// work out what a document is. Telegram groups photographs, videos, files,
+// audio and animations into an album and nothing else, and those are the
+// words the table has plurals for.
 func mediaWord(media string, parts int) string {
 	if parts < 2 {
 		return mediaSingular(media)
@@ -1433,6 +1536,13 @@ func mediaWord(media string, parts int) string {
 	return strconv.Itoa(parts) + " " + mediaPlural(media)
 }
 
+// mediaSingular is the noun of a message, as a person writes it.
+//
+// A word this build has no case for is written as it was named rather than
+// as a file: the projection names every content type, down to the ones
+// nobody has words for yet (#17), and renaming "[dice 🎲 4]" to "[file]"
+// because the screen only knows the six words of an album would take away
+// the one thing the label was for.
 func mediaSingular(media string) string {
 	switch media {
 	case "photo":
@@ -1443,12 +1553,12 @@ func mediaSingular(media string) string {
 		return "voice note"
 	case "sticker":
 		return "sticker"
-	case "animation":
-		return "animation"
+	case "GIF":
+		return "GIF"
 	case "audio":
 		return "audio"
 	default:
-		return "file"
+		return media
 	}
 }
 
@@ -1462,8 +1572,8 @@ func mediaPlural(media string) string {
 		return "voice notes"
 	case "sticker":
 		return "stickers"
-	case "animation":
-		return "animations"
+	case "GIF":
+		return "GIFs"
 	case "audio":
 		return "audio files"
 	default:

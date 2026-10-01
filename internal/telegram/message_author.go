@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// This file is everything the interface needs to say who sent a message and
-// what a message carries, and the one question the live store deliberately
-// does not keep the answer to (#41).
+// This file is everything the interface needs to say who sent a message, and
+// the one question the live store deliberately does not keep the answer to
+// (#41).
 //
 // The live state holds chat titles and message text, and it does not hold
 // the names of the people in a chat. That is a privacy claim the store's
@@ -19,6 +19,9 @@ import (
 // for as long as the program runs, and never written into LiveState, a log
 // line, a doctor report or an error message. Nothing here has a String
 // method that prints a name.
+//
+// What a message carries is message_content.go, and the caption shape below
+// is the one both files read.
 
 // MessageSenderKind is who a message came from, as TDLib reports it.
 type MessageSenderKind string
@@ -157,63 +160,9 @@ func userDisplayName(user getUserResponse) string {
 	return fmt.Sprintf("user %d", int64(user.ID))
 }
 
-// The @type of each messageContent that carries a file of some kind, and
-// the word the interface writes for it.
-//
-// The word is the interface's, not TDLib's: a user reads "[photo]" and
-// does not read "messagePhoto", and an album of documents is an album of
-// files rather than an album of "document"s.
-var mediaWords = map[string]string{
-	"messageAnimation": "animation",
-	"messageAudio":     "audio",
-	"messageDocument":  "file",
-	"messagePhoto":     "photo",
-	"messageSticker":   "sticker",
-	"messageVideo":     "video",
-	"messageVideoNote": "video note",
-	"messageVoiceNote": "voice note",
-}
-
-// mediaKind returns the word for a message content type, and whether the
-// content is a file of some kind at all.
-func mediaKind(contentType string) (string, bool) {
-	word, ok := mediaWords[contentType]
-
-	return word, ok
-}
-
 // mediaCaptionRaw is the shape of the caption of a picture or a file.
 type mediaCaptionRaw struct {
 	Caption struct {
 		Text string `json:"text"`
 	} `json:"caption"`
-}
-
-// extractMedia returns the word for what a message carries and the caption
-// under it, if it carries a file at all.
-//
-// A message that is only text has neither, and the interface then draws
-// the text alone: a row of empty columns where a picture should be is a
-// message a user cannot read.
-func extractMedia(content json.RawMessage) (string, string) {
-	if len(content) == 0 || string(content) == "null" {
-		return "", ""
-	}
-
-	var envelope messageEnvelope
-	if err := json.Unmarshal(content, &envelope); err != nil {
-		return "", ""
-	}
-
-	word, ok := mediaKind(envelope.Type)
-	if !ok {
-		return "", ""
-	}
-
-	var caption mediaCaptionRaw
-	if err := json.Unmarshal(content, &caption); err != nil {
-		return word, ""
-	}
-
-	return word, strings.TrimSpace(caption.Caption.Text)
 }

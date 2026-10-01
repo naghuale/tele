@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -809,41 +808,59 @@ func TestMessageEventsDoNotDisturbTheChatList(t *testing.T) {
 	}
 }
 
-// The preview of a message must be built by the same code whichever path
-// saw it, so a message cannot look different in the list and in the
-// window.
-func TestEventPreviewMatchesTheChatListPreview(t *testing.T) {
+// A live message carries the same words as the same message read out of a
+// page of history.
+//
+// The two paths decode one payload into one Message, and a consumer that
+// drew one of them in other words would show the last message of a chat in
+// one set of words in the list and in another in the window — the row of
+// `[unsupported message]` the owner could not act on was one such row (#17).
+func TestALiveMessageCarriesTheSameWordsAsTheHistoryPage(t *testing.T) {
+	const content = `{"@type":"messageSticker","sticker":{"@type":"sticker","emoji":"😀"}}`
+
 	state := NewLiveState()
 	mustApplyLiveChat(t, state, 7, "Alice", 100)
 
-	// A photo, so the placeholder path is exercised rather than a plain
-	// text body.
-	_, err := state.apply(RawMessage(
+	if _, err := state.apply(RawMessage(
 		`{"@type":"updateNewMessage","message":{"@type":"message","id":501,` +
 			`"chat_id":7,"is_outgoing":false,"date":1700000000,` +
-			`"content":{"@type":"messagePhoto","photo":{"@type":"photo",` +
-			`"sizes":[]}}}}`,
-	))
-	if err != nil {
+			`"content":` + content + `}}`,
+	)); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
 
 	events, _, _ := state.MessageEventsSince(7, 0)
-	added := events[0].(MessageAdded)
-	if added.Message.Text != "[photo]" {
-		t.Fatalf("Text = %q, want the placeholder [photo]", added.Message.Text)
-	}
+	live := events[0].(MessageAdded).Message
 
-	_, listPreview, _ := parseLastMessage(json.RawMessage(
-		`{"@type":"message","id":501,"chat_id":7,"date":1700000000,` +
-			`"content":{"@type":"messagePhoto","photo":{"@type":"photo","sizes":[]}}}`,
-	))
-	if added.Message.Text != listPreview {
-		t.Fatalf(
-			"event preview %q differs from the list preview %q",
-			added.Message.Text,
-			listPreview,
+	page, err := DecodeHistoryPage(RawMessage(
+		`{"@type":"messages","total_count":1,"messages":[{"@type":"message",`+
+			`"id":501,"chat_id":7,"is_outgoing":false,"date":1700000000,`+
+			`"content":`+content+`}]}`,
+	), 7)
+	if err != nil {
+		t.Fatalf("DecodeHistoryPage: %v", err)
+	}
+	if len(page.Messages) != 1 {
+		t.Fatalf("the page holds %d messages, want 1", len(page.Messages))
+	}
+	fromHistory := page.Messages[0]
+
+	if live.Text != fromHistory.Text ||
+		live.Media != fromHistory.Media ||
+		live.MediaDetail != fromHistory.MediaDetail ||
+		live.Caption != fromHistory.Caption ||
+		live.Service != fromHistory.Service {
+		t.Errorf(
+			"the live message reads %+v and the history page reads %+v: "+
+				"one payload cannot be drawn two ways",
+			live, fromHistory,
 		)
+	}
+	if live.Media != "sticker" || live.MediaDetail != " 😀" {
+		t.Errorf("the live message carries %+v, want a sticker and its emoji", live)
+	}
+	if live.Text != "" {
+		t.Errorf("the live message reads %q, want no words of its own", live.Text)
 	}
 }
 

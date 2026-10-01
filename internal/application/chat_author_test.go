@@ -413,6 +413,45 @@ func TestAMediaMessageCarriesItsWordAndItsCaption(t *testing.T) {
 	}
 }
 
+// What a message carries reaches the screen whole: the word, whatever the
+// payload said about it, and the caption under it, and the phrase of a
+// service message in the field of its own.
+//
+// The three words of a label are one bracket on the screen, so the fields
+// have to travel together: a sticker whose emoji was left on the way is
+// "[sticker]", which is a label about a sticker nobody can see (#17).
+func TestTheWordsOfALabelReachTheScreenTogether(t *testing.T) {
+	names := &fakeTelegramNames{users: map[int64]string{21: "Marta"}, chats: map[int64]string{}}
+	service := NewTelegramChatService(groupSource(names))
+
+	got := historyOf(t, service,
+		telegram.Message{
+			ID: 1, Media: "sticker", MediaDetail: " 😀",
+			Caption: "at the bridge",
+		},
+		telegram.Message{ID: 2, Service: "joined the chat by a link"},
+		telegram.Message{ID: 3, Media: "messageUnsupported"},
+	)
+
+	if got[0].Media != "sticker" || got[0].MediaDetail != " 😀" {
+		t.Errorf("the sticker carries %q and %q, want the word and its emoji",
+			got[0].Media, got[0].MediaDetail)
+	}
+	if got[0].Caption != "at the bridge" {
+		t.Errorf("the caption is %q, want the words under the sticker",
+			got[0].Caption)
+	}
+	if got[1].Service != "joined the chat by a link" {
+		t.Errorf("the service phrase is %q, want what happened in the chat",
+			got[1].Service)
+	}
+	// A content this build has no words for travels as its own @type, and
+	// the screen draws it by that name — the type a maintainer adds.
+	if got[2].Media != "messageUnsupported" {
+		t.Errorf("an unnamed content travels as %q, want its @type", got[2].Media)
+	}
+}
+
 // A row says what kind of chat it is, because that is what decides whether
 // a message names its author and whether the unread badge is in the
 // accent.

@@ -448,7 +448,10 @@ func TestGetChatHistoryHasMoreWhenTheAnswerWasNotEmpty(t *testing.T) {
 
 // A message that carries a file has no text of its own: the interface says
 // what the message is in its own words through the Media field, and a
-// placeholder in the text would be drawn twice.
+// placeholder in the text would be drawn twice. A content this build has no
+// words for is named by its own @type, so that the type can be added
+// (#17) — it used to be named by nothing at all, and the feed said
+// "[unsupported message]".
 func TestGetChatHistoryMedia(t *testing.T) {
 	cases := []struct {
 		contentType string
@@ -458,7 +461,7 @@ func TestGetChatHistoryMedia(t *testing.T) {
 		{"messageVideo", "video"},
 		{"messageDocument", "file"},
 		{"messageVoiceNote", "voice note"},
-		{"messageFuture", ""},
+		{"messageFuture", "messageFuture"},
 	}
 
 	for _, tc := range cases {

@@ -114,8 +114,11 @@ func TestTelegramChatServiceNilSource(t *testing.T) {
 }
 
 func TestTelegramChatServiceLoadHistory(t *testing.T) {
+	// The moment and nothing else: the projection used to spell the hour
+	// out here, in a zone of its own, which is how a reader ten hours east
+	// of Greenwich saw Telegram's 07:21 as 21:21 (the owner, 29.09.2026).
+	// What the screen writes is the view's business.
 	ts := time.Unix(1700000000, 0).UTC()
-	wantTime := ts.Format("15:04")
 
 	fake := &fakeTelegramChats{
 		history: telegram.HistoryPage{
@@ -154,9 +157,8 @@ func TestTelegramChatServiceLoadHistory(t *testing.T) {
 	if page.NextFrom != 199 || !page.HasMore {
 		t.Fatalf("page = %+v", page)
 	}
-	if page.Messages[0].Time != wantTime {
-		t.Fatalf("message time = %q, want %q",
-			page.Messages[0].Time, wantTime)
+	if got := page.Messages[0].At; !got.Equal(ts) {
+		t.Fatalf("the moment of the message = %v, want %v", got, ts)
 	}
 }
 
@@ -190,7 +192,6 @@ func TestTelegramChatServiceLoadHistoryError(t *testing.T) {
 
 func TestTelegramChatServiceSendMessage(t *testing.T) {
 	ts := time.Unix(1700000000, 0).UTC()
-	wantTime := ts.Format("15:04")
 
 	fake := &fakeTelegramChats{
 		sentMessage: telegram.Message{
@@ -222,8 +223,8 @@ func TestTelegramChatServiceSendMessage(t *testing.T) {
 	if msg.Text != "hello" {
 		t.Fatalf("message.Text = %q, want hello", msg.Text)
 	}
-	if msg.Time != wantTime {
-		t.Fatalf("message.Time = %q, want %q", msg.Time, wantTime)
+	if got := msg.At; !got.Equal(ts) {
+		t.Fatalf("the moment of the message = %v, want %v", got, ts)
 	}
 }
 

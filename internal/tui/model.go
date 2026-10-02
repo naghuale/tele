@@ -369,6 +369,30 @@ type Model struct {
 	now      func() time.Time
 	location *time.Location
 
+	// unreadBoundary is the last message of the open chat Telegram had been
+	// told was read when the chat was opened, and it is what the unread line
+	// of the feed is drawn from.
+	//
+	// It is remembered rather than read again because this program marks
+	// what is on the screen as read (message_viewing.go). A pointer read
+	// again after the first read of a window would have moved past the very
+	// messages the line stands over, and the line would go as soon as the
+	// reader looked at the conversation — which is exactly the moment it is
+	// for. Telegram is told the window; the screen keeps the line.
+	//
+	// It is zero for a chat with nothing read in it and for a chat the
+	// source could not say anything about, and both draw no line at all.
+	unreadBoundary int64
+
+	// hourFormat is the format the hour is written in: 20:06 or 08:06 PM.
+	//
+	// It is a field for the reason now and location are. A message of
+	// 21:21 UTC is 07:21 in Vladivostok, and which of those two spellings
+	// is on the screen is the machine's answer — and a test of the screen
+	// has to be able to state that answer instead of reading it from the
+	// runner. See clock.go.
+	hourFormat ClockFormat
+
 	quitting bool
 }
 
@@ -404,9 +428,15 @@ func NewModel() Model {
 		colorProfile: theme.ProfileNoColor,
 		// A model built without a measurement counts by code points, which
 		// is what a terminal nobody could ask is drawn with.
-		widths:   termwidth.Unmeasured(termwidth.ModeAuto),
-		now:      time.Now,
-		location: time.Local,
+		widths: termwidth.Unmeasured(termwidth.ModeAuto),
+		// The clock of the mock screen is the moment its data was written
+		// for, in the zone it was written in. The mock data is fixed, so a
+		// screen drawn from the machine's clock would say a different day
+		// every day of the year — the feed of §8.3 names the day a message
+		// is on, and a mock screen whose "Today" is not today is a screen
+		// that cannot be read.
+		now:      func() time.Time { return mockClock },
+		location: mockZone,
 	}.withRenderer(theme.ProfileNoColor)
 }
 
@@ -1600,6 +1630,16 @@ func (m Model) openSelectedChat(
 	m.historyMoreErr = nil
 	m.historyFillRequests = 0
 	m.historyFillMessages = 0
+
+	// Where the unread messages of this chat begin, read once, as the chat
+	// was when it was opened.
+	//
+	// It is read here and never again while the chat is open, because this
+	// program tells Telegram what is on the screen (message_viewing.go) and
+	// Telegram's own pointer would move past the very messages the line
+	// stands over. A line that went away as soon as the reader looked at it
+	// is a line that says nothing about what they had not read.
+	m.unreadBoundary = m.chats[m.selectedChat].LastReadInboxMessageID
 
 	statusCmd := m.setMessageStatusTarget(
 		m.accountKey,

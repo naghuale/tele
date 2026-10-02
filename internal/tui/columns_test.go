@@ -212,7 +212,7 @@ func messageOnScreen(t *testing.T, title, text string, width, height int) Model 
 		ID:    1,
 		Title: title,
 		Messages: []Message{{
-			ID: 1, Author: "Анна", Text: text, Time: "12:07",
+			ID: 1, Author: "Анна", Text: text, At: mockMoment("12:07"),
 		}},
 	}}
 	m.chatsState = loadStateLoaded

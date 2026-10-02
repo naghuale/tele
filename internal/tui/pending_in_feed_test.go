@@ -24,11 +24,11 @@ func conversationOfHeight(t *testing.T, height int) Model {
 	t.Helper()
 
 	page := HistoryPage{Messages: []Message{
-		{ID: 1, Author: "Anna Example", Text: "первое", Time: "11:00"},
-		{ID: 2, Author: "Anna Example", Text: "второе", Time: "11:01"},
-		{ID: 3, Author: "Anna Example", Text: "третье", Time: "11:02"},
-		{ID: 4, Author: "Anna Example", Text: "четвёртое", Time: "11:03"},
-		{ID: 5, Author: "Anna Example", Text: "пятое", Time: "11:04"},
+		{ID: 1, Author: "Anna Example", Text: "первое", At: mockMoment("11:00")},
+		{ID: 2, Author: "Anna Example", Text: "второе", At: mockMoment("11:01")},
+		{ID: 3, Author: "Anna Example", Text: "третье", At: mockMoment("11:02")},
+		{ID: 4, Author: "Anna Example", Text: "четвёртое", At: mockMoment("11:03")},
+		{ID: 5, Author: "Anna Example", Text: "пятое", At: mockMoment("11:04")},
 	}}
 
 	base := conversationWithPending(

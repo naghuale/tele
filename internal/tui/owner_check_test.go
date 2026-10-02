@@ -40,7 +40,7 @@ func ownerChats() []Chat {
 			Title:   names[index%len(names)],
 			Preview: previews[index%len(previews)],
 			Unread:  index % 5,
-			Time:    fmt.Sprintf("12:%02d", index%60),
+			At:      mockMoment(fmt.Sprintf("12:%02d", index%60)),
 			Kind:    ChatKind(index % 3),
 		})
 	}
@@ -61,10 +61,10 @@ func ownerModel(t *testing.T, mode termwidth.Mode) Model {
 	model.selectedChat = 0
 
 	model.chats[0].Messages = []Message{
-		{ID: 100, Author: "Дмитрий С", Text: "Привет", Time: "12:00"},
-		{ID: 101, Outgoing: true, Text: "Привет!", Time: "12:01"},
-		{ID: 102, Author: "Дмитрий С", Text: "Как сборка?", Time: "12:02"},
-		{ID: 103, Outgoing: true, Text: "Зелёная", Time: "12:03"},
+		{ID: 100, Author: "Дмитрий С", Text: "Привет", At: mockMoment("12:00")},
+		{ID: 101, Outgoing: true, Text: "Привет!", At: mockMoment("12:01")},
+		{ID: 102, Author: "Дмитрий С", Text: "Как сборка?", At: mockMoment("12:02")},
+		{ID: 103, Outgoing: true, Text: "Зелёная", At: mockMoment("12:03")},
 	}
 
 	model.summary = StatusSummary{
@@ -251,7 +251,7 @@ func manyMessages(count int) []Message {
 			Outgoing: index%3 == 0,
 			Author:   "Дмитрий С",
 			Text:     fmt.Sprintf("сообщение %d", index),
-			Time:     "12:00",
+			At:       mockMoment("12:00"),
 		})
 	}
 
@@ -271,10 +271,10 @@ func TestWhatHappenedInTheChatIsSaidAsARowOfItsOwn(t *testing.T) {
 	model.screen = ScreenConversation
 	model.focus = FocusComposer
 	model.chats[0].Messages = []Message{
-		{ID: 1, Author: "Дмитрий С", Time: "11:00", Service: "joined the chat"},
-		{ID: 2, Outgoing: true, Text: "вижу", Time: "11:01"},
+		{ID: 1, Author: "Дмитрий С", At: mockMoment("11:00"), Service: "joined the chat"},
+		{ID: 2, Outgoing: true, Text: "вижу", At: mockMoment("11:01")},
 		{
-			ID: 3, Author: "Дмитрий С", Time: "11:02",
+			ID: 3, Author: "Дмитрий С", At: mockMoment("11:02"),
 			Service: "pinned a message",
 		},
 	}

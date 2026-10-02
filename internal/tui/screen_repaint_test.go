@@ -70,7 +70,7 @@ func repaintChats(count int) []Chat {
 			Title:   fmt.Sprintf("Chat %03d ✌️ about 中文", number),
 			Preview: fmt.Sprintf("preview %03d 🇨🇳 прошивка вышла", number),
 			Unread:  number % 7,
-			Time:    "12:" + fmt.Sprintf("%02d", number%60),
+			At:      mockMoment(fmt.Sprintf("12:%02d", number%60)),
 		})
 	}
 

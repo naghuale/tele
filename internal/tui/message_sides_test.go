@@ -470,7 +470,7 @@ func TestAnOutgoingBlockIsAsWideAsItsTextAndEndsAtTheRightMargin(t *testing.T) {
 	)
 	layout := LayoutFor(m.width, m.height)
 	message := Message{
-		ID: 1, Outgoing: true, Text: "shipped the release notes", Time: "12:05",
+		ID: 1, Outgoing: true, Text: "shipped the release notes", At: mockMoment("12:05"),
 	}
 	rows := entryRows(t, m, layout, feedTestWidth, message)
 
@@ -518,7 +518,7 @@ func TestALongOutgoingMessageTakesTheShareAndWraps(t *testing.T) {
 		ID:       1,
 		Outgoing: true,
 		Text:     strings.Repeat("word ", 40),
-		Time:     "12:05",
+		At:       mockMoment("12:05"),
 	})
 
 	block := blockBackground(m)
@@ -568,8 +568,8 @@ func TestTheTwoSidesShareOneSurfaceAndAreToldApartByTheirWords(t *testing.T) {
 		FocusHistory,
 	)
 	m.chats[m.selectedChat].Messages = []Message{
-		{ID: 1, Text: "from the other side", Time: "12:00", Author: "Anna", AuthorID: 7},
-		{ID: 2, Outgoing: true, Text: "from this side", Time: "12:01"},
+		{ID: 1, Text: "from the other side", At: mockMoment("12:00"), Author: "Anna", AuthorID: 7},
+		{ID: 2, Outgoing: true, Text: "from this side", At: mockMoment("12:01")},
 	}
 	m.historyState = loadStateLoaded
 	// The cursor is past the last message, so both blocks are on the plain
@@ -670,8 +670,8 @@ func TestTheSelectionIsOnTheMessageUnderTheCursorAndNowhereElse(t *testing.T) {
 			FocusHistory,
 		)
 		m.chats[m.selectedChat].Messages = []Message{
-			{ID: 1, Text: "from the other side", Time: "12:00", Author: "Anna", AuthorID: 7},
-			{ID: 2, Outgoing: true, Text: "from this side", Time: "12:01"},
+			{ID: 1, Text: "from the other side", At: mockMoment("12:00"), Author: "Anna", AuthorID: 7},
+			{ID: 2, Outgoing: true, Text: "from this side", At: mockMoment("12:01")},
 		}
 		m.historyState = loadStateLoaded
 		if onOutgoing {
@@ -743,7 +743,7 @@ func TestTheNameOfTheSenderIsInsideTheBlockOfTheMessage(t *testing.T) {
 	)
 	layout := LayoutFor(m.width, m.height)
 	message := Message{
-		ID: 1, Text: "from the other side", Time: "12:00",
+		ID: 1, Text: "from the other side", At: mockMoment("12:00"),
 		Author: "Anna", AuthorID: 7,
 	}
 	rows := entryRows(t, m, layout, feedTestWidth, message)
@@ -790,7 +790,7 @@ func TestTheStateIsInsideTheBlockAndAtItsRightEdge(t *testing.T) {
 		FocusHistory,
 	)
 	layout := LayoutFor(m.width, m.height)
-	message := Message{ID: 1, Outgoing: true, Text: "ok", Time: "12:01"}
+	message := Message{ID: 1, Outgoing: true, Text: "ok", At: mockMoment("12:01")}
 	label, _ := m.historyStateLabel(message)
 	rows := entryRows(t, m, layout, feedTestWidth, message)
 	outgoing := blockBackground(m)
@@ -848,7 +848,7 @@ func TestTheRoundedEndsOfABlockAreOneColumnWideInBothRules(t *testing.T) {
 		layout := LayoutFor(feedTestWidth, shortTestHeight)
 		rows := entryRows(t, m, layout, feedTestWidth, Message{
 			ID: 1, Text: "the build is green again",
-			Author: "Anna Example", Time: "12:05",
+			Author: "Anna Example", At: mockMoment("12:05"),
 		})
 
 		ends := m.styles().blockEdge(
@@ -948,7 +948,7 @@ func TestABlockOfMoreThanOneRowHasNoEnds(t *testing.T) {
 
 		layout := LayoutFor(m.width, m.height)
 		rows := entryRows(t, m, layout, feedTestWidth, Message{
-			ID: 1, Outgoing: true, Text: "ok", Time: "12:05",
+			ID: 1, Outgoing: true, Text: "ok", At: mockMoment("12:05"),
 		})
 
 		if got := len(blockBody(rows)); got < 2 {
@@ -990,7 +990,7 @@ func TestWithoutANerdFontTheEndsOfABlockAreSquare(t *testing.T) {
 	)
 	rows := entryRows(t, m, LayoutFor(feedTestWidth, shortTestHeight), feedTestWidth, Message{
 		ID: 1, Text: "the build is green again",
-		Author: "Anna Example", Time: "12:05",
+		Author: "Anna Example", At: mockMoment("12:05"),
 	})
 
 	for index, row := range rows {
@@ -1019,7 +1019,7 @@ func TestNoColorDrawsNeitherTheEndsNorTheBackground(t *testing.T) {
 
 	layout := LayoutFor(m.width, m.height)
 	rows := entryRows(t, m, layout, feedTestWidth, Message{
-		ID: 1, Outgoing: true, Text: "shipped the release notes", Time: "12:05",
+		ID: 1, Outgoing: true, Text: "shipped the release notes", At: mockMoment("12:05"),
 	})
 
 	for index, row := range rows {
@@ -1059,7 +1059,7 @@ func TestANarrowScreenLetsTheBlockFillTheFeed(t *testing.T) {
 		ID:       1,
 		Outgoing: true,
 		Text:     strings.Repeat("word ", 40),
-		Time:     "12:05",
+		At:       mockMoment("12:05"),
 	})
 
 	share := width * outgoingBlockSharePercent / 100
@@ -1249,9 +1249,9 @@ func TestEveryRowOfTheListKeepsItsAirInsideIt(t *testing.T) {
 				FocusChatList,
 			)
 			m.chats = []Chat{
-				{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
-				{ID: 2, Title: "Release Room", Unread: 63, Preview: "[photo]", Time: "12:05"},
-				{ID: 3, Title: "Notes", Preview: "", Time: "11:58"},
+				{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", At: mockMoment("12:07")},
+				{ID: 2, Title: "Release Room", Unread: 63, Preview: "[photo]", At: mockMoment("12:05")},
+				{ID: 3, Title: "Notes", Preview: "", At: mockMoment("11:58")},
 			}
 			m.chatsState = loadStateLoaded
 			m.selectedChat = chosen
@@ -1376,8 +1376,8 @@ func TestTheCountInTheHeaderEndsAtTheRightEdgeOfThePane(t *testing.T) {
 			FocusChatList,
 		)
 		m.chats = []Chat{
-			{ID: 1, Title: "Anna Example", Unread: 1234, Time: "12:07"},
-			{ID: 2, Title: "Release Room", Time: "12:05"},
+			{ID: 1, Title: "Anna Example", Unread: 1234, At: mockMoment("12:07")},
+			{ID: 2, Title: "Release Room", At: mockMoment("12:05")},
 		}
 		m.chatsState = loadStateLoaded
 
@@ -1435,8 +1435,8 @@ func TestTheHeaderAndTheWordsOfTheChatsShareTheirEdges(t *testing.T) {
 		FocusChatList,
 	)
 	m.chats = []Chat{
-		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
-		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05"},
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", At: mockMoment("12:07")},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", At: mockMoment("12:05")},
 	}
 	m.chatsState = loadStateLoaded
 	m.selectedChat = 0
@@ -1564,8 +1564,8 @@ func TestNoHalfBlockIsDrawnAnywhereOnTheScreen(t *testing.T) {
 		FocusChatList,
 	)
 	m.chats = []Chat{
-		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", Time: "12:07"},
-		{ID: 2, Title: "Release Room", Unread: 63, Preview: "[photo]", Time: "12:05"},
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green", At: mockMoment("12:07")},
+		{ID: 2, Title: "Release Room", Unread: 63, Preview: "[photo]", At: mockMoment("12:05")},
 	}
 	m.chatsState = loadStateLoaded
 	m.selectedChat = 0
@@ -1576,8 +1576,8 @@ func TestNoHalfBlockIsDrawnAnywhereOnTheScreen(t *testing.T) {
 		chatID:    1,
 		operation: m.historyOperation,
 		page: HistoryPage{Messages: []Message{
-			{ID: 2, Text: "I will take the release notes", Time: "12:04", Author: "Anna", AuthorID: 5},
-			{ID: 1, Text: "the build is green again", Time: "12:02", Outgoing: true},
+			{ID: 2, Text: "I will take the release notes", At: mockMoment("12:04"), Author: "Anna", AuthorID: 5},
+			{ID: 1, Text: "the build is green again", At: mockMoment("12:02"), Outgoing: true},
 		}},
 	})
 	m = m.scrollToNewest()
@@ -1621,9 +1621,9 @@ func chatListWith(t *testing.T, preview string) Model {
 		FocusChatList,
 	)
 	m.chats = []Chat{
-		{ID: 1, Title: "Anna Example", Unread: 2, Preview: preview, Time: "12:07"},
-		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05", Kind: ChatKindGroup},
-		{ID: 3, Title: "Notes", Unread: 7, Preview: "", Time: "11:58"},
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: preview, At: mockMoment("12:07")},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", At: mockMoment("12:05"), Kind: ChatKindGroup},
+		{ID: 3, Title: "Notes", Unread: 7, Preview: "", At: mockMoment("11:58")},
 	}
 	m.chatsState = loadStateLoaded
 	m.selectedChat = 0

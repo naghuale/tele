@@ -254,6 +254,17 @@ type timelineEntry struct {
 	// emptied the conversation above them — the user lost the history to
 	// see the state of messages they had just written.
 	pending *PendingMessage
+
+	// separator is what stands above the entry: the name of the day it
+	// opens, and the line the unread messages start at.
+	//
+	// It is a field of the entry and not a row of the conversation of its
+	// own, because the window is placed by the heights the entries really
+	// take (anchoredAt) and a row that was not part of an entry would be a
+	// row the walk did not know about: the feed would be placed a row too
+	// low for every day in it, and the rows above would be empty. See
+	// view_separators.go.
+	separator entrySeparator
 }
 
 // count returns how many parts the entry stands for.
@@ -328,7 +339,7 @@ func (m Model) feedEntries() []timelineEntry {
 	if len(m.pending) == 0 {
 		// Nothing to interleave, and the history is already in order, so
 		// its own indices are the conversation's.
-		return timelineEntries(messages)
+		return m.withSeparators(timelineEntries(messages))
 	}
 
 	slots := make([]feedSlot, 0, len(messages)+len(m.pending))
@@ -396,7 +407,7 @@ func (m Model) feedEntries() []timelineEntry {
 		position = run + 1
 	}
 
-	return entries
+	return m.withSeparators(entries)
 }
 
 // feedSlot is one row of the conversation before the parts of an album are
@@ -583,30 +594,60 @@ func (m Model) entrySelected(entry timelineEntry) bool {
 	return m.selectedMsg >= entry.first && m.selectedMsg <= entry.last
 }
 
-// entryLines renders one entry as the rows it takes, with a blank line
-// above it.
+// entryLines renders one entry as the rows it takes: what stands above it —
+// the name of its day, the line the unread messages start at — and then the
+// blank line and the message itself.
 //
 // The blank line is what makes a conversation a column of messages rather
 // than a wall: two messages with no gap between them are a paragraph, and
 // a paragraph of chat messages is not what a chat looks like. It is the
 // first thing to go on a screen too short for it (§3.4), where a message
-// is a line.
+// is a line — the separators are not, because a day of a conversation is a
+// day whether or not there is room for the name of it.
+//
+// The rows come out of here and the window is placed by counting them
+// (entryRows), so a separator is in the measurement as well as on the
+// screen. That is the whole reason it is part of an entry: a row that the
+// view drew and the model did not know about is a row the window is placed
+// too low by.
 func (m Model) entryLines(
 	entry timelineEntry,
 	layout Layout,
 	width int,
 	styles viewStyles,
 ) []string {
+	rows := m.entryBodyLines(entry, layout, width, styles)
+	separators := m.separatorRows(entry.separator, layout, width, styles)
+	if layout.Short() {
+		return append(separators, rows...)
+	}
+
+	// The gap comes first and the separator sits in it: the air between two
+	// messages is already this entry's, and a day name drawn between the
+	// gap and the message would be a second band of air for one boundary.
+	// The topmost entry has no message above it, so its gap goes and the
+	// separator is what stands under the header (entryRowsFrom).
+	return append([]string{""}, append(separators, rows...)...)
+}
+
+// entryBodyLines renders the message of an entry, without the air above it
+// and without anything that stands above that.
+//
+// The three shapes are apart rather than one switch because they are three
+// different claims about who said what, and the reader tells them apart by
+// the shape before reading a word of them.
+func (m Model) entryBodyLines(
+	entry timelineEntry,
+	layout Layout,
+	width int,
+	styles viewStyles,
+) []string {
 	// A message that is still going out is drawn the way it is measured:
-	// by the rows it really takes, in the same column, with the state of
-	// the send under the text. The window and the view have to agree about
+	// by the rows it really takes, in the same column, with the state of the
+	// send under the text. The window and the view have to agree about
 	// that, so both go through here.
 	if entry.isPending() {
-		rows := m.pendingMessageRows(*entry.pending, layout, width, styles)
-		if layout.Short() {
-			return rows
-		}
-		return append([]string{""}, rows...)
+		return m.pendingMessageRows(*entry.pending, layout, width, styles)
 	}
 
 	// A service message is what happened in the chat rather than what was
@@ -616,29 +657,17 @@ func (m Model) entryLines(
 	// message is the chat, and its name is already at the top of the
 	// screen.
 	if entry.message.Service != "" {
-		rows := m.serviceMessageLines(entry, layout, width, styles)
-		if layout.Short() {
-			return rows
-		}
-		return append([]string{""}, rows...)
+		return m.serviceMessageLines(entry, layout, width, styles)
 	}
-
-	var block []string
 
 	switch {
 	case entry.message.Outgoing:
-		block = m.outgoingMessageLines(entry, layout, width, styles)
+		return m.outgoingMessageLines(entry, layout, width, styles)
 	case layout.Short():
-		block = m.shortMessageLines(entry, layout, width, styles)
+		return m.shortMessageLines(entry, layout, width, styles)
 	default:
-		block = m.incomingMessageLines(entry, layout, width, styles)
+		return m.incomingMessageLines(entry, layout, width, styles)
 	}
-
-	if layout.Short() {
-		return block
-	}
-
-	return append([]string{""}, block...)
 }
 
 // ---- the rows of the feed that are not blocks ----
@@ -799,12 +828,19 @@ func (m Model) incomingMessageLines(
 // It is a list of runs and not a string because it is three colours on one
 // row, and a colour of its own inside a block has to be written with the
 // background of the block or the row loses it.
+//
+// The time is written here rather than carried on the message as a string,
+// and that is the whole of #62: the hour is the machine's format and the
+// moment is read in the zone of the reader, so a projection that spelled it
+// out in UTC wrote 21:21 on a screen of a user ten hours east of Greenwich.
 func (m Model) authorLine(entry timelineEntry, styles viewStyles) []blockRun {
 	runs := []blockRun{{
 		style: styles.authorColor(entry.message.AuthorID),
 		text:  messageAuthor(entry.message),
 	}}
-	if entry.message.Time == "" {
+
+	at := m.clockText(entry.message.At)
+	if at == "" {
 		return runs
 	}
 
@@ -812,7 +848,7 @@ func (m Model) authorLine(entry timelineEntry, styles viewStyles) []blockRun {
 		blockRun{style: styles.unstyled(), text: authorTimeSeparator},
 		blockRun{
 			style: styles.text(m.tokens().MutedText),
-			text:  entry.message.Time,
+			text:  at,
 		},
 	)
 }
@@ -1401,8 +1437,8 @@ func (m Model) historyStateLabel(message Message) (string, theme.Color) {
 	}
 
 	label := state.Mark().String()
-	if message.Time != "" {
-		label += " " + message.Time
+	if at := m.clockText(message.At); at != "" {
+		label += " " + at
 	}
 
 	return label, state.Color(m.tokens())

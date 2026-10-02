@@ -224,9 +224,9 @@ func TestAChatRowIsTwoLinesAndTheNextOneIsBelowIt(t *testing.T) {
 func TestTheUnreadBadgeIsAPillAndGroupsAreQuieter(t *testing.T) {
 	m := openedProgramModel(t, theme.ProfileTrueColor, 120, 30)
 	m.chats = []Chat{
-		{ID: 1, Title: "Anna", Unread: 2, Preview: "hello", Time: "10:02"},
-		{ID: 2, Title: "Room", Unread: 2, Preview: "hello", Time: "10:02", Kind: ChatKindGroup},
-		{ID: 3, Title: "Notes", Time: "10:02"},
+		{ID: 1, Title: "Anna", Unread: 2, Preview: "hello", At: mockMoment("10:02")},
+		{ID: 2, Title: "Room", Unread: 2, Preview: "hello", At: mockMoment("10:02"), Kind: ChatKindGroup},
+		{ID: 3, Title: "Notes", At: mockMoment("10:02")},
 	}
 	m.chatsState = loadStateLoaded
 	// The badge keeps its own colour on the row the cursor is on, so the
@@ -279,7 +279,7 @@ func TestTheFeedIsAnchoredToTheComposer(t *testing.T) {
 		FocusHistory,
 	)
 	m.chats[m.selectedChat].Messages = []Message{
-		{ID: 1, Text: "the oldest", Time: "10:00", Author: "Anna"},
+		{ID: 1, Text: "the oldest", At: mockMoment("10:00"), Author: "Anna"},
 	}
 	m.historyState = loadStateLoaded
 	m.selectedMsg = 0
@@ -326,8 +326,8 @@ func TestTheTwoSidesOfAConversationAreToldApartByWhereTheyAre(t *testing.T) {
 		FocusHistory,
 	)
 	m.chats[m.selectedChat].Messages = []Message{
-		{ID: 1, Text: "from the other side", Time: "10:00", Author: "Anna", AuthorID: 7},
-		{ID: 2, Outgoing: true, Text: "from this side", Time: "10:01"},
+		{ID: 1, Text: "from the other side", At: mockMoment("10:00"), Author: "Anna", AuthorID: 7},
+		{ID: 2, Outgoing: true, Text: "from this side", At: mockMoment("10:01")},
 	}
 	m.historyState = loadStateLoaded
 	m.selectedMsg = 1
@@ -382,7 +382,7 @@ func TestAnOutgoingBlockIsAtMostSeventyPerCentOfTheFeed(t *testing.T) {
 		FocusHistory,
 	)
 	m.chats[m.selectedChat].Messages = []Message{{
-		ID: 1, Outgoing: true, Text: strings.Repeat("long ", 60), Time: "10:01",
+		ID: 1, Outgoing: true, Text: strings.Repeat("long ", 60), At: mockMoment("10:01"),
 	}}
 	m.historyState = loadStateLoaded
 	m.selectedMsg = 0
@@ -407,10 +407,10 @@ func TestAnAlbumOfPhotosIsOneEntry(t *testing.T) {
 	messages := []Message{
 		{
 			ID: 1, Media: "photo", AlbumID: 5, Caption: "at the bridge",
-			Time: "10:00", Author: "Anna", AuthorID: 7,
+			At: mockMoment("10:00"), Author: "Anna", AuthorID: 7,
 		},
-		{ID: 2, Media: "photo", AlbumID: 5, Time: "10:00", Author: "Anna", AuthorID: 7},
-		{ID: 3, Media: "photo", AlbumID: 5, Time: "10:00", Author: "Anna", AuthorID: 7},
+		{ID: 2, Media: "photo", AlbumID: 5, At: mockMoment("10:00"), Author: "Anna", AuthorID: 7},
+		{ID: 3, Media: "photo", AlbumID: 5, At: mockMoment("10:00"), Author: "Anna", AuthorID: 7},
 	}
 
 	entries := timelineEntries(messages)
@@ -429,7 +429,7 @@ func TestAnAlbumOfPhotosIsOneEntry(t *testing.T) {
 // else. A row of empty columns where the words should be is a message a
 // user cannot read.
 func TestAPhotoWithoutACaptionSaysOnlyWhatItCarries(t *testing.T) {
-	message := Message{ID: 1, Media: "photo", Time: "10:00", Author: "Anna"}
+	message := Message{ID: 1, Media: "photo", At: mockMoment("10:00"), Author: "Anna"}
 
 	entries := timelineEntries([]Message{message})
 	if got := entryText(entries[0]); got != "[photo]" {
@@ -444,7 +444,7 @@ func TestAPhotoWithoutACaptionSaysOnlyWhatItCarries(t *testing.T) {
 // "[unsupported message]", which is a sentence about the program rather than
 // about the message.
 func TestARecordWithNothingInItIsStillNamed(t *testing.T) {
-	got := entryText(timelineEntries([]Message{{ID: 2, Time: "10:00"}})[0])
+	got := entryText(timelineEntries([]Message{{ID: 2, At: mockMoment("10:00")}})[0])
 	if got != "[message]" {
 		t.Fatalf("the message reads %q, want %q", got, "[message]")
 	}
@@ -698,7 +698,7 @@ func TestEveryColumnOfTheSelectedMessageBlockIsOnItsBackground(t *testing.T) {
 		FocusHistory,
 	)
 	m.chats[m.selectedChat].Messages = []Message{{
-		ID: 1, Text: "the build is green again", Time: "10:02",
+		ID: 1, Text: "the build is green again", At: mockMoment("10:02"),
 		Author: "Anna Example", AuthorID: 5,
 	}}
 	m.historyState = loadStateLoaded
@@ -854,9 +854,9 @@ func TestTheFeedIsInTheOrderOfTime(t *testing.T) {
 	// Chat.Messages is chronological, oldest first: a page arrives newest
 	// first and the model reverses it where it lands.
 	m.chats[m.selectedChat].Messages = []Message{
-		{ID: 1, Text: "the oldest of three", Time: "12:02", Author: "Anna", AuthorID: 5},
-		{ID: 2, Text: "the middle of three", Time: "12:08", Author: "Anna", AuthorID: 5},
-		{ID: 3, Text: "the newest of three", Time: "12:10", Author: "Anna", AuthorID: 5},
+		{ID: 1, Text: "the oldest of three", At: mockMoment("12:02"), Author: "Anna", AuthorID: 5},
+		{ID: 2, Text: "the middle of three", At: mockMoment("12:08"), Author: "Anna", AuthorID: 5},
+		{ID: 3, Text: "the newest of three", At: mockMoment("12:10"), Author: "Anna", AuthorID: 5},
 	}
 	m.historyState = loadStateLoaded
 	m.pending = []PendingMessage{queued}

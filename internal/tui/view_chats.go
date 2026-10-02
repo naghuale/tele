@@ -288,7 +288,7 @@ func (m Model) chatListRowLines(
 	}
 
 	mark := styles.selectionMarker(selected)
-	at := chat.Time
+	at := m.chatListTimeText(chat.At)
 	badge := m.chatListUnreadBadge(chat, surface)
 	timeColumns := m.widths.StringWidth(at)
 	timeStyle := styles.text(m.tokens().MutedText)

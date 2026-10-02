@@ -308,6 +308,8 @@ type Gradients struct {
 [tui]
 theme = "catppuccin-mocha"
 color = "auto"
+width = "auto"
+clock = "auto"
 nerd_font = false
 
 [theme.palette]
@@ -665,7 +667,7 @@ Status block — не более двух строк в обычном режи�
   2+2), не больше 70 % ширины ленты (в Narrow блок может занять её всю);
   длинный текст переносится внутри. Минимум 16 колонок текста — это
   `blockMinTextColumns`: слово в блоке шириной в шесть колонок — не
-  сообщение, а полоска, и пилюля из §4.4.1 в такой ширине не помещается;
+  сообщение, а полоска, и пилюля из §4.4.2 в такой ширине не помещается;
 - **воздух** — 2 колонки слева и справа у любого блока, и **одна пустая
   строка сверху и снизу** — только у блока, в котором две и более строки
   **текста** (30.09). Блок с одной строкой текста — это строка текста и
@@ -718,7 +720,73 @@ Status block — не более двух строк в обычном режи�
 покажет лента. Подробности и полный список меток — [страница справки
 help/message-labels.md](help/message-labels.md).
 
-### 4.4.1 Фон блока и фон выделения
+### 4.4.1 Разделители дней и непрочитанные
+
+В ленте стоят два вида строк, и оба они — строки ленты, а не украшение
+над ней: они входят в высоту записи, по которой размещается окно (§10.5,
+`anchoredAt`).
+
+**Разделитель дня** — по центру ленты, `MutedText`, одна строка, перед
+первым сообщением каждого календарного дня **в зоне читателя**:
+
+```text
+                     Yesterday
+                       Anna Example  09:12
+                       the notes are in the release
+
+                         Today
+                       Anna Example  08:15
+                       the build is green again
+```
+
+Название дня — лестница, а не календарь:
+
+| назад | подпись |
+|---|---|
+| сегодня | `Today` |
+| вчера | `Yesterday` |
+| 2–6 дней | день недели: `Monday` |
+| этот год | `Jan 2` |
+| раньше | `Jan 2, 2006` |
+
+Границы — календарные, а не «24 часа назад»: полночь в зоне читателя и
+нигде больше. Разделитель стоит и перед самым верхним сообщением окна,
+когда день над ним за пределами экрана: читатель, проскролливший в середину
+разговора, должен видеть, какой день он смотрит. Слова английские, как весь
+интерфейс.
+
+**Разделитель непрочитанных** — та же строка, `Unread messages`, над первым
+**входящим** сообщением с ID больше `last_read_inbox_message_id` чата на
+момент открытия чата (`chat.last_read_inbox_message_id`, td_api.tl:3610;
+`telegram.ChatSummary.LastReadInboxMessageID` → `tui.Chat.LastReadInboxMessageID`
+→ `Model.unreadBoundary`). Указатель Telegram — это последнее сообщение,
+которое ему сказали прочитанным, поэтому выше него прочитано, а от
+следующего — нет. У чата без непрочитанных такой строки нет вовсе.
+
+Указатель читается **при открытии чата** и не перечитывается, пока чат
+открыт: программа сама говорит Telegram, что видно в ленте
+(`message_viewing.go`), и указатель Telegram уехал бы за те самые сообщения,
+над которыми стоит строка. Строка, исчезающая, как только на неё посмотрели,
+не говорила бы ни о чём.
+
+Своё сообщение над указателем не считается непрочитанным: это сообщение
+этого аккаунта, написанное после того, как прочитано до указателя.
+
+Проверяется: `TestTheFeedNamesTheDayAboveItsFirstMessage`,
+`TestTheBoundaryIsTheMidnightOfTheReader`,
+`TestTwoMessagesOfOneDayShareItsName`,
+`TestAMessageOfTheQueueOpensTheDayItIsOn`,
+`TestTheUnreadLineStandsAboveTheFirstMessagePastTheReadPointer`,
+`TestTheUnreadLineIsNotAboveAMessageOfThisUser`,
+`TestAChatWithNothingUnreadSaysNothingAboutIt`,
+`TestTheUnreadLineStaysWhileTheChatIsOpen`,
+`TestThePointerIsReadWhenTheChatIsOpened`,
+`TestTheWindowIsFilledWithTheSeparatorsInIt`,
+`TestASeparatorIsCentredAndMuted`,
+`TestSnapshotThreeDaysWithUnread`,
+`TestSnapshotThreeDaysTwelveHour`.
+
+### 4.4.2 Фон блока и фон выделения
 
 Роли `OutgoingBlock` больше нет: у обоих блоков один фон.
 
@@ -766,7 +834,7 @@ help/message-labels.md](help/message-labels.md).
 включённой настройке — с полукружьями; у самой карточки чата, у неё две
 строки, полукруглых краёв нет.
 
-Header sticky — да. Date separators — `PR-10D`.
+Header sticky — да. Разделители дней и непрочитанных — §4.4.1.
 
 ### 4.5 Composer
 
@@ -1667,6 +1735,31 @@ TestEveryFrameIsTheSizeOfTheWindow
 
 Проверять: `TZ=UTC go test -count=1 -run Presence ./internal/tui` и то же в
 `Asia/Vladivostok` и `America/Adak`.
+
+Часы, зона и формат — три поля модели, и все три закрепляются:
+
+- `m.now` (по умолчанию `time.Now`) — момент;
+- `m.location` (по умолчанию `time.Local`) — зона;
+- `m.hourFormat` (по умолчанию `ClockFormat24h`) — 12 или 24 часа,
+  `ClockFormat` получается из `Dependencies.Clock`, который резолвит
+  композиционный корень (`resolveInterfaceClock` в
+  `internal/application/clock.go`).
+
+Ни одно время на экране не строится из строки. `tui.Message` и `tui.Chat`
+несут `time.Time`, а строку строит модель — `m.clockText`,
+`m.dayLabel`, `m.chatListTimeText` (clock.go). До #62 проекция писала час
+сама, в UTC: `internal/application/chat_service.go` брал
+`message.Timestamp.Format("15:04")` поверх момента, помеченного `.UTC()` в
+`internal/telegram`, и читатель в UTC+10 видел `21:21` там, где Telegram
+показывал `07:21` (владелец, 29.09.2026).
+
+Проверяется: `TestTheHourIsWrittenInTheFormatOfTheMachine` (21:21 UTC в
+`Asia/Vladivostok` → `07:21 AM` и `07:21`), `TestTheDayOfAMomentIsNamedForTheReader`
+(границы суток, смена года, 6 и 7 дней назад, в двух зонах),
+`TestTheMacLocaleSaysWhichHourItWrites` (таблица локалей macOS),
+`TestSnapshotThreeDaysTwelveHour` (золотой снимок чата на три дня в
+12-часовом формате) и `TestSnapshotThreeDaysWithUnread` (тот же чат в
+24-часовом, с непрочитанными).
 
 ## 22. Порядок PR
 

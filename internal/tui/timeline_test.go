@@ -16,8 +16,8 @@ import (
 func chronologicalPage() HistoryPage {
 	return HistoryPage{
 		Messages: []Message{
-			{ID: 100, Text: "newest", Time: "10:02"},
-			{ID: 99, Text: "oldest loaded", Time: "10:01"},
+			{ID: 100, Text: "newest", At: mockMoment("10:02")},
+			{ID: 99, Text: "oldest loaded", At: mockMoment("10:01")},
 		},
 		NextFrom: 99,
 		HasMore:  true,
@@ -29,9 +29,9 @@ func chronologicalPage() HistoryPage {
 func olderChronologicalPage() HistoryPage {
 	return HistoryPage{
 		Messages: []Message{
-			{ID: 99, Text: "oldest loaded", Time: "10:01"},
-			{ID: 98, Text: "older", Time: "10:00"},
-			{ID: 97, Text: "oldest", Time: "09:59"},
+			{ID: 99, Text: "oldest loaded", At: mockMoment("10:01")},
+			{ID: 98, Text: "older", At: mockMoment("10:00")},
+			{ID: 97, Text: "oldest", At: mockMoment("09:59")},
 		},
 		NextFrom: 97,
 		HasMore:  true,
@@ -246,7 +246,7 @@ func TestSentMessageGoesToTheEndAndFollowsTheCursor(t *testing.T) {
 	m, _ = updateModel(t, m, messageSentMsg{
 		chatID:    7,
 		operation: m.sendOperation,
-		message:   Message{ID: 101, Outgoing: true, Text: "sent", Time: "10:03"},
+		message:   Message{ID: 101, Outgoing: true, Text: "sent", At: mockMoment("10:03")},
 	})
 
 	if got := messageIDs(m.selected().Messages); !equalIDs(got, 99, 100, 101) {
@@ -271,7 +271,7 @@ func TestSentMessageDoesNotMoveACursorThatIsReadingHistory(t *testing.T) {
 	m, _ = updateModel(t, m, messageSentMsg{
 		chatID:    7,
 		operation: m.sendOperation,
-		message:   Message{ID: 1000, Outgoing: true, Text: "sent", Time: "10:03"},
+		message:   Message{ID: 1000, Outgoing: true, Text: "sent", At: mockMoment("10:03")},
 	})
 
 	if m.selectedMsg != 3 {

@@ -143,6 +143,15 @@ type Dependencies struct {
 	// measured in another terminal is not asked for again.
 	WidthMode termwidth.Mode
 
+	// Clock is how the hour is written: "20:06" or "8:06 PM".
+	//
+	// It is the resolved format and not the setting, because the machine is
+	// asked by the composition root and not by a model: every command that
+	// starts an interface resolves it the same way, and it is read once
+	// rather than per frame. The zero value is 24 hours, which is the answer
+	// for a machine nobody asked.
+	Clock ClockFormat
+
 	// WidthMeasured, when non-nil, is a measurement of the terminal that
 	// was taken somewhere else, and it stands in for measuring it here.
 	//
@@ -211,6 +220,7 @@ func NewModelWithDependencies(
 	model.widths, _ = termwidth.Select(
 		deps.WidthMode, measurementOf(deps.WidthMeasured),
 	)
+	model.hourFormat = deps.Clock
 	model.nerdFont = deps.NerdFont
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now

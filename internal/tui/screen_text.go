@@ -384,18 +384,19 @@ func safeChats(chats []Chat) []Chat {
 	return safe
 }
 
-// safeChat cleans one chat: its name, its preview, its time and the other
-// names it is found by in the search, plus the messages it arrived with.
+// safeChat cleans one chat: its name, its preview and the other names it is
+// found by in the search, plus the messages it arrived with.
 //
 // Every string of a chat is a single row of something, so every one of them
-// is cleaned as a line. The aliases never reach the screen — they are a way
-// of finding a row — and they are cleaned anyway, because a search that
-// matches a name the terminal would act on is a search over a name that is
-// not the one on the screen.
+// is cleaned as a line. The moment of its last message is not among them and
+// needs nothing: it is a time.Time, and the row draws it in the format and
+// the zone of the model rather than out of a string somebody typed. The
+// aliases never reach the screen — they are a way of finding a row — and they
+// are cleaned anyway, because a search that matches a name the terminal would
+// act on is a search over a name that is not the one on the screen.
 func safeChat(chat Chat) Chat {
 	chat.Title = screenLine(chat.Title)
 	chat.Preview = screenLine(chat.Preview)
-	chat.Time = screenLine(chat.Time)
 	chat.Aliases = safeAliases(chat.Aliases)
 	chat.Messages = safeMessages(chat.Messages)
 
@@ -433,15 +434,18 @@ func safeMessages(messages []Message) []Message {
 // safeMessage cleans one message.
 //
 // Its text is the body of the feed and keeps its line breaks; everything
-// else about it — the time, the name above it, the word for what it
-// carries, the detail of that word and the caption under it — is a row of
-// something, and a row cannot be two rows whatever the sender typed. The
-// phrase of a service message is a row too, and it is the one row of the
-// feed that is not anybody's message: it names the chat, a topic or a
-// person, and all of them are things a person can send.
+// else about it — the name above it, the word for what it carries, the
+// detail of that word and the caption under it — is a row of something, and
+// a row cannot be two rows whatever the sender typed. The phrase of a
+// service message is a row too, and it is the one row of the feed that is
+// not anybody's message: it names the chat, a topic or a person, and all of
+// them are things a person can send.
+//
+// The moment of the message is not among the strings and needs nothing: it
+// is a time.Time out of TDLib, and the screen writes it in the format and
+// the zone of the model rather than out of a string.
 func safeMessage(message Message) Message {
 	message.Text = screenBody(message.Text)
-	message.Time = screenLine(message.Time)
 	message.Author = screenLine(message.Author)
 	message.Media = screenLine(message.Media)
 	message.MediaDetail = screenLine(message.MediaDetail)

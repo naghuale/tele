@@ -190,8 +190,8 @@ func TestHistoryLoadedMsgPopulatesSelectedChat(t *testing.T) {
 		chatID: 10,
 		page: HistoryPage{
 			Messages: []Message{
-				{ID: 100, Outgoing: true, Text: "hi", Time: "10:00"},
-				{ID: 99, Text: "hello", Time: "09:59"},
+				{ID: 100, Outgoing: true, Text: "hi", At: mockMoment("10:00")},
+				{ID: 99, Text: "hello", At: mockMoment("09:59")},
 			},
 		},
 	})
@@ -378,7 +378,7 @@ func TestLoadHistoryCmdReturnsPage(t *testing.T) {
 
 func TestSendMessageCmdReturnsMessage(t *testing.T) {
 	source := &fakeChatSource{
-		sentMessage: Message{ID: 9001, Outgoing: true, Text: "hi", Time: "10:00"},
+		sentMessage: Message{ID: 9001, Outgoing: true, Text: "hi", At: mockMoment("10:00")},
 	}
 
 	msg := runCmd(t, sendMessageCmd(source, 42, "hi", 1))
@@ -582,7 +582,7 @@ func TestMessageSentClearsComposer(t *testing.T) {
 	m, _ = updateModel(t, m, messageSentMsg{
 		chatID:    7,
 		operation: m.sendOperation,
-		message:   Message{ID: 9001, Outgoing: true, Text: "hello", Time: "10:00"},
+		message:   Message{ID: 9001, Outgoing: true, Text: "hello", At: mockMoment("10:00")},
 	})
 
 	if m.Composer() != "" {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -46,7 +47,7 @@ func mixedPage(count int) HistoryPage {
 	for index := count; index >= 1; index-- {
 		message := Message{
 			ID:     int64(index),
-			Time:   fmt.Sprintf("12:%02d", index%60),
+			At:     mockMoment(fmt.Sprintf("12:%02d", index%60)),
 			Text:   fmt.Sprintf("message %d", index),
 			Author: "Anna Example", AuthorID: 5,
 		}
@@ -130,6 +131,23 @@ func mixedConversation(t *testing.T, count int) Model {
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{
 		Width: windowWidth, Height: windowHeight,
 	})
+
+	return withMockClock(m)
+}
+
+// withMockClock pins the clock and the zone a conversation of the mock
+// moments is drawn at.
+//
+// The moments of the fixtures are of one day in one fixed zone, and a model
+// that read the zone of the machine would draw a different day for them in
+// every other zone — and a day of a conversation is a row of the feed, so the
+// rows a test measures would depend on the machine it ran on. That is the
+// same rule the presence tests pin their clock for, with one more door: the
+// zone decides which day a moment falls on, and the day decides how many rows
+// the feed has.
+func withMockClock(m Model) Model {
+	m.now = func() time.Time { return mockClock }
+	m.location = mockZone
 
 	return m
 }
@@ -232,11 +250,11 @@ func TestTheAreaOfTheMessagesIsFullToItsFirstRow(t *testing.T) {
 // the oldest message and stays there.
 func TestAConversationShorterThanTheFeedSitsAboveTheComposer(t *testing.T) {
 	page := HistoryPage{Messages: []Message{
-		{ID: 3, Text: "the newest of three", Time: "12:03",
+		{ID: 3, Text: "the newest of three", At: mockMoment("12:03"),
 			Author: "Anna Example", AuthorID: 5},
-		{ID: 2, Text: "the middle of three", Time: "12:02",
+		{ID: 2, Text: "the middle of three", At: mockMoment("12:02"),
 			Author: "Anna Example", AuthorID: 5},
-		{ID: 1, Text: "the oldest of three", Time: "12:01",
+		{ID: 1, Text: "the oldest of three", At: mockMoment("12:01"),
 			Author: "Anna Example", AuthorID: 5},
 	}}
 	source := &recordingChatSource{pages: []HistoryPage{page}}
@@ -376,6 +394,7 @@ func TestAnOlderPageDoesNotMoveTheWindowOfAReader(t *testing.T) {
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{
 		Width: windowWidth, Height: windowHeight,
 	})
+	m = withMockClock(m)
 	m.focus = FocusHistory
 	// A few messages up from the newest, so the window is somewhere in the
 	// middle of the conversation and not at either end of it.
@@ -411,15 +430,21 @@ func TestAnOlderPageDoesNotMoveTheWindowOfAReader(t *testing.T) {
 		)
 	}
 
+	// Every row of the reader's window stays where it was, with one
+	// exception and the exception is the day. The older page is of the same
+	// day as the messages it went on top of, so the name of the day moved up
+	// with them: it belongs to the first message of the day, and the first
+	// message of the day is now above the window. What follows it is the
+	// window the reader had, row for row.
 	after := feedOf(t, m)
-	if len(after) != len(before) {
-		t.Fatalf("the feed drew %d rows, want the %d it drew", len(after), len(before))
+	if want := len(before) - 1; len(after) < want {
+		t.Fatalf("the feed drew %d rows, want at least the %d it drew", len(after), want)
 	}
-	for index := range before {
-		if plain(before[index]) != plain(after[index]) {
+	for index := 1; index < len(before); index++ {
+		if plain(before[index]) != plain(after[index-1]) {
 			t.Fatalf(
 				"row %d moved when the older page arrived\n  before: %q\n  after:  %q",
-				index+1, plain(before[index]), plain(after[index]),
+				index+1, plain(before[index]), plain(after[index-1]),
 			)
 		}
 	}
@@ -474,7 +499,7 @@ func olderPageOf(page HistoryPage) HistoryPage {
 	for offset := int64(1); offset <= 10; offset++ {
 		older.Messages = append(older.Messages, Message{
 			ID:       lowest - offset,
-			Time:     "11:50",
+			At:       mockMoment("11:50"),
 			Text:     fmt.Sprintf("older message %d", lowest-offset),
 			Author:   "Anna Example",
 			AuthorID: 5,

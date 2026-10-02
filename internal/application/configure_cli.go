@@ -13,6 +13,7 @@ import (
 	"telecli/internal/authstore"
 	"telecli/internal/config"
 	"telecli/internal/secretinput"
+	"telecli/internal/tui"
 )
 
 // runConfigure implements `telecli configure` and its subcommands.
@@ -127,6 +128,12 @@ func runConfigureStatus(args []string, env Environment) int {
 		return 1
 	}
 
+	clock, err := clockStatusOf(cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "configure error: %v\n", err)
+		return 1
+	}
+
 	out := env.Stdout
 
 	fmt.Fprintf(out, "Configuration\n")
@@ -134,6 +141,18 @@ func runConfigureStatus(args []string, env Environment) int {
 	writeStatusLine(out, "Source", string(resolved.Source))
 	writeStatusLine(out, "Delivery mode", string(cfg.MessageDelivery.Mode))
 	writeStatusLine(out, "Data directory", "configured")
+
+	// The interface settings are reported here as they are configured, with
+	// the same words the file uses and without reading anything off the
+	// machine: this is a report of what the user wrote, and the machine is
+	// asked by `telecli tui` where the screen is drawn. A setting that does
+	// not parse is reported as a configuration error, because a status that
+	// prints a word the program will refuse is a status that misinforms.
+	fmt.Fprintf(out, "\nInterface\n")
+	writeStatusLine(out, "Theme", cfg.TUI.Theme)
+	writeStatusLine(out, "Width", cfg.TUI.Width)
+	writeStatusLine(out, "Clock", clock)
+	writeStatusLine(out, "Nerd Font", boolWord(cfg.TUI.NerdFont))
 
 	fmt.Fprintf(out, "\nTDLib\n")
 	if cfg.TDLib.LibraryPath == "" {
@@ -192,6 +211,34 @@ func runConfigureStatus(args []string, env Environment) int {
 	writeStatusLine(out, "Ready", readyWord(resolvedAuth, resolveErr))
 
 	return 0
+}
+
+// clockStatusOf returns what the configured clock says, and refuses a word
+// that is not one of the three.
+//
+// The word is validated here rather than printed as written because
+// `telecli tui` and `telecli doctor` both refuse it: a status that said
+// "auto" for a clock set to "columns" would be a report of a setting the
+// program cannot use.
+func clockStatusOf(cfg config.Config) (string, error) {
+	mode, err := tui.ParseClockMode(cfg.TUI.Clock)
+	if err != nil {
+		return "", err
+	}
+
+	// The name and not the number: a mode is a uint8, and a careless string
+	// conversion of one renders a control byte on a line that is then
+	// reported as empty — which is what this function exists to prevent.
+	return mode.String(), nil
+}
+
+// boolWord is a setting as a status line writes a flag.
+func boolWord(value bool) string {
+	if value {
+		return "on"
+	}
+
+	return "off"
 }
 
 // statusLabelWidth keeps the status output aligned without trailing

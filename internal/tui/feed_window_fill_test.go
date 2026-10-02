@@ -39,7 +39,6 @@ func TestTheFeedWindowFillsItselfWithOlderMessages(t *testing.T) {
 			ID:       int64(1000 + i),
 			Outgoing: i%3 == 0,
 			Text:     feedMessageText(i),
-			Time:     base.Add(time.Duration(i) * time.Minute).Format("15:04"),
 			At:       base.Add(time.Duration(i) * time.Minute),
 			Author:   "Anna Example",
 			AuthorID: 5,
@@ -80,7 +79,7 @@ func TestTheFeedWindowFillsItselfWithOlderMessages(t *testing.T) {
 		model, _ = updateModel(t, model, chatsLoadedMsg{chats: []Chat{
 			{ID: 7, Title: "Anna Example", Messages: messages},
 			{ID: 8, Title: "Boris Example", Messages: []Message{{
-				ID: 2000, Text: "другой чат", Time: "08:00",
+				ID: 2000, Text: "другой чат",
 				At: base.Add(-time.Hour), Author: "Boris Example",
 			}}},
 		}})

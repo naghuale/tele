@@ -408,7 +408,11 @@
   - clamps history limit to the TDLib range and substitutes a
     default when out of range
   - maps telegram.Message → tui.Message; preserves Outgoing, Text,
-    and formats Timestamp as HH:MM
+    and carries Timestamp as a time.Time. The projection writes no
+    time string: the hour is written by the view, in the format and
+    the zone of the machine. Formatting it here over a moment stamped
+    `.UTC()` upstream is what put 21:21 where Telegram says 07:21 for
+    a reader ten hours east of Greenwich (owner, 29.09.2026)
   - names: the sender of a message is resolved when the message is
     drawn. An outgoing message is "You"; a personal chat and a channel
     are named by the chat; a group names the person who sent it, read
@@ -420,10 +424,18 @@
     a doctor report and not in an error message: the privacy claim of
     #41 is unchanged, and this file is what keeps it true
   - ownUserID is passed in by the composition root, and a chat whose
-    private peer is that user is the chat with oneself: it is found by
-    the name the user types ("Избранное") as well as by the title
-    Telegram gives it. An ownUserID of zero means the chat is not
-    recognised, which costs the alias and nothing else
+    private peer is that user is the chat with oneself. It is drawn
+    under the title "Saved Messages" — TDLib sends the name of the
+    user for it, and a list whose row says the account holder's own
+    name is a list where somebody has to recognise themselves by
+    their own name — and is found by either of its names,
+    "Избранное" (which the person using it types) and "Saved
+    Messages" (which Telegram and the phone say). An ownUserID of zero
+    means the chat is not recognised, which costs the aliases and
+    nothing else
+  - chat rows carry LastReadInboxMessageID from
+    `chat.last_read_inbox_message_id`; the TUI reads it when the chat
+    is opened and draws the unread line of the feed from it
 - TUI ChatSource: internal/tui/chat_source.go
   - ListChats, LoadHistory, SendMessage
   - async tea.Cmd-based loading with loadState
@@ -560,6 +572,23 @@
     heading, the status block and the line an older page takes. The view
     draws the feed into it and the window is placed against it, so the two
     cannot disagree
+  - a divider of a day and the unread line are rows of the ENTRY and not
+    of the conversation beside it (internal/tui/view_separators.go,
+    §4.4.1). A separator as a message of its own would be a row the walk
+    of anchoredAt did not know about, and the window would be placed a
+    row too low for every day in the conversation: a feed of N one-line
+    messages of one day takes 3N rows where it took 3N-1, the row of the
+    day where the gap above the first message used to be. `entryLines`
+    returns the rows of the separator, the gap and the block, and the
+    same function measures and draws them
+  - the divider stands above the first entry of a calendar day in the
+    zone of the reader, including above the topmost entry of the window
+    when the day it belongs to is off the screen above it
+  - the unread line stands above the first incoming entry past the read
+    pointer of the chat, which is read ONCE when the chat is opened
+    (Model.unreadBoundary) and never again while it is open: this
+    program tells Telegram what the window holds, and a pointer read
+    again would have moved past the messages the line stands over
   - the messages that are still going out are ENTRIES of the feed, not a
     block drawn under it: `feedEntries` appends one entry per pending
     message after the entries of the history, and `entryLines` renders it
@@ -681,7 +710,10 @@
     spaces, the time in MutedText, and no middle dot. The dot of §3.3
     joins two parts of one line of words ("online · connected"); a name
     and a time are not that, and the owner has them side by side (30.09)
-    - authorTimeSeparator is two spaces
+    - authorTimeSeparator is two spaces. The time itself is written by the
+    view out of Message.At in the format and the zone of the machine
+    (m.clockText), not carried on the message as a string; the string is
+    what made every time in the interface UTC's
   - the conversation header is: the name of the chat in bold PrimaryText
     (not the accent: the accent marks the pane that has the keys, which
     the rule under the header does), then the status line with NOTHING
@@ -1122,8 +1154,8 @@
 - TDLib files directory: ~/.local/share/telecli/tdlib/files
 - Config file: os.UserConfigDir()/telecli/config.toml, overridden by
   --config or TELECLI_CONFIG
-- Interface configuration: [tui] theme, [tui] color, [tui] width and
-  [tui] nerd_font
+- Interface configuration: [tui] theme, [tui] color, [tui] width,
+  [tui] clock and [tui] nerd_font
   - theme: a built-in theme name, default catppuccin-mocha; an unknown
     name is a configuration error that lists the names there are
   - color: "auto" (default), "always" or "never"; anything else is a
@@ -1131,6 +1163,39 @@
   - width: "auto" (default), "grapheme" or "codepoint"; anything else
     is a configuration error with the valid values in it, resolved by
     the composition root like the theme and reported by telecli doctor
+  - clock: "auto" (default), "12h" or "24h"; anything else is a
+    configuration error with the valid values in it, resolved by the
+    composition root like the theme and the width rule, and reported by
+    telecli doctor and by `telecli configure status`
+    - internal/tui/clock.go owns the vocabulary, the two resolved
+      formats (ClockFormat12h and ClockFormat24h, 24h being the zero
+      value) and the words of a day: Today, Yesterday, the weekday for
+      two to six days back, `Jan 2` for this year, `Jan 2, 2006` before
+      it. A row of the chat list is the same ladder with the time of
+      day in place of Today
+    - every moment on the screen is written by the model, from a
+      time.Time the projection carried: m.clockText for the hour
+      (03:04 PM or 15:04), m.dayLabel for the divider of a feed,
+      m.chatListTimeText for the row of a chat list. No time string
+      is built anywhere else
+    - a day boundary is a midnight in the zone of the reader, not in
+      UTC and not twenty-four hours back
+    - `auto` is resolved once, by the composition root
+      (resolveInterfaceClock in internal/application/clock.go), and a
+      configured 12h or 24h is the answer whatever the machine says.
+      ResolveClock(configured, system) is a function of its two
+      arguments so that a test never reads a real preference
+    - a machine that cannot be asked is drawn in twenty-four hours:
+      SystemUnknown resolves to 24h, and a program that refused to
+      start or drew nothing over a preference it could not read would
+      be worse than one that guessed
+    - where the reading happens: on macOS the global preferences
+      domain, AppleICUForce24HourTime and then
+      AppleICUForce12HourTime, and otherwise `defaults read -g
+      AppleLocale` read through a table of territories and languages
+      (internal/tui/clock_macos.go). Elsewhere the LC_TIME format of
+      the locale, where an `%p` or an `%r` means a twelve-hour clock
+      (internal/tui/clock_unix.go, clock_locale.go)
   - nerd_font: a bool, default false. It says the terminal is drawn with
     a Nerd Font, and the two halves the font provides (U+E0B6 and
     U+E0B4), each one column, are painted in the colour of the thing they
@@ -1245,7 +1310,11 @@
     is not eaten
   - telecli doctor does not measure: it reports the rule and whether it
     was measured, configured or the default, and says that auto is
-    measured when the TUI starts
+    measured when the TUI starts. The clock is reported the same way and
+    for the same reason: `Interface clock: auto (system)` plus a note
+    that the machine is read when the TUI starts, because a doctor that
+    read a machine's preferences would be reporting about a machine it
+    is not drawing in
 - Cell positions: internal/tui/columns.go
   - every drawn row begins with ESC[1G and every emoji-like cluster in it
     is followed by ESC[<col>G naming the column after it, so the cursor
@@ -1442,8 +1511,11 @@
     the model's clock whether it has run out, because TDLib sends nothing
     at that moment; one message at the moment the word changes repaints the
     screen and is not a repaint loop
-  - times are drawn in the model's own zone, and a test pins both the
-    moment and the zone
+  - times are drawn in the model's own zone and in the format of the
+    machine, and a test pins the moment, the zone and the format. The
+    "last seen at HH:MM" of this line is written in that format too
+    (presenceText takes a ClockFormat): a status line in one clock and a
+    conversation in another is a screen with two clocks in it
   - a test pins the moment in one place, `testClock`, and reads the
     machine's clock in exactly one other, `wallClock`, and only for a
     deadline or an elapsed measure. A test that builds what it asserts on
@@ -1452,9 +1524,12 @@
     at 2026-09-28 15:00 UTC;
     `TestNoTestOfThisPackageBuildsItsDataFromTheWallClock` greps the test
     files of the package and names the file that read the clock for data
-  - the clock of a model is two fields and not a call: `m.now` is
-    `time.Now` until pinned and `m.location` is `time.Local` until
-    pinned (`Model.clock`, `Model.timeZone`). A presence test that pinned
+  - the clock of a model is three fields and not a call: `m.now` is
+    `time.Now` until pinned, `m.location` is `time.Local` until pinned
+    (`Model.clock`, `Model.timeZone`), and `m.hourFormat` is
+    `ClockFormat24h` until pinned (`Model.clockFormat`). The format is
+    the resolved one and reaches the model through
+    `Dependencies.Clock`, resolved by the composition root. A presence test that pinned
     neither judged a presence of 2026-09-28 against the clock of the
     runner, and from 16:00 UTC that day the header said "last seen" in the
     zone of the runner. The builders pin both (`modelWithPresence`,

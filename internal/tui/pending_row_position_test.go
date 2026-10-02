@@ -47,30 +47,43 @@ func TestARowOlderThanTheFeedIsDrawnAtItsOwnTime(t *testing.T) {
 	page := HistoryPage{Messages: []Message{
 		{
 			ID: 14, Outgoing: true, Text: "сегодня: второе",
-			Time: "09:02", At: at(24+9, 2),
+			At: at(24+9, 2),
 		},
 		{
 			ID: 13, Outgoing: true, Text: "сегодня: первое",
-			Time: "09:01", At: at(24+9, 1),
+			At: at(24+9, 1),
 		},
 		{
 			ID: 12, Author: "Anna Example", Text: "вчера: 21:35",
-			Time: "21:35", At: at(21, 35),
+			At: at(21, 35),
 		},
 		{
 			ID: 11, Author: "Anna Example", Text: "вчера: 21:22",
-			Time: "21:22", At: at(21, 22),
+			At: at(21, 22),
 		},
 		{
 			ID: 10, Author: "Anna Example", Text: "вчера: 09:00",
-			Time: "09:00", At: at(9, 0),
+			At: at(9, 0),
 		},
 	}}
 
+	// The screen is tall enough for the whole conversation, because the
+	// assertion below is about where the rows are drawn and a row that is
+	// off the top of the window is not drawn anywhere: with the two rows of
+	// day boundaries in the feed, the oldest row of the conversation is
+	// above a window of twenty-four rows, and a test about the order of the
+	// feed would then be a test about the height of a screen.
 	base_model := conversationWithPending(
-		t, theme.ProfileNoColor, 100, 24, &pendingSource{},
+		t, theme.ProfileNoColor, 100, 32, &pendingSource{},
 	)
-	model, _ := updateModel(t, base_model, historyLoadedMsg{
+
+	// The clock and the zone of the fixture: the moments above are of two
+	// days in UTC, the day of a message is a row of the feed, and a model
+	// that read the zone of the machine would draw a different set of days
+	// — and a different number of rows — in every other zone.
+	model := withClock(base_model, at(24+12, 0), time.UTC)
+
+	model, _ = updateModel(t, model, historyLoadedMsg{
 		chatID:    7,
 		operation: base_model.historyOperation,
 		page:      page,

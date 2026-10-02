@@ -88,7 +88,8 @@ func TestTheAuthorLineSaysTheSenderAndTheTime(t *testing.T) {
 
 	view := plain(m.View())
 	first := m.selected().Messages[0]
-	line, _, ok := lineWith(view, first.Time)
+	at := m.clockText(first.At)
+	line, _, ok := lineWith(view, at)
 	if !ok {
 		t.Fatalf("no author line on the screen:\n%s", view)
 	}
@@ -97,7 +98,7 @@ func TestTheAuthorLineSaysTheSenderAndTheTime(t *testing.T) {
 	if !strings.HasPrefix(trimmed, messageAuthor(first)) {
 		t.Fatalf("the name does not start the line: %q", trimmed)
 	}
-	if !strings.HasSuffix(trimmed, first.Time) {
+	if !strings.HasSuffix(trimmed, at) {
 		t.Fatalf("the time does not end the line: %q", trimmed)
 	}
 }
@@ -130,7 +131,7 @@ func TestLongMessageWrapsToTheWidthOfTheRegion(t *testing.T) {
 		{
 			ID:   1,
 			Text: "Очень длинный текст 🌍 с кириллицей, эмодзи и латиницей mixed in, который обязан перенестись по ширине области разговора",
-			Time: "10:00",
+			At:   mockMoment("10:00"),
 		},
 	}
 	m.selectedMsg = 0
@@ -320,7 +321,7 @@ func TestAMessageTallerThanTheTimelineKeepsTheComposer(t *testing.T) {
 	m.chats[m.selectedChat].Messages = []Message{{
 		ID:   1,
 		Text: strings.Repeat("слово ", 200),
-		Time: "10:00",
+		At:   mockMoment("10:00"),
 	}}
 	m.selectedMsg = 0
 	m.timelineTop = 0
@@ -403,7 +404,8 @@ func TestTheAuthorLineIsANameTwoSpacesAndTheTime(t *testing.T) {
 	// The row starts with the air of the feed and the marker's column, so
 	// the name is where the words of the block start rather than at the
 	// edge of the row.
-	want := messageAuthor(message) + authorTimeSeparator + message.Time
+	at := model.clockText(message.At)
+	want := messageAuthor(message) + authorTimeSeparator + at
 	if got := strings.TrimSpace(plain(author)); !strings.HasPrefix(got, want) {
 		t.Fatalf(
 			"the author line is %q, want it to start with %q",
@@ -425,7 +427,7 @@ func TestTheAuthorLineIsANameTwoSpacesAndTheTime(t *testing.T) {
 	)
 	cells := renderedCells(t, model, author)
 	for _, cell := range cells {
-		if cell.text != message.Time {
+		if cell.text != at {
 			continue
 		}
 		if cell.foreground != muted {

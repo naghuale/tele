@@ -244,15 +244,15 @@ func TestTheHistoryReplacesAMessageThatWasAlreadyDelivered(t *testing.T) {
 		fromMessageID: 0,
 		operation:     m.historyOperation,
 		page: HistoryPage{Messages: []Message{{
-			ID: 501, Outgoing: true, Text: "проверяю сборку", Time: "14:30",
+			ID: 501, Outgoing: true, Text: "проверяю сборку", At: mockMoment("14:30"),
 		}}},
 	})
 
 	if got := m.selected().Messages; len(got) != 1 {
 		t.Fatalf("messages = %#v, want the one the history brought", got)
 	}
-	if got := m.selected().Messages[0].Time; got != "14:30" {
-		t.Fatalf("time = %q, want the one the history brought", got)
+	if got := m.selected().Messages[0].At; !got.Equal(mockMoment("14:30")) {
+		t.Fatalf("the moment = %v, want the one the history brought", got)
 	}
 }
 

@@ -40,6 +40,16 @@ type TUIConfig struct {
 	// before the first frame.
 	Width string `toml:"width"`
 
+	// Clock is "auto", "12h" or "24h": how the hour of a moment is written
+	// on the screen.
+	//
+	// It is a machine's own answer and not this program's: a user ten hours
+	// east of Greenwich reads "10:06" and not "04:06", and the system
+	// already knows which of the two spellings they read fastest. Left
+	// empty it is "auto", which asks the system — and falls back to
+	// twenty-four hours on a machine that cannot be asked.
+	Clock string `toml:"clock"`
+
 	// NerdFont says whether the terminal is drawn with a Nerd Font, and
 	// so whether the block of a message of this user may be rounded.
 	//
@@ -77,6 +87,16 @@ const (
 	// TestInterfaceDefaultsMatchTheWidthPackage in
 	// internal/application fails if the two ever disagree.
 	DefaultTUIWidthMode = "auto"
+
+	// DefaultTUIClock asks the machine how it writes the hour.
+	//
+	// It is spelled out here so that Default is a complete configuration
+	// and `telecli configure` writes a file that says what it decided. The
+	// word belongs to internal/tui, which parses it; it is duplicated for
+	// the same reason the theme name and the width rule are, and
+	// TestInterfaceDefaultsMatchTheClockPackage in internal/application
+	// fails if the two ever disagree.
+	DefaultTUIClock = "auto"
 
 	// DefaultTUINerdFont draws the block of a message of this user with
 	// square ends.
@@ -159,6 +179,7 @@ func Default() Config {
 			Theme:    DefaultTUITheme,
 			Color:    string(DefaultTUIColorMode),
 			Width:    DefaultTUIWidthMode,
+			Clock:    DefaultTUIClock,
 			NerdFont: DefaultTUINerdFont,
 		},
 	}

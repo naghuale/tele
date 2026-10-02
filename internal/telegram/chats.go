@@ -31,6 +31,18 @@ type ChatSummary struct {
 	// the time at the right edge of a row.
 	LastMessageTime time.Time
 
+	// LastReadInboxMessageID is the identifier of the last incoming message
+	// this account has read in the chat, which is where Telegram keeps the
+	// line between what has been read and what has not.
+	//
+	// It is the only field that says where that line is, and the interface
+	// needs it: a chat with unread messages says so with a badge, and the
+	// feed says the same thing at the message the badge counts from, so a
+	// user can see what in the chat they have not read yet. Telegram sends
+	// it on the chat itself (td_api.tl:3610), and it is zero for a chat
+	// with nothing read in it yet.
+	LastReadInboxMessageID MessageID
+
 	// Kind is the type of the chat.
 	Kind ChatKind
 
@@ -102,6 +114,10 @@ type chatResponse struct {
 	Title       string          `json:"title"`
 	UnreadCount int             `json:"unread_count"`
 	LastMessage json.RawMessage `json:"last_message"`
+
+	// LastReadInboxMessageID is a tdInt because TDLib writes some of these
+	// as JSON strings; see tdint.go.
+	LastReadInboxMessageID tdInt `json:"last_read_inbox_message_id"`
 
 	Type_ json.RawMessage `json:"type"`
 }
@@ -304,15 +320,16 @@ func (s *AuthorizedSession) GetChat(
 	kind, isChannel, peerUser := parseChatType(response.Type_)
 
 	return ChatSummary{
-		ID:              ChatID(response.ID),
-		Title:           response.Title,
-		UnreadCount:     response.UnreadCount,
-		LastMessageID:   lastID,
-		LastMessageText: lastText,
-		LastMessageTime: lastAt,
-		Kind:            kind,
-		IsChannel:       isChannel,
-		PeerUserID:      peerUser,
+		ID:                     ChatID(response.ID),
+		Title:                  response.Title,
+		UnreadCount:            response.UnreadCount,
+		LastMessageID:          lastID,
+		LastMessageText:        lastText,
+		LastMessageTime:        lastAt,
+		LastReadInboxMessageID: MessageID(response.LastReadInboxMessageID),
+		Kind:                   kind,
+		IsChannel:              isChannel,
+		PeerUserID:             peerUser,
 	}, nil
 }
 
@@ -389,7 +406,7 @@ func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
 	}
 
 	id := MessageID(msg.ID)
-	sent := time.Unix(int64(msg.Date), 0).UTC()
+	sent := instantOf(int64(msg.Date))
 
 	if text := extractMessageText(msg.Content); text != "" {
 		return id, text, sent

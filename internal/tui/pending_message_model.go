@@ -222,7 +222,7 @@ func (m Model) deliveryStateLabel(
 	}
 
 	label := state.Mark().String()
-	queuedAt := formatMessageTime(message.CreatedAt)
+	queuedAt := m.clockText(message.CreatedAt)
 
 	// A retry is a time, not a countdown: §6.3 asks for a screen that does
 	// not repaint itself every second, and a countdown is a screen that
@@ -232,7 +232,7 @@ func (m Model) deliveryStateLabel(
 	// the message, and a retrying one is the exception rather than the
 	// rule: it names a time of its own, and two times on one line is a
 	// sentence a user has to read twice.
-	if retry := formatMessageTime(message.NextAttemptAt); retry != "" &&
+	if retry := m.clockText(message.NextAttemptAt); retry != "" &&
 		message.State == MessageDeliveryRetrying {
 		label += " at " + retry
 	} else if queuedAt != "" {
@@ -277,18 +277,4 @@ func deliveryStateOf(state MessageDeliveryState) (theme.StatusState, bool) {
 	default:
 		return 0, false
 	}
-}
-
-// formatMessageTime returns the HH:MM of an instant, or nothing when there
-// is no instant to format.
-//
-// The same shape as the time of a message in the history, because it is the
-// same column on the same screen: the time of a message queued at 14:28 and
-// the time of one sent at 14:28 have to line up.
-func formatMessageTime(at time.Time) string {
-	if at.IsZero() {
-		return ""
-	}
-
-	return at.Format("15:04")
 }

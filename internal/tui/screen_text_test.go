@@ -288,29 +288,38 @@ func TestScreenTextKeepsWhatAPersonWrote(t *testing.T) {
 // The cleaner is asked about every string of a chat and of a message, so a
 // field added to either of them is cleaned by the same call and not by a
 // change to a view.
+//
+// The moment of a message is not one of them and needs nothing: it is a
+// time.Time out of TDLib, and the screen writes it in the format and the zone
+// of the model. A cleaner asked to scrub a moment would be a cleaner asked to
+// decide what time it is.
 func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
 	// A carriage return is a break, and a break is a space where there is
 	// one row, so the words on either side of it stay apart.
 	dirtyLine := "a\rb\x1b[2Jc\vd"
 	dirtyBody := "a\r\nb\x1b[2Jc\vd"
 
+	at := mockMoment("12:07")
+
 	chat := safeChat(Chat{
 		Title:   dirtyLine,
 		Preview: dirtyLine,
-		Time:    dirtyLine,
+		At:      at,
 		Aliases: []string{dirtyLine},
 		Messages: []Message{{
-			Text: dirtyBody, Time: dirtyLine, Author: dirtyLine,
+			Text: dirtyBody, At: at, Author: dirtyLine,
 			Media: dirtyLine, MediaDetail: dirtyLine,
 			Caption: dirtyBody, Service: dirtyLine,
 		}},
 	})
-	if chat.Title != "a bc d" || chat.Preview != "a bc d" ||
-		chat.Time != "a bc d" {
+	if chat.Title != "a bc d" || chat.Preview != "a bc d" {
 		t.Fatalf(
-			"chat = %q, %q, %q, want one clean line each",
-			chat.Title, chat.Preview, chat.Time,
+			"chat = %q, %q, want one clean line each",
+			chat.Title, chat.Preview,
 		)
+	}
+	if !chat.At.Equal(at) {
+		t.Fatalf("chat.At = %v, want the moment the caller gave", chat.At)
 	}
 	if len(chat.Aliases) != 1 || chat.Aliases[0] != "a bc d" {
 		t.Fatalf("aliases = %q, want one clean name", chat.Aliases)
@@ -324,9 +333,11 @@ func TestTheCleanerCoversEveryStringOfBothProjections(t *testing.T) {
 		)
 	}
 	if message.Author != "a bc d" || message.Media != "a bc d" ||
-		message.MediaDetail != "a bc d" || message.Service != "a bc d" ||
-		message.Time != "a bc d" {
+		message.MediaDetail != "a bc d" || message.Service != "a bc d" {
 		t.Fatalf("message = %+v, want every other string on one line", message)
+	}
+	if !message.At.Equal(at) {
+		t.Fatalf("message.At = %v, want the moment the caller gave", message.At)
 	}
 }
 
@@ -357,13 +368,13 @@ func untrustedChats() []Chat {
 			ID:      1,
 			Title:   "Anna\rExample",
 			Preview: "the build\vis green",
-			Time:    "12:07",
+			At:      mockMoment("12:07"),
 		},
 		{
 			ID:      2,
 			Title:   "Release Room\x1b[2J",
 			Preview: "the tag is\npushed",
-			Time:    "12:05",
+			At:      mockMoment("12:05"),
 		},
 		{
 			ID:      3,
@@ -609,7 +620,7 @@ func untrustedConversation(
 			ID: 1,
 			Text: "the first line\r\nthe second line\v\f\u0085\x1b" +
 				"[2J\x1b]52;c;cGF5bG9hAAAA\x07",
-			Time:   "12:02",
+			At:     mockMoment("12:02"),
 			Author: "Anna\rExample\x1b]52;c;AAAA\x07",
 		}}},
 	})

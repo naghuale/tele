@@ -45,6 +45,17 @@ const (
 	// row and not a second name for it.
 	ownChatAlias = "Избранное"
 
+	// ownChatTitle is the name the chat with oneself is drawn under, in the
+	// header of the conversation and in the row of the list.
+	//
+	// Telegram calls it "Saved Messages" and the person using it calls it
+	// "Избранное", and both are the same row: the name is what the screen
+	// says and the alias is what a search finds it by, so the two words are
+	// one on the screen and two in the search. It used to be drawn under
+	// the name of the user, which is a name everybody knows and nobody
+	// looks for.
+	ownChatTitle = "Saved Messages"
+
 	// nameCacheLimit is how many names the adapter keeps.
 	//
 	// It is a bound and not a policy: a conversation with a thousand
@@ -165,16 +176,23 @@ func (s *TelegramChatService) ListChats(ctx context.Context) ([]tui.Chat, error)
 // chatOf projects one chat summary into the row the interface draws.
 func (s *TelegramChatService) chatOf(summary telegram.ChatSummary) tui.Chat {
 	chat := tui.Chat{
-		ID:      int64(summary.ID),
-		Title:   summary.Title,
-		Unread:  summary.UnreadCount,
-		Preview: summary.LastMessageText,
-		Time:    formatChatTime(summary.LastMessageTime),
-		Kind:    tuiChatKind(summary),
+		ID:                     int64(summary.ID),
+		Title:                  summary.Title,
+		Unread:                 summary.UnreadCount,
+		Preview:                summary.LastMessageText,
+		At:                     summary.LastMessageTime,
+		LastReadInboxMessageID: int64(summary.LastReadInboxMessageID),
+		Kind:                   tuiChatKind(summary),
 	}
 
 	if s.isOwnChat(summary) {
-		chat.Aliases = []string{ownChatAlias}
+		// The chat with oneself is called "Saved Messages" by Telegram and by
+		// the phone, and by this program too. TDLib sends the name of the
+		// user for it, and a list whose third row says the account holder's
+		// own name is a list where the person reading it has to recognise
+		// themselves by their own name to find their own notes.
+		chat.Title = ownChatTitle
+		chat.Aliases = []string{ownChatAlias, ownChatTitle}
 	}
 
 	return chat
@@ -207,16 +225,6 @@ func (s *TelegramChatService) isOwnChat(summary telegram.ChatSummary) bool {
 	}
 
 	return summary.Kind == telegram.ChatKindPrivate && summary.PeerUserID == s.ownUserID
-}
-
-// formatChatTime is the HH:MM of an instant, or nothing when there is no
-// instant to write.
-func formatChatTime(at time.Time) string {
-	if at.IsZero() {
-		return ""
-	}
-
-	return at.Format("15:04")
 }
 
 // LoadHistory implements tui.ChatSource.
@@ -302,10 +310,12 @@ func (s *TelegramChatService) messageOf(
 		ID:       int64(message.ID),
 		Outgoing: message.Outgoing,
 		Text:     message.Text,
-		Time:     message.Timestamp.Format("15:04"),
-		// The moment itself, so a message of the queue can be placed at
-		// its own time among these. What is drawn is still Time above;
-		// that is #62.
+
+		// The moment and nothing else: the screen writes the time of day in
+		// the format and the zone of the machine, and it places the row in
+		// the conversation by the same moment. Spelling it out here is what
+		// put 21:21 where Telegram says 07:21 for a reader ten hours east
+		// of Greenwich (the owner, 29.09.2026).
 		At:       message.Timestamp,
 		Author:   s.authorOf(ctx, chat, message),
 		AuthorID: message.Sender.ID,

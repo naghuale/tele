@@ -250,10 +250,10 @@ func decodeUserStatus(raw UserStatusJSON) (UserStatus, bool) {
 		ByPrivacySettings: raw.ByMyPrivacySettin,
 	}
 	if kind == UserStatusOnline {
-		status.Expires = time.Unix(raw.Expires, 0).UTC()
+		status.Expires = instantOf(raw.Expires)
 	}
 	if kind == UserStatusOffline {
-		status.WasOnline = time.Unix(raw.WasOnline, 0).UTC()
+		status.WasOnline = instantOf(raw.WasOnline)
 	}
 
 	return status, true

@@ -386,6 +386,25 @@ func (p *programModel) screen() string { return p.model.View() }
 
 // The interface follows a message to Sent without a key being pressed, and
 // keeps it when the user looks at another chat and comes back.
+// programAt is a moment of the fixed day the fixtures of this file are on,
+// in the fixed zone, because a screen that says when a message was sent
+// reads that moment in the zone of its model and this model reads one zone.
+func programAt(clock string) time.Time {
+	hour, minute := 0, 0
+	for index, letter := range clock {
+		if letter == ':' {
+			continue
+		}
+		if index < 2 {
+			hour = hour*10 + int(letter-'0')
+			continue
+		}
+		minute = minute*10 + int(letter-'0')
+	}
+
+	return time.Date(2026, 3, 14, hour, minute, 0, 0, time.UTC)
+}
+
 func TestTheInterfaceFollowsAMessageToSentAndKeepsItAcrossAChatSwitch(
 	t *testing.T,
 ) {
@@ -399,8 +418,8 @@ func TestTheInterfaceFollowsAMessageToSentAndKeepsItAcrossAChatSwitch(
 	path := newProgramRuntime(t)
 
 	chats := &programChats{history: map[int64][]tui.Message{
-		chatID: {{ID: 1, Author: "Anna", Text: "привет", Time: "12:00"}},
-		8:      {{ID: 2, Author: "Boris", Text: "пока", Time: "12:01"}},
+		chatID: {{ID: 1, Author: "Anna", Text: "привет", At: programAt("12:00")}},
+		8:      {{ID: 2, Author: "Boris", Text: "пока", At: programAt("12:01")}},
 	}}
 
 	// The adapter the composition root builds between the queue's
@@ -486,7 +505,7 @@ func TestTheInterfaceFollowsAMessageToSentAndKeepsItAcrossAChatSwitch(
 	// Telegram holds the message, which is what a later history page will
 	// bring back.
 	chats.addOnServer(chatID, tui.Message{
-		ID: finalID, Outgoing: true, Text: text, Time: "12:05",
+		ID: finalID, Outgoing: true, Text: text, At: programAt("12:05"),
 	})
 
 	// The user looks at another chat and comes back.

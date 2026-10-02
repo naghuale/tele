@@ -306,7 +306,9 @@ func TestSendTextMessageHappyPath(t *testing.T) {
 		if !r.message.Outgoing {
 			t.Fatal("message.Outgoing = false, want true")
 		}
-		if got := r.message.Timestamp; got != time.Unix(1700000000, 0).UTC() {
+		// The instant and not a moment in a chosen zone: TDLib sends seconds, and
+		// who reads them in which zone is the interface's business.
+		if got := r.message.Timestamp; !got.Equal(time.Unix(1700000000, 0)) {
 			t.Fatalf("message.Timestamp = %v", got)
 		}
 		if r.message.Text != "hello" {

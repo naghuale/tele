@@ -716,7 +716,7 @@ func actionModel(
 		ID:       501,
 		Outgoing: true,
 		Text:     actionFixtureText,
-		Time:     "14:35",
+		At:       mockMoment("14:35"),
 	}
 
 	if history {

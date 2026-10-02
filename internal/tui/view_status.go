@@ -209,6 +209,7 @@ func (m Model) statusParts() []statusPart {
 		m.summary.Presence,
 		m.clock()(),
 		m.timeZone(),
+		m.clockFormat(),
 	); presence != "" {
 		parts = append(parts, statusPart{
 			text:  presence,
@@ -312,7 +313,9 @@ func (m Model) statusStyle() lipgloss.Style {
 		return m.styles().text(m.tokens().StatusActive)
 	case m.pausedErr != nil:
 		return m.styles().text(m.tokens().StatusError)
-	case presenceText(m.summary.Presence, m.clock()(), m.timeZone()) != "":
+	case presenceText(
+		m.summary.Presence, m.clock()(), m.timeZone(), m.clockFormat(),
+	) != "":
 		// A presence line is a status about somebody, and the status
 		// vocabulary of the theme says a status is a colour that repeats
 		// the word rather than one that carries it.

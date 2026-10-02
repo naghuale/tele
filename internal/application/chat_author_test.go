@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -479,15 +480,20 @@ func TestAChatRowKnowsWhatKindOfChatItIs(t *testing.T) {
 	}
 }
 
-// The chat with oneself is called "Saved Messages" by Telegram and
-// "Избранное" by the person using it, and a user who is looking for it
-// types the word they know. The second name is a way of finding the row.
-func TestTheOwnChatIsFoundByTheNameTheUserTypes(t *testing.T) {
+// The chat with oneself is called "Saved Messages" by Telegram and by the
+// phone, and "Избранное" by the person using it, and a user who is looking
+// for it types the word they know. Both words find the row, and the row says
+// "Saved Messages" whatever it was called on the wire: TDLib sends the name
+// of the user for that chat, and a list whose row says the account holder's
+// own name is a list where somebody has to recognise themselves by their own
+// name to find their own notes (the owner, 29.09.2026).
+func TestTheOwnChatIsFoundByEitherOfItsNames(t *testing.T) {
+	// The name TDLib sends for the chat with oneself: the user.
 	fake := &fakeTelegramChats{
 		snapshot: telegram.ChatListSnapshot{
 			Chats: []telegram.ChatSummary{
 				{ID: 1, Title: "Anna", Kind: telegram.ChatKindPrivate, PeerUserID: 5},
-				{ID: 2, Title: "Saved Messages", Kind: telegram.ChatKindPrivate, PeerUserID: 77},
+				{ID: 2, Title: "Andrey Babenko", Kind: telegram.ChatKindPrivate, PeerUserID: 77},
 			},
 		},
 	}
@@ -497,11 +503,25 @@ func TestTheOwnChatIsFoundByTheNameTheUserTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListChats: %v", err)
 	}
-	if len(chats[1].Aliases) != 1 || chats[1].Aliases[0] != ownChatAlias {
-		t.Fatalf("the own chat has the aliases %q, want %q", chats[1].Aliases, ownChatAlias)
+	if chats[1].Title != ownChatTitle {
+		t.Fatalf(
+			"the own chat is called %q, want %q",
+			chats[1].Title, ownChatTitle,
+		)
+	}
+	for _, want := range []string{ownChatTitle, ownChatAlias} {
+		if !slices.Contains(chats[1].Aliases, want) {
+			t.Errorf(
+				"the own chat is not found by %q: aliases %q",
+				want, chats[1].Aliases,
+			)
+		}
 	}
 	if len(chats[0].Aliases) != 0 {
 		t.Fatalf("a chat with somebody else has the aliases %q", chats[0].Aliases)
+	}
+	if chats[0].Title != "Anna" {
+		t.Fatalf("a chat with somebody else was renamed: %q", chats[0].Title)
 	}
 }
 

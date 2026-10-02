@@ -118,10 +118,10 @@ const (
 // long title and a Cyrillic one look like.
 func snapshotChats() []Chat {
 	return []Chat{
-		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green again", Time: "12:07"},
-		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", Time: "12:05", Kind: ChatKindGroup},
-		{ID: 3, Title: "Notes", Unread: 1, Preview: "milk, bread, coffee", Time: "11:58"},
-		{ID: 4, Title: "Команда Разработки", Preview: "созвон в 15:00", Time: "11:40", Kind: ChatKindChannel},
+		{ID: 1, Title: "Anna Example", Unread: 2, Preview: "the build is green again", At: mockMoment("12:07")},
+		{ID: 2, Title: "Release Room", Preview: "the tag is pushed", At: mockMoment("12:05"), Kind: ChatKindGroup},
+		{ID: 3, Title: "Notes", Unread: 1, Preview: "milk, bread, coffee", At: mockMoment("11:58")},
+		{ID: 4, Title: "Команда Разработки", Preview: "созвон в 15:00", At: mockMoment("11:40"), Kind: ChatKindChannel},
 	}
 }
 
@@ -165,12 +165,12 @@ func snapshotWidthChats() []Chat {
 func snapshotMessages() []Message {
 	return []Message{
 		{
-			ID: 3, Text: "Спасибо, посмотрю после обеда", Time: "12:07",
+			ID: 3, Text: "Спасибо, посмотрю после обеда", At: mockMoment("12:07"),
 			Author: "Anna Example", AuthorID: 5,
 		},
-		{ID: 2, Outgoing: true, Text: "Shipped the release notes", Time: "12:05"},
+		{ID: 2, Outgoing: true, Text: "Shipped the release notes", At: mockMoment("12:05")},
 		{
-			ID: 1, Text: "The build is green again", Time: "12:02",
+			ID: 1, Text: "The build is green again", At: mockMoment("12:02"),
 			Author: "Anna Example", AuthorID: 5,
 		},
 	}
@@ -623,6 +623,12 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotOneRowBubbleRounded", func(t *testing.T) Model {
 			return snapshotOneRowBubble(t, true)
 		}},
+		{"TestSnapshotThreeDaysWithUnread", func(t *testing.T) Model {
+			return snapshotThreeDaysWithUnread(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotThreeDaysTwelveHour", func(t *testing.T) Model {
+			return snapshotThreeDaysTwelveHour(t, wide(theme.ProfileTrueColor))
+		}},
 	}
 }
 
@@ -638,20 +644,20 @@ func snapshotGroup(t *testing.T, f snapshotFixture) Model {
 		Title:   "Release Room",
 		Kind:    ChatKindGroup,
 		Preview: "the tag is pushed",
-		Time:    "12:09",
+		At:      mockMoment("12:09"),
 		// A page as TDLib answers it, newest first; the model reverses
 		// it. See snapshotMessages.
 		Messages: []Message{
 			{
 				ID: 3, Outgoing: true, Text: "Thank you both",
-				Time: "12:06",
+				At: mockMoment("12:06"),
 			},
 			{
 				ID: 2, Text: "I will take the release notes",
-				Time: "12:04", Author: "Boris", AuthorID: 34,
+				At: mockMoment("12:04"), Author: "Boris", AuthorID: 34,
 			},
 			{
-				ID: 1, Text: "the build is green again", Time: "12:02",
+				ID: 1, Text: "the build is green again", At: mockMoment("12:02"),
 				Author: "Marta", AuthorID: 21,
 			},
 		},
@@ -680,16 +686,16 @@ func snapshotChannel(t *testing.T, f snapshotFixture) Model {
 		Kind:    ChatKindChannel,
 		Unread:  12,
 		Preview: "[2 photos] the new wallpaper",
-		Time:    "12:07",
+		At:      mockMoment("12:07"),
 		// A page as TDLib answers it, newest first; the model reverses
 		// it. See snapshotMessages.
 		Messages: []Message{
 			{
-				ID: 2, Media: "photo", AlbumID: 9, Time: "12:05",
+				ID: 2, Media: "photo", AlbumID: 9, At: mockMoment("12:05"),
 				Author: "Xiaomi News", AuthorID: 900,
 			},
 			{
-				ID: 1, Media: "photo", AlbumID: 9, Time: "12:05",
+				ID: 1, Media: "photo", AlbumID: 9, At: mockMoment("12:05"),
 				Author: "Xiaomi News", AuthorID: 900,
 			},
 		},
@@ -718,7 +724,7 @@ func snapshotShortFeed(t *testing.T, f snapshotFixture) Model {
 		chatID:    snapshotChatID,
 		operation: m.historyOperation,
 		page: HistoryPage{Messages: []Message{{
-			ID: 1, Text: "the build is green again", Time: "12:02",
+			ID: 1, Text: "the build is green again", At: mockMoment("12:02"),
 			Author: "Anna", AuthorID: 5,
 		}}},
 	})
@@ -785,19 +791,19 @@ func snapshotChatListRows(t *testing.T, nerdFont bool) Model {
 	f.nerdFont = nerdFont
 	f.chats = []Chat{
 		{
-			ID: 1, Title: "Anna Example", Unread: 22, Time: "12:07",
+			ID: 1, Title: "Anna Example", Unread: 22, At: mockMoment("12:07"),
 			Preview: "the build is green again and the review is done with it",
 		},
 		{
-			ID: 2, Title: "Release Room", Time: "12:05", Kind: ChatKindGroup,
+			ID: 2, Title: "Release Room", At: mockMoment("12:05"), Kind: ChatKindGroup,
 			Preview: "the tag is pushed",
 		},
 		{
-			ID: 3, Title: "Команда Разработки", Unread: 1, Time: "11:40",
+			ID: 3, Title: "Команда Разработки", Unread: 1, At: mockMoment("11:40"),
 			Preview: "созвон в 15:00", Kind: ChatKindChannel,
 		},
 		{
-			ID: 4, Title: "Standup", Time: "11:31",
+			ID: 4, Title: "Standup", At: mockMoment("11:31"),
 			Preview: "everything that came out of it is in the notes",
 		},
 	}
@@ -830,21 +836,21 @@ func snapshotBlockRows(t *testing.T, f snapshotFixture) Model {
 		operation: m.historyOperation,
 		page: HistoryPage{Messages: []Message{
 			{
-				ID: 1, Text: "one row of text", Time: "12:02",
+				ID: 1, Text: "one row of text", At: mockMoment("12:02"),
 				Author: "Anna Example", AuthorID: 5,
 			},
 			{
-				ID: 2, Text: "and one row of my own", Time: "12:03",
+				ID: 2, Text: "and one row of my own", At: mockMoment("12:03"),
 				Outgoing: true,
 			},
 			{
-				ID: 3, Time: "12:04", Author: "Anna Example", AuthorID: 5,
+				ID: 3, At: mockMoment("12:04"), Author: "Anna Example", AuthorID: 5,
 				Text: "three rows of text, and the air of a block that has " +
 					"them is a row of the block above the words and a row " +
 					"of it below them, which is what this screen is for",
 			},
 			{
-				ID: 4, Time: "12:05", Outgoing: true,
+				ID: 4, At: mockMoment("12:05"), Outgoing: true,
 				Text: "three rows of my own, with the same air around " +
 					"them: the owner counts the rows of the text and not " +
 					"the rows of the block, and this is the second of the " +
@@ -871,15 +877,15 @@ func snapshotContentLabels(t *testing.T, f snapshotFixture) Model {
 	f.chats = []Chat{
 		{
 			ID: snapshotChatID, Title: "Большой теннис", Unread: 2,
-			Kind: ChatKindGroup, Preview: "[dice 🎲 4]", Time: "12:09",
+			Kind: ChatKindGroup, Preview: "[dice 🎲 4]", At: mockMoment("12:09"),
 		},
 		{
 			ID: 2, Title: "Bills", Preview: "[file счёт.pdf] February",
-			Time: "12:06",
+			At: mockMoment("12:06"),
 		},
 		{
 			ID: 3, Title: "Court booking", Preview: "joined the chat",
-			Time: "12:01",
+			At: mockMoment("12:01"),
 		},
 	}
 
@@ -892,27 +898,27 @@ func snapshotContentLabels(t *testing.T, f snapshotFixture) Model {
 			{
 				// A content this build has no words for is named by the
 				// @type TDLib gave it, which is the name to add it under.
-				ID: 1, Time: "12:00", Author: "Дмитрий С",
+				ID: 1, At: mockMoment("12:00"), Author: "Дмитрий С",
 				Media: "messageUnsupported",
 			},
 			{
-				ID: 2, Time: "12:01", Author: "Дмитрий С",
+				ID: 2, At: mockMoment("12:01"), Author: "Дмитрий С",
 				Media: "sticker", MediaDetail: " 🎾",
 			},
 			{
 				// What happened in the chat, in a row of its own.
-				ID: 3, Time: "12:02", Service: "pinned a message",
+				ID: 3, At: mockMoment("12:02"), Service: "pinned a message",
 			},
 			{
-				ID: 4, Time: "12:06", Author: "Дмитрий С",
+				ID: 4, At: mockMoment("12:06"), Author: "Дмитрий С",
 				Media: "file", MediaDetail: " счёт.pdf", Caption: "February",
 			},
 			{
-				ID: 5, Time: "12:07", Author: "Дмитрий С",
+				ID: 5, At: mockMoment("12:07"), Author: "Дмитрий С",
 				Media: "poll", MediaDetail: ": Friday at 19:00?",
 			},
 			{
-				ID: 6, Time: "12:09", Author: "Дмитрий С",
+				ID: 6, At: mockMoment("12:09"), Author: "Дмитрий С",
 				Media: "dice", MediaDetail: " 🎲 4",
 			},
 		}},
@@ -944,14 +950,14 @@ func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
 		operation: m.historyOperation,
 		page: HistoryPage{Messages: []Message{
 			{
-				ID: 1, Text: "the build is green again", Time: "12:02",
+				ID: 1, Text: "the build is green again", At: mockMoment("12:02"),
 				Author: "Anna Example", AuthorID: 5,
 			},
 			{
-				ID: 2, Text: "ok", Time: "12:04", Outgoing: true,
+				ID: 2, Text: "ok", At: mockMoment("12:04"), Outgoing: true,
 			},
 			{
-				ID: 3, Text: "I will take the release notes", Time: "12:05",
+				ID: 3, Text: "I will take the release notes", At: mockMoment("12:05"),
 				Author: "Boris", AuthorID: 6,
 			},
 		}},
@@ -960,6 +966,160 @@ func snapshotOneRowBubble(t *testing.T, nerdFont bool) Model {
 	m.focus = FocusHistory
 
 	return m
+}
+
+// snapshotThreeDaysWithUnread is the screen of the day dividers and the
+// unread line: a conversation of three days with the messages of today still
+// unread, drawn in the twenty-four-hour clock the machine this fixture names.
+//
+// It is a screen of its own because nothing else here has more than one day
+// in it, and a divider is invisible in a conversation of one day. The three
+// days are of one conversation rather than of three so that the screen says
+// what it is: a boundary in a conversation, and not three conversations
+// side by side.
+//
+// The read pointer is the second message of the middle day, so the line
+// stands above the first message of today: everything before it has been
+// read, everything from there on has not. Nothing is marked read here — this
+// screen is drawn, not driven.
+func snapshotThreeDaysWithUnread(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = []Chat{{
+		ID: snapshotChatID, Title: "Anna Example", Unread: 2,
+		Preview: "the build is green again",
+		At:      snapshotAt(2, 12, 40),
+		// The pointer is a message of the middle day: everything above it
+		// has been read.
+		LastReadInboxMessageID: 42,
+	}}
+
+	return snapshotConversationOver(t, f, []Message{
+		{
+			ID: 41, Text: "the notes are in the release", At: snapshotAt(1, 9, 12),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 42, Text: "and the tag is pushed", At: snapshotAt(1, 17, 40),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 43, Text: "I will take the release notes", At: snapshotAt(2, 9, 5),
+			Author: "Boris", AuthorID: 34,
+		},
+		{
+			ID: 44, Outgoing: true, Text: "Thank you both",
+			At: snapshotAt(2, 12, 40),
+		},
+		{
+			ID: 45, Text: "the build is green again", At: snapshotAt(3, 8, 15),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 46, Text: "I will look after the review", At: snapshotAt(3, 9, 2),
+			Author: "Anna Example", AuthorID: 5,
+		},
+	})
+}
+
+// snapshotThreeDaysTwelveHour is the same three days drawn on a machine set
+// to a twelve-hour clock.
+//
+// It is the screen of the setting itself: the hours of the messages and the
+// hours of the times under them are the ones of the machine, and a divider
+// that carries no hour is the same in both. Before this there was one
+// spelling of the hour in the whole interface and it was UTC's, which is how
+// a reader ten hours east of Greenwich came to see 21:21 for a message
+// Telegram said 07:21 (the owner, 29.09.2026).
+func snapshotThreeDaysTwelveHour(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = []Chat{{
+		ID: snapshotChatID, Title: "Anna Example", Unread: 2,
+		Preview:                "the build is green again",
+		At:                     snapshotAt(2, 20, 40),
+		LastReadInboxMessageID: 42,
+	}}
+
+	m := snapshotConversationOver(t, f, []Message{
+		{
+			ID: 41, Text: "the notes are in the release", At: snapshotAt(1, 9, 12),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 42, Text: "and the tag is pushed", At: snapshotAt(1, 17, 40),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 43, Text: "I will take the release notes", At: snapshotAt(2, 9, 5),
+			Author: "Boris", AuthorID: 34,
+		},
+		{
+			ID: 44, Outgoing: true, Text: "Thank you both",
+			At: snapshotAt(2, 20, 40),
+		},
+		{
+			ID: 45, Text: "the build is green again", At: snapshotAt(3, 8, 15),
+			Author: "Anna Example", AuthorID: 5,
+		},
+		{
+			ID: 46, Text: "I will look after the review", At: snapshotAt(3, 9, 2),
+			Author: "Anna Example", AuthorID: 5,
+		},
+	})
+
+	// The format of the machine, given rather than read: a golden drawn
+	// from whatever the preferences of the machine that wrote it happen to
+	// say is a golden of that machine.
+	m.hourFormat = ClockFormat12h
+
+	return m
+}
+
+// snapshotConversationOver is a conversation with the given messages in it,
+// drawn on the chat list of the fixture. The page arrives the way TDLib sends
+// it, newest first.
+func snapshotConversationOver(
+	t *testing.T,
+	f snapshotFixture,
+	messages []Message,
+) Model {
+	t.Helper()
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+
+	page := HistoryPage{Messages: newestFirstOf(messages)}
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      page,
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	return m
+}
+
+// newestFirstOf returns the messages of a conversation in the order TDLib
+// answers a history request with them.
+func newestFirstOf(messages []Message) []Message {
+	answer := make([]Message, 0, len(messages))
+	for index := len(messages) - 1; index >= 0; index-- {
+		answer = append(answer, messages[index])
+	}
+
+	return answer
+}
+
+// snapshotAt is a moment of the clock the snapshots are drawn at, in the zone
+// they are drawn in. It is the fixture's own moment and not a literal in each
+// screen: a screen that named its own hours would be a screen whose hours
+// have nothing to do with the moment the clock says it is.
+func snapshotAt(day, hour, minute int) time.Time {
+	return time.Date(
+		2026, time.March, day, hour, minute, 0, 0, snapshotZone,
+	)
 }
 
 // snapshotThemed is the wide conversation in a named theme, which is the
@@ -1204,7 +1364,7 @@ func snapshotLongConversation() []Message {
 	for index := 40; index >= 1; index-- {
 		message := Message{
 			ID:     int64(index),
-			Time:   fmt.Sprintf("12:%02d", index%60),
+			At:     mockMoment(fmt.Sprintf("12:%02d", index%60)),
 			Text:   fmt.Sprintf("сообщение %d", index),
 			Author: "Anna Example", AuthorID: 5,
 		}
@@ -1252,11 +1412,11 @@ func snapshotChannelChats() []Chat {
 	return []Chat{
 		{
 			ID: snapshotChatID, Title: "Release Notes", Unread: 3,
-			Preview: "build 12 is green", Time: "12:07", Kind: ChatKindChannel,
+			Preview: "build 12 is green", At: mockMoment("12:07"), Kind: ChatKindChannel,
 		},
 		{
 			ID: 2, Title: "Anna Example", Unread: 2,
-			Preview: "the build is green again", Time: "12:05",
+			Preview: "the build is green again", At: mockMoment("12:05"),
 		},
 	}
 }
@@ -1267,9 +1427,9 @@ func snapshotChannelChats() []Chat {
 // the screen.
 func snapshotChannelMessages() []Message {
 	return []Message{
-		{ID: 3, Text: "build 12 is green", Time: "12:07", Author: "Release Notes"},
-		{ID: 2, Text: "and 13 too", Time: "12:05", Author: "Release Notes"},
-		{ID: 1, Text: "the tag is pushed", Time: "12:02", Author: "Release Notes"},
+		{ID: 3, Text: "build 12 is green", At: mockMoment("12:07"), Author: "Release Notes"},
+		{ID: 2, Text: "and 13 too", At: mockMoment("12:05"), Author: "Release Notes"},
+		{ID: 1, Text: "the tag is pushed", At: mockMoment("12:02"), Author: "Release Notes"},
 	}
 }
 
@@ -1370,6 +1530,22 @@ func TestSnapshotOneRowBubbleSquare(t *testing.T) {
 
 func TestSnapshotOneRowBubbleRounded(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotOneRowBubbleRounded"))
+}
+
+// Three days of a conversation with the messages of today unread: the day
+// dividers say where one day ended and the next began, and the line over the
+// newest of them says what the account holder has not read yet. Nothing else
+// in this file has a boundary in it, so nothing else in this file shows what
+// the two are drawn like.
+func TestSnapshotThreeDaysWithUnread(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotThreeDaysWithUnread"))
+}
+
+// The same three days on a machine set to a twelve-hour clock: the hours on
+// the screen are the hours of the machine, and the owners of a phone ten hours
+// east of Greenwich read 8:06 AM where telecli used to say 20:06.
+func TestSnapshotThreeDaysTwelveHour(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotThreeDaysTwelveHour"))
 }
 
 // No golden draws a half block, and neither does the program: a half block
@@ -1524,8 +1700,14 @@ func TestTheRowsOfABlockDependOnHowManyRowsItsTextTakes(t *testing.T) {
 // A feed of one-line messages is three rows a message: the block is the two
 // rows of it — the name of whoever sent it and its text, or its text and
 // the state of the send — and the blank row between two messages belongs to
-// the one below the gap. The topmost message of the feed has no message
-// above it, so it has no gap row either, and N messages take 3N-1 rows.
+// the one below the gap.
+//
+// The topmost message of the feed has no message above it, so it has no gap
+// row either: it has the row of the day it is on, which is what stands
+// between the header of the conversation and the first message of it. N
+// messages of one day take 3N rows — three a message, and the row of the day
+// where the gap row above the first one used to be — where they took 3N-1,
+// and the day row is the price of saying which day the conversation is on.
 //
 // The rows of air inside a block are not part of it while its text is one
 // row long (the owner, 30.09), which is why the number is three again where
@@ -1536,10 +1718,23 @@ func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
 			m := oneLineConversation(t, 120, 20+3*count, count)
 			rows := feedOf(t, m)
 
-			if want := 3*count - 1; len(rows) != want {
+			// The day of the conversation, from the clock of the model: a
+			// feed of a fixed fixture that named a day of its own would
+			// make every case below a test of the fixture instead.
+			if want := m.dayLabel(mockMoment("12:00")); strings.TrimSpace(
+				plain(rows[0]),
+			) != want {
+				t.Fatalf(
+					"the first row of the feed is %q, want the day %q",
+					plain(rows[0]), want,
+				)
+			}
+
+			if want := 3 * count; len(rows) != want {
 				t.Fatalf(
 					"a feed of %d one-line messages took %d rows, want %d "+
-						"(two rows of a block and one blank between)",
+						"(a row for the day, two rows of a block and one "+
+						"blank between)",
 					count, len(rows), want,
 				)
 			}
@@ -1551,10 +1746,12 @@ func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
 					last,
 				)
 			}
-			// And the gap is where it belongs: the third row of every
-			// three, and the only row of every three with no block on it.
-			for index, row := range rows {
-				if blank := strings.TrimSpace(plain(row)) == ""; blank != (index > 0 && index%3 == 2) {
+			// And the gap is where it belongs: the row before every block
+			// but the first, which is the row the day took instead.
+			for index, row := range rows[1:] {
+				index++
+				blank := strings.TrimSpace(plain(row)) == ""
+				if blank != (index%3 == 0) {
 					t.Errorf(
 						"row %d is %q, want a blank gap row: %t",
 						index, plain(row), !blank,
@@ -1571,7 +1768,7 @@ func blockRowsOf(t *testing.T, text string, outgoing bool) (Model, []string) {
 	t.Helper()
 
 	page := HistoryPage{Messages: []Message{{
-		ID: 1, Text: text, Time: "12:00", Outgoing: outgoing,
+		ID: 1, Text: text, At: mockMoment("12:00"), Outgoing: outgoing,
 		Author: "Anna", AuthorID: 5,
 	}}}
 	m := openConversationWithHistory(t, &recordingChatSource{pages: []HistoryPage{page}}, 7, page)
@@ -1597,7 +1794,7 @@ func oneLineConversation(t *testing.T, width, height, count int) Model {
 		page.Messages = append(page.Messages, Message{
 			ID:     int64(index),
 			Text:   fmt.Sprintf("message %d", index),
-			Time:   fmt.Sprintf("12:%02d", index%60),
+			At:     mockMoment(fmt.Sprintf("12:%02d", index%60)),
 			Author: "Anna", AuthorID: 5,
 		})
 	}

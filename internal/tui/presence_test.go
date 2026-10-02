@@ -309,12 +309,12 @@ func TestPresencePrintsWithoutTheStatus(t *testing.T) {
 			leaks:   noStoreYear,
 		},
 		"an online presence on the screen": {
-			printed: presenceText(online, testClock, time.UTC),
+			printed: presenceText(online, testClock, time.UTC, ClockFormat24h),
 			want:    "online",
 			leaks:   noStoreYear,
 		},
 		"a presence that ran out an hour ago on the screen": {
-			printed: presenceText(ranOut, testClock, time.UTC),
+			printed: presenceText(ranOut, testClock, time.UTC, ClockFormat24h),
 			want:    "last seen at 15:00",
 			leaks:   noStoreYear,
 		},
@@ -324,7 +324,7 @@ func TestPresencePrintsWithoutTheStatus(t *testing.T) {
 					Kind:       PresenceUser,
 					LastSeenAt: testClock.Add(-8 * 24 * time.Hour),
 				},
-				testClock, time.UTC,
+				testClock, time.UTC, ClockFormat24h,
 			),
 			want:  "last seen 20 Sep",
 			leaks: noStoreYear,

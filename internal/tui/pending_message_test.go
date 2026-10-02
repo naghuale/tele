@@ -254,6 +254,12 @@ func TestRetryingNamesAnAbsoluteTime(t *testing.T) {
 	m := conversationWithPending(t, theme.ProfileNoColor, 100, 24, source)
 	m, _ = updateModel(t, m, deliveryRefresh(t, m, source))
 
+	// The zone is pinned because the moment above is in UTC and the screen
+	// writes it in the zone of the reader: 14:35 UTC is 17:35 ten hours
+	// east, and a test that took the zone of the machine would name one of
+	// those two on a machine and the other one in CI.
+	m = withClock(m, at, time.UTC)
+
 	view := plain(m.View())
 	if !strings.Contains(view, "14:35") {
 		t.Fatalf("the retry time is not on the screen:\n%s", view)

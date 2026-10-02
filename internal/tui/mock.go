@@ -59,13 +59,26 @@ type Chat struct {
 	Unread  int
 	Preview string
 
-	// Time is the time of the last message of the chat, as HH:MM.
+	// At is when the last message of the chat was sent, and it is what the
+	// row of the list says: the time of day today, and Yesterday or a
+	// date before that.
 	//
-	// It is a string and not a time.Time because the interface never
-	// computes anything with it: it is placed at the right edge of the
-	// title row, and the zone and the format belong to whoever projected
-	// the message rather than to the view.
-	Time string
+	// It is the moment and not the string that was written out, because the
+	// row has to be able to tell today from yesterday — which is a question
+	// about the day and not about the hour — and because the hour is
+	// written in the format and the zone of the machine, which is the view's
+	// business and not the projection's. See clock.go.
+	At time.Time
+
+	// LastReadInboxMessageID is the last incoming message of this chat that
+	// Telegram has been told was read, and it is where the unread line of
+	// the feed goes.
+	//
+	// It is zero for a chat with nothing read in it and for a chat the
+	// source could not say anything about, and both draw no unread line: a
+	// line over a chat nobody has unread messages in is a claim about a
+	// read that nobody made.
+	LastReadInboxMessageID int64
 
 	// Kind is what kind of chat this is.
 	Kind ChatKind
@@ -87,19 +100,24 @@ type Message struct {
 	ID       int64
 	Outgoing bool
 	Text     string
-	Time     string
 
-	// At is when Telegram dated the message, and it is what a message of
-	// the queue is placed by.
+	// At is when Telegram dated the message, and it is everything the screen
+	// needs to know about when: the time of day above the text, which day of
+	// the conversation it belongs to, and where the row goes among the
+	// messages of the queue.
 	//
-	// Time above is the same moment written out, and it is what the screen
-	// draws. It is a string, so it cannot be compared: "09:40" and "21:35"
-	// of two different days are both clock times, and a message that goes
-	// by them can only be placed by guessing which day it is. So the moment
-	// itself is kept as well, and it is used for one thing only — where the
-	// row goes in the conversation.
+	// It was a string written out — "09:40", "21:35" — beside this moment,
+	// and that string is what the screen drew. Two things were lost by it,
+	// and both were found by an owner rather than by a test. A string of a
+	// clock time cannot be compared, so a message of the queue could only be
+	// placed among the history by guessing which day it was; and a string
+	// has no day in it at all, so a conversation three days long had no
+	// boundaries and a reader could not tell a message of this morning from
+	// one of last week.
 	//
-	// What is written on screen is Time, and changing that is #62.
+	// The moment is kept, the string is not built here, and everything that
+	// wants a time asks the model — which knows the zone and the format of
+	// the machine. See clock.go.
 	At time.Time
 
 	// Author is the name shown above an incoming message: the name of the
@@ -145,6 +163,46 @@ type Message struct {
 	AlbumID int64
 }
 
+// The moment and the zone the mock screen is drawn at.
+//
+// The mock data is deterministic by construction: every moment in it is a
+// moment on this day in this zone, and the mock model reads its clock from
+// here rather than from the machine. A mock screen that took the hour from
+// the machine would be a different screen in every hour of the day, and the
+// day labels of the feed — Today, Yesterday — would be a different set of
+// them on every day of the year.
+var (
+	mockZone  = time.FixedZone("UTC+3", 3*60*60)
+	mockClock = time.Date(2026, 3, 14, 10, 3, 0, 0, mockZone)
+)
+
+// mockMoment returns the moment of a clock time of the mock day, in the mock
+// zone.
+//
+// It takes "10:02" and gives back a time.Time, because the alternative is a
+// moment written out three times over in every fixture and a fixture whose
+// hour nobody can read at a glance. The day and the zone are the ones above,
+// so every mock moment is on the same day as every other one — which is what
+// makes the mock feed a single day of a conversation with a Today above it.
+func mockMoment(clock string) time.Time {
+	hour, minute := 0, 0
+
+	for index, letter := range clock {
+		if letter == ':' {
+			continue
+		}
+
+		digit := int(letter - '0')
+		if index < 2 {
+			hour = hour*10 + digit
+			continue
+		}
+		minute = minute*10 + digit
+	}
+
+	return time.Date(2026, 3, 14, hour, minute, 0, 0, mockZone)
+}
+
 // mockChats returns deterministic mock data. No time.Now().
 func mockChats() []Chat {
 	return []Chat{
@@ -153,11 +211,11 @@ func mockChats() []Chat {
 			Title:   "Alice",
 			Unread:  2,
 			Preview: "How are you?",
-			Time:    "10:02",
+			At:      mockMoment("10:02"),
 			Messages: []Message{
-				{ID: 1, Text: "Hello", Time: "10:00", Author: "Alice", AuthorID: 7},
-				{ID: 2, Outgoing: true, Text: "Hi", Time: "10:01"},
-				{ID: 3, Text: "How are you?", Time: "10:02", Author: "Alice", AuthorID: 7},
+				{ID: 1, Text: "Hello", At: mockMoment("10:00"), Author: "Alice", AuthorID: 7},
+				{ID: 2, Outgoing: true, Text: "Hi", At: mockMoment("10:01")},
+				{ID: 3, Text: "How are you?", At: mockMoment("10:02"), Author: "Alice", AuthorID: 7},
 			},
 		},
 		{
@@ -165,16 +223,16 @@ func mockChats() []Chat {
 			Title:   "Dev Team",
 			Unread:  0,
 			Preview: "PR merged",
-			Time:    "09:05",
+			At:      mockMoment("09:05"),
 			Kind:    ChatKindGroup,
 			Messages: []Message{
 				{
-					ID: 1, Text: "PR-02 is ready", Time: "09:00",
+					ID: 1, Text: "PR-02 is ready", At: mockMoment("09:00"),
 					Author: "Marta", AuthorID: 21,
 				},
 				{
 					ID: 2, Outgoing: true, Text: "Проверка Unicode",
-					Time: "09:05",
+					At: mockMoment("09:05"),
 				},
 			},
 		},
@@ -183,11 +241,11 @@ func mockChats() []Chat {
 			Title:   "Saved Messages",
 			Unread:  5,
 			Preview: "Note",
-			Time:    "08:01",
+			At:      mockMoment("08:01"),
 			Aliases: []string{"Избранное"},
 			Messages: []Message{
-				{ID: 1, Outgoing: true, Text: "Привет", Time: "08:00"},
-				{ID: 2, Outgoing: true, Text: "Note", Time: "08:01"},
+				{ID: 1, Outgoing: true, Text: "Привет", At: mockMoment("08:00")},
+				{ID: 2, Outgoing: true, Text: "Note", At: mockMoment("08:01")},
 			},
 		},
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"sort"
 	"sync"
-	"time"
 )
 
 // ErrLiveStateOrder is returned when a TDLib chat position carries an
@@ -762,7 +761,7 @@ func parseLiveMessage(raw json.RawMessage) (Message, error) {
 		ID:          MessageID(message.ID),
 		ChatID:      ChatID(message.ChatID),
 		Outgoing:    message.IsOutgoing,
-		Timestamp:   time.Unix(int64(message.Date), 0).UTC(),
+		Timestamp:   instantOf(int64(message.Date)),
 		Text:        extractMessageText(message.Content),
 		Media:       label.word,
 		MediaDetail: label.detail,

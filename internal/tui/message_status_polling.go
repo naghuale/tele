@@ -621,7 +621,6 @@ func (m Model) pendingSentByID() map[string]Message {
 			ID:       message.MessageID,
 			Outgoing: true,
 			Text:     message.Text,
-			Time:     formatMessageTime(message.CreatedAt),
 			At:       message.CreatedAt,
 		}
 	}

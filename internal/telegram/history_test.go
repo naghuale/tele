@@ -335,7 +335,11 @@ func TestGetChatHistoryHappyPath(t *testing.T) {
 		if !first.Outgoing {
 			t.Fatal("messages[0].Outgoing = false, want true")
 		}
-		if got := first.Timestamp; got != time.Unix(1700000000, 0).UTC() {
+		// The instant, and not a moment written in some zone: TDLib sends a
+		// count of seconds and the zone is the reader's. A projection that
+		// stamped it as UTC wrote 21:21 on a screen of a user ten hours
+		// east, which is what the owner reported on 29.09.2026.
+		if got := first.Timestamp; !got.Equal(time.Unix(1700000000, 0)) {
 			t.Fatalf("messages[0].Timestamp = %v", got)
 		}
 		if first.Text != "newest" {

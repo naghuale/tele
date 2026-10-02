@@ -27,7 +27,13 @@ const (
 )
 
 // presenceText returns what the header says about the other side, or "".
-func presenceText(presence Presence, now time.Time, location *time.Location) string {
+func presenceText(
+	presence Presence,
+	now time.Time,
+	location *time.Location,
+	format ClockFormat,
+) string {
+
 	// A chat with oneself says nothing: the status in it is the user's own,
 	// and "Online" over Saved Messages is a fact about nobody.
 	if presence.Self {
@@ -43,7 +49,7 @@ func presenceText(presence Presence, now time.Time, location *time.Location) str
 		return strconv.Itoa(presence.OnlineMembers) + " online"
 
 	case PresenceUser:
-		return userPresenceText(presence, now, location)
+		return userPresenceText(presence, now, location, format)
 
 	default:
 		return ""
@@ -55,6 +61,7 @@ func userPresenceText(
 	presence Presence,
 	now time.Time,
 	location *time.Location,
+	format ClockFormat,
 ) string {
 	if presence.Bot {
 		return presenceBotText
@@ -68,10 +75,10 @@ func userPresenceText(
 			return presenceOnlineText
 		}
 
-		return lastSeenText(presence.ExpiresAt, now, location)
+		return lastSeenText(presence.ExpiresAt, now, location, format)
 	}
 	if !presence.LastSeenAt.IsZero() {
-		return lastSeenText(presence.LastSeenAt, now, location)
+		return lastSeenText(presence.LastSeenAt, now, location, format)
 	}
 
 	switch presence.Recency {
@@ -92,7 +99,11 @@ func userPresenceText(
 // between a message that may be answered and one from last week. Earlier
 // than that gets the date, because a time without a day is a time of
 // yesterday and a reader has to know it is not.
-func lastSeenText(seen, now time.Time, location *time.Location) string {
+func lastSeenText(
+	seen, now time.Time,
+	location *time.Location,
+	format ClockFormat,
+) string {
 	if location == nil {
 		location = time.Local
 	}
@@ -100,14 +111,20 @@ func lastSeenText(seen, now time.Time, location *time.Location) string {
 	at := seen.In(location)
 	today := now.In(location)
 
+	// The hours are written in the format of the machine and not in one
+	// this file chose. "last seen at 15:00" on a machine set to a
+	// twelve-hour clock is a time the reader cannot read at a glance, and
+	// the owner set that clock once for the whole system.
+	hour := at.Format(format.layout())
+
 	switch {
 	case at.Year() == today.Year() &&
 		at.YearDay() == today.YearDay():
-		return presenceLastSeenAtText + at.Format("15:04")
+		return presenceLastSeenAtText + hour
 
 	case at.Year() == today.Year() &&
 		at.AddDate(0, 0, 1).YearDay() == today.YearDay():
-		return presenceYesterdayPrefix + at.Format("15:04")
+		return presenceYesterdayPrefix + hour
 
 	default:
 		return presenceLastSeenOnText + at.Format("2 Jan")

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 var (
@@ -147,7 +146,7 @@ func (s *AuthorizedSession) SendTextMessage(
 		ID:          MessageID(response.ID),
 		ChatID:      ChatID(response.ChatID),
 		Outgoing:    response.IsOutgoing,
-		Timestamp:   time.Unix(int64(response.Date), 0).UTC(),
+		Timestamp:   instantOf(int64(response.Date)),
 		Text:        extractMessageText(response.Content),
 		Media:       label.word,
 		MediaDetail: label.detail,

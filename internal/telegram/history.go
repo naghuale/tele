@@ -330,7 +330,7 @@ func decodeHistoryMessage(
 		ID:          MessageID(m.ID),
 		ChatID:      ChatID(m.ChatID),
 		Outgoing:    m.IsOutgoing,
-		Timestamp:   time.Unix(int64(m.Date), 0).UTC(),
+		Timestamp:   instantOf(int64(m.Date)),
 		Text:        extractMessageText(m.Content),
 		Sender:      parseMessageSender(m.SenderID),
 		Media:       label.word,

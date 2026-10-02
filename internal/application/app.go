@@ -196,6 +196,11 @@ type App struct {
 	// The zero value measures the terminal before the first frame.
 	widthMode termwidth.Mode
 
+	// clock is the format the hour of a moment is written in. The zero
+	// value is twenty-four hours, which is the answer for a machine whose
+	// own setting could not be read.
+	clock tui.ClockFormat
+
 	// nerdFont says the terminal is drawn with a Nerd Font, and that the
 	// block of a message of this user may be rounded with it. The zero
 	// value draws square corners, which is what a terminal without the
@@ -240,6 +245,26 @@ func (a *App) WithWidthMode(mode termwidth.Mode) *App {
 
 	copied := *a
 	copied.widthMode = mode
+
+	return &copied
+}
+
+// WithClock returns a copy of the app that writes the hour in the given
+// format.
+//
+// The format is resolved by the composition root for the same reason the
+// theme and the width rule are: it is a property of the machine, the
+// machine is asked once rather than per frame, and telecli doctor reports
+// the clock the TUI will be drawn with. An app built without it writes
+// twenty-four hours, which is what a machine nobody could ask about is
+// drawn with.
+func (a *App) WithClock(format tui.ClockFormat) *App {
+	if a == nil {
+		return nil
+	}
+
+	copied := *a
+	copied.clock = format
 
 	return &copied
 }
@@ -457,6 +482,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 						Theme:        a.interfaceTheme(),
 						ColorProfile: a.colorProfile,
 						WidthMode:    a.widthMode,
+						Clock:        a.clock,
 						NerdFont:     a.nerdFont,
 					},
 				)
@@ -642,6 +668,12 @@ func runDoctor(args []string, env Environment) int {
 		return 1
 	}
 
+	clockMode, err := tui.ParseClockMode(cfg.TUI.Clock)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
 	fmt.Fprintln(env.Stdout, "telecli doctor")
 	fmt.Fprintln(env.Stdout, buildinfo.Get().String())
 	fmt.Fprintf(env.Stdout, "Go: %s %s/%s\n",
@@ -651,6 +683,7 @@ func runDoctor(args []string, env Environment) int {
 	writeConfigWarnings(env.Stdout, cfg.Warnings)
 	writeInterfaceStatus(env.Stdout, interfaceTheme, profile)
 	writeWidthStatus(env.Stdout, widthMode)
+	writeClockStatus(env.Stdout, clockMode)
 	writeFontStatus(env.Stdout, cfg.TUI.NerdFont)
 	reportOutboxStatus(
 		env.Stdout,
@@ -710,6 +743,12 @@ func runTUI(args []string, env Environment) int {
 	}
 
 	widthMode, err := resolveInterfaceWidth(cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
+	clockMode, err := tui.ParseClockMode(cfg.TUI.Clock)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -873,6 +912,7 @@ func runTUI(args []string, env Environment) int {
 		env.RunTUIWithSubmitter,
 	).WithInterface(interfaceTheme, colorProfile).
 		WithWidthMode(widthMode).
+		WithClock(resolveSystemClock(clockMode)).
 		WithNerdFont(cfg.TUI.NerdFont).
 		WithLog(uiLog.Logger, uiLog.Writer, uiLog.Close)
 	appErr := app.RunTUI(ctx)

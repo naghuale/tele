@@ -164,15 +164,15 @@ func TestAnAlbumKeepsTheCountAndDropsTheNameOfOnePart(t *testing.T) {
 	messages := []Message{
 		{
 			ID: 1, Media: "file", MediaDetail: " счёт.pdf", AlbumID: 5,
-			Time: "10:00", Author: "Anna", AuthorID: 7,
+			At: mockMoment("10:00"), Author: "Anna", AuthorID: 7,
 		},
 		{
 			ID: 2, Media: "file", MediaDetail: " договор.pdf", AlbumID: 5,
-			Time: "10:00", Author: "Anna", AuthorID: 7,
+			At: mockMoment("10:00"), Author: "Anna", AuthorID: 7,
 		},
 		{
 			ID: 3, Media: "file", MediaDetail: " акт.pdf", AlbumID: 5,
-			Time: "10:00", Author: "Anna", AuthorID: 7,
+			At: mockMoment("10:00"), Author: "Anna", AuthorID: 7,
 		},
 	}
 
@@ -186,8 +186,8 @@ func TestAnAlbumKeepsTheCountAndDropsTheNameOfOnePart(t *testing.T) {
 // the count with it.
 func TestAnAlbumOfAnimationsIsOneGIFEntry(t *testing.T) {
 	messages := []Message{
-		{ID: 1, Media: "GIF", AlbumID: 5, Time: "10:00", Author: "Anna"},
-		{ID: 2, Media: "GIF", AlbumID: 5, Time: "10:00", Author: "Anna"},
+		{ID: 1, Media: "GIF", AlbumID: 5, At: mockMoment("10:00"), Author: "Anna"},
+		{ID: 2, Media: "GIF", AlbumID: 5, At: mockMoment("10:00"), Author: "Anna"},
 	}
 
 	entries := timelineEntries(messages)
@@ -200,7 +200,7 @@ func TestAnAlbumOfAnimationsIsOneGIFEntry(t *testing.T) {
 // nothing to put around it.
 func TestAServiceMessageIsItsPhraseAndNothingElse(t *testing.T) {
 	entry := timelineEntry{
-		message: Message{Service: "joined the chat by a link", Time: "11:00"},
+		message: Message{Service: "joined the chat by a link", At: mockMoment("11:00")},
 		first:   0,
 		last:    0,
 	}
@@ -235,8 +235,8 @@ func TestAServiceMessageIsARowOfItsOwnInTheMiddle(t *testing.T) {
 	model := openedProgramModel(t, theme.ProfileNoColor, 60, 20)
 	model.focus = FocusHistory
 	model.chats[0].Messages = []Message{
-		{ID: 1, Author: "Anna Example", Text: "Hello", Time: "10:00"},
-		{ID: 2, Author: "Anna Example", Time: "10:01", Service: "joined the chat"},
+		{ID: 1, Author: "Anna Example", Text: "Hello", At: mockMoment("10:00")},
+		{ID: 2, Author: "Anna Example", At: mockMoment("10:01"), Service: "joined the chat"},
 	}
 
 	row, _, found := lineWith(plain(model.View()), "joined the chat")
@@ -268,12 +268,12 @@ func TestAServiceMessageKeepsTheRowsOfTheScreenARectangle(t *testing.T) {
 	model.screen = ScreenConversation
 	model.focus = FocusComposer
 	model.chats[0].Messages = []Message{
-		{ID: 1, Author: "Дмитрий С", Text: "Привет", Time: "12:00"},
-		{ID: 2, Author: "Дмитрий С", Time: "12:01", Service: "joined the chat"},
+		{ID: 1, Author: "Дмитрий С", Text: "Привет", At: mockMoment("12:00")},
+		{ID: 2, Author: "Дмитрий С", At: mockMoment("12:01"), Service: "joined the chat"},
 		{
-			ID: 3, Author: "Дмитрий С", Time: "12:02",
+			ID: 3, Author: "Дмитрий С", At: mockMoment("12:02"),
 			Service: "renamed the chat to Большой теннис",
-		}, {ID: 4, Outgoing: true, Text: "вижу", Time: "12:03"},
+		}, {ID: 4, Outgoing: true, Text: "вижу", At: mockMoment("12:03")},
 	}
 
 	lines := viewLines(model.View())

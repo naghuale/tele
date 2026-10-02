@@ -150,6 +150,15 @@
   `tokyo-night-storm`; тема выбирается в `[tui] theme`, профиль цвета — в
   `[tui] color` (`auto`, `always`, `never`), и переменная `NO_COLOR` уважается.
   [#28](https://github.com/naghuale/tele/pull/28)
+- `AGENTS.md` — правила агента в telecli: приоритет источников, роли, порядок
+  работы через crewflow (ворота, ревью, слияние оркестратором, приёмка по
+  `ACCEPTED <sha>`), изоляция `HOME` в тестах, правила связки ключей, закреплённая
+  схема имён TDLib, `TELECLI_TDLIB_LIBRARY`, сборка для проверки владельцем
+  `review-tele<N>` и языки. `docs/COLLABORATION.md` переписан под действующий
+  порядок: вместо сигналов Telepathy, слияния исполнителем и маркера
+  `REVIEW: APPROVED` — `crewflow task run`, `crewflow review`, `crewflow merge`,
+  `crewflow verify`.
+  [#43](https://github.com/naghuale/tele/issues/43)
 
 ### Изменено
 

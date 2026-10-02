@@ -117,6 +117,9 @@ TDLib стоят только вымышленные значения. Имя, �
   архитектуре;
 - [docs/COLLABORATION.md](docs/COLLABORATION.md) — как ведётся работа над
   проектом;
+- [AGENTS.md](AGENTS.md) — правила агента в telecli: порядок работы,
+  настройки и связка ключей, настоящая TDLib, языки;
+- [PROJECT_RULES.md](PROJECT_RULES.md) — правила проекта;
 - [CHANGELOG.md](CHANGELOG.md) — что изменилось в каждой версии.
 
 ## Состояние

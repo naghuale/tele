@@ -356,14 +356,135 @@ func snapshotChatPreview(t *testing.T, f snapshotFixture) Model {
 	m, _ = updateModel(t, m, chatPreviewDueMsg{
 		chatID:    m.selectedChatID(),
 		selection: m.selectedChat,
-	})
-	m, _ = updateModel(t, m, chatPreviewLoadedMsg{
-		chatID:    m.selectedChatID(),
-		operation: m.previewOperation,
-		page:      HistoryPage{Messages: snapshotMessages()},
+		boundary:  0,
+		newest:    true,
 	})
 
+	// The newest page, and then every page above it the way the fill asks
+	// for them. This fixture's source has nothing older to hand out, so the
+	// second page is empty: the pane has the whole of a short chat and says
+	// where the chat begins.
+	return settlePreviewSnapshot(t, m, HistoryPage{
+		Messages: snapshotMessages(),
+		HasMore:  true,
+	})
+}
+
+// settlePreviewSnapshot gives the model the newest page of a preview and then
+// every page the fill asks for above it, the way the Bubble Tea loop does.
+func settlePreviewSnapshot(t *testing.T, m Model, newest HistoryPage) Model {
+	t.Helper()
+
+	m, cmd := updateModel(t, m, chatPreviewLoadedMsg{
+		chatID:    m.selectedChatID(),
+		operation: m.previewOperation,
+		page:      newest,
+		newest:    true,
+	})
+
+	for round := 0; round < 6 && cmd != nil; round++ {
+		var next tea.Cmd
+		for _, msg := range flattenBatch(t, cmd) {
+			m, next = updateModel(t, m, msg)
+		}
+		cmd = next
+	}
+
 	return m.scrollToNewest()
+}
+
+// snapshotChatPreviewLoading is the same pane with the first page on its way:
+// the owner looked at a preview that had nothing to show and called the dark
+// space above the messages a broken screen (03.10), so what is above them
+// while a page is being read is a sentence of its own.
+func snapshotChatPreviewLoading(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+
+	m, _ = updateModel(t, m, chatPreviewDueMsg{
+		chatID:    m.selectedChatID(),
+		selection: m.selectedChat,
+		boundary:  0,
+		newest:    true,
+	})
+
+	return m
+}
+
+// previewPageRange is a page of a preview fixture: the identifiers from
+// oldest to oldest+count-1, newest first, as TDLib answers a page.
+//
+// The times are minutes of the moment every snapshot is drawn at, so a
+// golden of the fill does not depend on when it was made, and the newest of
+// them is that moment itself. Every other message is this user's and every
+// other one is Anna's, which is what makes a preview a conversation rather
+// than a list of sentences.
+func previewPageRange(oldest, count int) HistoryPage {
+	page := HistoryPage{HasMore: true, NextFrom: int64(oldest)}
+
+	for index := oldest + count - 1; index >= oldest; index-- {
+		message := Message{
+			ID:     int64(index),
+			Text:   fmt.Sprintf("Release check %02d is done", index-previewOldestID),
+			At:     snapshotClock.Add(-time.Duration(previewNewestID-index) * time.Minute),
+			Author: "Anna Example", AuthorID: 5,
+		}
+		if index%2 == 0 {
+			message.Outgoing = true
+			message.Author = ""
+			message.AuthorID = 0
+		}
+
+		page.Messages = append(page.Messages, message)
+	}
+
+	return page
+}
+
+// The identifiers the fixture of a preview is built of, so that a page above
+// another one continues below it and a golden says the same thing twice.
+const (
+	previewNewestID = 1015
+	previewOldestID = 1000
+)
+
+// snapshotChatPreviewFull is the same pane with the chat read the way an
+// opened chat is read on its first screen (#58): the fill asked for the older
+// pages and the messages cover the pane, with nothing dark above them.
+func snapshotChatPreviewFull(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	source := &fakeChatSource{pages: map[int64]HistoryPage{
+		0:                    previewPageRange(previewNewestID-5, 6),
+		previewNewestID - 5:  previewPageRange(previewNewestID-10, 5),
+		previewNewestID - 10: previewPageRange(previewNewestID-15, 5),
+	}}
+
+	m := snapshotModel(t, f, Dependencies{
+		AccountKey: snapshotAccountKey,
+		Source:     source,
+	})
+
+	m, _ = updateModel(t, m, chatPreviewDueMsg{
+		chatID:    m.selectedChatID(),
+		selection: m.selectedChat,
+		boundary:  0,
+		newest:    true,
+	})
+
+	// Every page above the newest one as well — each one asked from the
+	// oldest message of the page before it — until the pane is covered.
+	m = settlePreviewSnapshot(t, m, previewPageRange(previewNewestID-5, 6))
+
+	if !m.feedIsFull() {
+		t.Fatalf(
+			"the fill did not cover the pane: %d messages of a pane of %d rows",
+			len(m.selected().Messages), m.feedRows(),
+		)
+	}
+
+	return m
 }
 
 // snapshotDelivery is a conversation with one outgoing message in the given
@@ -531,6 +652,12 @@ func snapshotScreens() []snapshotScreen {
 		}},
 		{"TestSnapshotChatListPreview", func(t *testing.T) Model {
 			return snapshotChatPreview(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotChatListPreviewFull", func(t *testing.T) Model {
+			return snapshotChatPreviewFull(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotChatListPreviewLoading", func(t *testing.T) Model {
+			return snapshotChatPreviewLoading(t, wide(theme.ProfileTrueColor))
 		}},
 		{"TestSnapshotNarrowConversation", func(t *testing.T) Model {
 			m := snapshotConversation(t, narrow(theme.ProfileTrueColor))
@@ -1437,6 +1564,18 @@ func TestSnapshotNarrowChatList(t *testing.T) {
 // that nobody has opened yet, with the words under it that say so.
 func TestSnapshotChatListPreview(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListPreview"))
+}
+
+// The same pane with the chat read the way an opened chat is read on its
+// first screen (#58): the messages cover it, and nothing is dark above them.
+func TestSnapshotChatListPreviewFull(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListPreviewFull"))
+}
+
+// The same pane with the first page on its way, which says so where the
+// emptiness would otherwise be.
+func TestSnapshotChatListPreviewLoading(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListPreviewLoading"))
 }
 
 func TestSnapshotNarrowConversation(t *testing.T) {

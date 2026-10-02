@@ -109,7 +109,7 @@ func (m Model) conversationRegion(
 	// where the page it is about will go: a line at the bottom would be
 	// read as the end of the conversation, and the end is the newest
 	// message.
-	header = append(header, m.olderPageLines(layout, width)...)
+	header = append(header, m.pageLinesBelowRule(layout, width)...)
 
 	// The line of new messages is at the bottom of the feed, above the
 	// composer: it is about what is below the window, so it is drawn where
@@ -170,6 +170,22 @@ func (m Model) timelineBody(layout Layout, width, rows int) []string {
 // popupOpen reports whether a sheet or a question is on the screen.
 func (m Model) popupOpen() bool {
 	return m.actionSheet.open || m.modal.open
+}
+
+// pageLinesBelowRule returns the one line that stands between the heading of
+// a conversation and its feed.
+//
+// It is the progress of an older-page request in an open conversation, and
+// the sentence that says what is above the oldest message in a preview
+// (chat_preview.go). One place on the screen and one question to the budget
+// of the feed (pageLineCount), so a preview cannot take a row the messages
+// were placed against.
+func (m Model) pageLinesBelowRule(layout Layout, width int) []string {
+	if m.chatPreviewShown() {
+		return m.previewBeginningLines(layout, width)
+	}
+
+	return m.olderPageLines(layout, width)
 }
 
 // olderPageLines returns the line that says an older page is on its way,

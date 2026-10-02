@@ -58,7 +58,7 @@ func (m Model) timelinePageSize() int {
 // composer band and the hints inside it are not the timeline's to spend.
 func (m Model) timelineRows(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
-	rows -= m.olderPageLineCount()
+	rows -= m.pageLineCount(layout, width)
 	rows -= m.newMessagesLineCount(layout, width)
 
 	return maxInt(rows, 0)
@@ -100,7 +100,7 @@ func (m Model) historyFeedRows(layout Layout, width int) int {
 func (m Model) historyFeedRowsBase(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
 	rows -= len(m.statusBlockLines(layout, width))
-	rows -= m.olderPageLineCount()
+	rows -= m.pageLineCount(layout, width)
 
 	return maxInt(rows, 0)
 }
@@ -241,6 +241,21 @@ func (m Model) conversationRegionHeight(layout Layout, width int) int {
 	}
 
 	return maxInt(layout.Height-m.composerHeight(layout, width), 0)
+}
+
+// pageLineCount returns the rows the one line between the heading of a
+// conversation and its feed takes, which is one row or none.
+//
+// It is one question for two lines: the progress of an older-page request in
+// an open conversation, and the sentence that says what is above the oldest
+// message in a preview. They stand in the same place on the screen, so the
+// feed is measured against whichever of them is there.
+func (m Model) pageLineCount(layout Layout, width int) int {
+	if m.chatPreviewShown() {
+		return m.previewBeginningLineCount(layout, width)
+	}
+
+	return m.olderPageLineCount()
 }
 
 // olderPageLineCount returns the rows the progress of an older-page request

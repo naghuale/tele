@@ -114,7 +114,7 @@ func rowsOfTheFeed(t *testing.T, m Model) []string {
 	width := layout.ChatContentWidth()
 
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
-	rows -= len(m.statusBlockLines(layout, width)) + m.olderPageLineCount()
+	rows -= len(m.statusBlockLines(layout, width)) + m.pageLineCount(layout, width)
 	rows = maxInt(rows, 0)
 
 	return anchorTimelineToBottom(m.timelineBody(layout, width, rows), rows)
@@ -228,7 +228,7 @@ func TestTheAreaOfTheMessagesIsFullToItsFirstRow(t *testing.T) {
 	width := layout.ChatContentWidth()
 	rows := maxInt(
 		m.conversationRegionHeight(layout, width)-conversationHeaderRows-
-			len(m.statusBlockLines(layout, width))-m.olderPageLineCount(),
+			len(m.statusBlockLines(layout, width))-m.pageLineCount(layout, width),
 		0,
 	)
 

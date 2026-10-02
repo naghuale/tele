@@ -21,12 +21,19 @@ type fakeChatSource struct {
 		limit         int
 	}
 
+	// pages answers a history load by the boundary it was asked with, so a
+	// test of the fill can hand out a newest page and an older one. A
+	// boundary that is not staged is answered with history, which is what a
+	// source with nothing staged in it does.
+	pages map[int64]HistoryPage
+
 	// historyChats is every chat a history load was asked for, in order.
 	// The last call is the one historyCall holds, and this is how many there
 	// were: a screen that asks for a page per key press is the question the
 	// pause of the preview exists to answer, and it can only be asked of the
 	// whole list.
 	historyChats []int64
+	historyCalls []int64
 
 	sentMessage Message
 	sendErr     error
@@ -54,10 +61,21 @@ func (f *fakeChatSource) LoadHistory(
 	f.historyCall.fromMessageID = fromMessageID
 	f.historyCall.limit = limit
 	f.historyChats = append(f.historyChats, chatID)
+	f.historyCalls = append(f.historyCalls, fromMessageID)
 	if f.historyErr != nil {
 		return HistoryPage{}, f.historyErr
 	}
+	if page, staged := f.pages[fromMessageID]; staged {
+		return page, nil
+	}
 	return f.history, nil
+}
+
+// historyBoundaries returns the boundaries every history load was asked
+// with, in order, which is what tells a fill from one page: a fill asks for
+// one boundary after another, going up the chat.
+func (f *fakeChatSource) historyBoundaries() []int64 {
+	return f.historyCalls
 }
 
 func (f *fakeChatSource) SendMessage(

@@ -29,8 +29,17 @@ import (
 //     difference between reading and writing;
 //   - it is not a load per key. The pane is filled after the cursor has
 //     been still for chatPreviewPause, so holding ↓ through fifty chats
-//     asks for one page, and the last selection wins: an answer for a chat
-//     the cursor has already left is dropped rather than painted.
+//     asks for one preview, and the last selection wins: an answer for a
+//     chat the cursor has already left is dropped rather than painted.
+//
+// One preview is not one page. The owner looked at the result on 03.10 and
+// said the pane showed «only the newest messages» and that the space above
+// them was dark: «кто не пользовался, подумает, что там ничего нет или что
+// сломано». So the preview reads the same way an opened chat is read on its
+// first screen (#58): pages are asked for until the pane is covered, and
+// what is above the oldest message on the screen is a sentence rather than
+// emptiness — `Loading history…` while a page is on its way and `Beginning
+// of the chat` where the chat really does begin there.
 
 // chatPreviewPause is how long the cursor has to be still on a chat before
 // its conversation is shown in the pane beside the list.
@@ -51,6 +60,17 @@ const chatPreviewPause = 200 * time.Millisecond
 type chatPreviewDueMsg struct {
 	chatID    int64
 	selection int
+
+	// boundary is the message the page starts above — zero for the newest
+	// page of the chat — and newest says which page this is.
+	//
+	// The two travel with the pause rather than being read from the model on
+	// arrival because the pane keeps asking for pages while the cursor
+	// stands still: a pause that read the boundary when it arrives would ask
+	// for the same page again for ever, and a page that came back empty means
+	// two different things depending on which page it was.
+	boundary int64
+	newest   bool
 }
 
 // chatPreviewLoadedMsg is delivered by loadPreviewCmd.
@@ -64,6 +84,14 @@ type chatPreviewLoadedMsg struct {
 	operation uint64
 	page      HistoryPage
 	err       error
+
+	// newest says that this is the newest page of the chat, which is the
+	// page that replaces what was read and the one whose empty answer means
+	// the chat has nothing in it. An empty page above the newest one is a
+	// different answer: there is nothing older than the boundary, which is
+	// what turns the line at the top of the pane from `Loading history…`
+	// into `Beginning of the chat`.
+	newest bool
 }
 
 // armChatPreview returns the command that shows the chat under the cursor
@@ -88,7 +116,12 @@ func (m *Model) armChatPreview() tea.Cmd {
 	selection := m.selectedChat
 
 	return tea.Tick(chatPreviewPause, func(time.Time) tea.Msg {
-		return chatPreviewDueMsg{chatID: chatID, selection: selection}
+		return chatPreviewDueMsg{
+			chatID:    chatID,
+			selection: selection,
+			boundary:  0,
+			newest:    true,
+		}
 	})
 }
 
@@ -133,6 +166,19 @@ func (m Model) updateChatPreviewDue(
 
 	m.chatPreviewChat = msg.chatID
 
+	// The fill belongs to the chat that was there a moment ago: what was
+	// read of it, whether it was the beginning and whether an ask failed are
+	// answers about another chat, and a preview of this one starts with
+	// nothing known. The bounds are counted as well, so a cursor that has
+	// stood still on fifty chats does not carry fifty chats' worth of pages
+	// into the fifty-first.
+	m.previewBeginning = false
+	m.previewHasMore = false
+	m.previewMoreLoading = false
+	m.previewMoreErr = nil
+	m.previewFillRequests = 0
+	m.previewFillMessages = 0
+
 	// A model built without Telegram holds the messages of its chats in the
 	// list, so there is nothing to ask for: the pause was the wait, and the
 	// pane is drawn from what the list already carries.
@@ -140,14 +186,72 @@ func (m Model) updateChatPreviewDue(
 		return m, nil
 	}
 
-	// One page, and no fill above it. The preview is a look at the end of a
-	// conversation and the feed holds one screenful of it; a walk through
-	// older pages would be a second answer to a question the pane did not
-	// ask.
 	m.historyState = loadStateLoading
 	m.previewOperation++
 
-	return m, loadPreviewCmd(m.source, msg.chatID, historyPageSize, m.previewOperation)
+	return m, loadPreviewCmd(
+		m.source,
+		msg.chatID,
+		msg.boundary,
+		historyPageSize,
+		m.previewOperation,
+		msg.newest,
+	)
+}
+
+// fillChatPreview asks for the page above the one on the screen while the
+// pane is not covered.
+//
+// This is the fill of #58 — a chat opens with a screen of messages in it,
+// and the ask repeats until there are enough of them to fill it — with the
+// same bounds and the same question. A page of nothing above the oldest
+// message on the screen is the answer "this is the beginning of the chat",
+// and it is the flag that puts that sentence at the top of the pane instead
+// of darkness (previewBeginning).
+func (m Model) fillChatPreview() (Model, tea.Cmd) {
+	if !m.chatPreviewShown() || m.source == nil {
+		return m, nil
+	}
+	if m.previewBeginning || m.previewMoreLoading || m.previewMoreErr != nil {
+		return m, nil
+	}
+	if m.historyState != loadStateLoaded {
+		return m, nil
+	}
+
+	// A page that says "no more" is the only answer that ends the fill, and
+	// asking for nothing at all is not an answer.
+	if !m.previewHasMore {
+		return m, nil
+	}
+	if m.previewFillRequests >= maxHistoryFillRequests ||
+		m.previewFillMessages >= maxHistoryFillMessages {
+		return m, nil
+	}
+
+	// The window of the pane, measured the way the view measures it: by the
+	// rows the messages take on the screen, not by a count against a guess
+	// at how many messages fit in them.
+	if m.feedIsFull() {
+		return m, nil
+	}
+
+	boundary := historyBoundary(m.selected())
+	if boundary == 0 {
+		return m, nil
+	}
+
+	m.previewMoreLoading = true
+	m.previewMoreErr = nil
+
+	return m, loadPreviewCmd(
+		m.source,
+		m.selectedChatID(),
+		boundary,
+		historyPageSize,
+		m.previewOperation,
+		false,
+	)
 }
 
 // updateChatPreviewLoaded puts the page of a preview into the pane.
@@ -173,17 +277,54 @@ func (m Model) updateChatPreviewLoaded(
 		return m, nil
 	}
 
+	m.previewMoreLoading = false
+	m.previewFillRequests++
+
 	page := chronological(safeMessages(msg.page.Messages))
-	m.chats[m.selectedChat].Messages = page
+	m.previewFillMessages += len(page)
+
+	// A page that came back empty is the end of the fill, and there is
+	// nothing older than it to ask about.
 	if len(page) == 0 {
+		m.previewHasMore = false
+
+		// The newest page of a chat that has nothing in it is an empty chat,
+		// and the pane already says so ("No messages yet"). An empty page
+		// above the newest one is the other answer: there is nothing older
+		// than the boundary, so the oldest message on the screen is where
+		// the chat begins — and nothing above it is worth asking about.
+		if !msg.newest {
+			m.previewBeginning = true
+		}
+
+		return m, nil
+	}
+
+	if msg.newest {
+		// The newest page of a chat that has something in it is the whole
+		// of what has been read, and the fill starts from it.
+		m.chats[m.selectedChat].Messages = page
+		m.previewHasMore = msg.page.HasMore
+	} else {
+		m.chats[m.selectedChat].Messages = prependOlderMessages(
+			m.chats[m.selectedChat].Messages,
+			page,
+		)
+		m.historyExhausted = false
+	}
+
+	if len(m.chats[m.selectedChat].Messages) == 0 {
 		m.historyState = loadStateEmpty
 	} else {
 		m.historyState = loadStateLoaded
 	}
 
-	// The window follows the page, and the pane is drawn bottom-anchored:
-	// the newest message of a chat is the one a glance is about (§8.3).
-	return m.scrollToNewest(), nil
+	// The window follows the page and is placed again where a page came in
+	// above it, which is what keeps the newest message at the bottom: a
+	// preview is a look at the end of a conversation (§8.3, §10.5).
+	m = m.scrollToNewest()
+
+	return m.fillChatPreview()
 }
 
 // loadPreviewCmd asks for the newest page of the chat the pane is about to
@@ -195,10 +336,12 @@ func (m Model) updateChatPreviewLoaded(
 func loadPreviewCmd(
 	src ChatSource,
 	chatID int64,
+	boundary int64,
 	limit int,
 	operation uint64,
+	newest bool,
 ) tea.Cmd {
-	history := loadHistoryCmd(src, chatID, 0, limit, operation)
+	history := loadHistoryCmd(src, chatID, boundary, limit, operation)
 
 	return func() tea.Msg {
 		loaded, isHistory := history().(historyLoadedMsg)
@@ -211,9 +354,72 @@ func loadPreviewCmd(
 			operation: loaded.operation,
 			page:      loaded.page,
 			err:       loaded.err,
+			newest:    newest,
 		}
 	}
 }
+
+// The words at the top of a preview.
+//
+// The owner looked at a preview that showed only the newest messages on
+// 03.10 and said the space above them was dark, and that «кто не
+// пользовался, подумает, что там ничего нет или что сломано». Three
+// sentences for three states, and none of them is silence:
+//
+//   - nothing has been asked for yet: the quiet empty state of §17, which
+//     is what the pane says until the pause has run out;
+//   - a page is on its way: `Loading history…`, the same words the timeline
+//     uses while a first page is being read;
+//   - the pane holds everything the chat has: `Beginning of the chat`,
+//     which is what is above the oldest message rather than emptiness.
+//
+// The last one is the newest of the three and the one the owner asked for:
+// a chat with three messages does not have a hole above them, it has an end.
+const previewBeginningText = "Beginning of the chat"
+
+// previewBeginningLines returns the line at the top of a preview.
+//
+// The loading line comes first: a pane that has asked for a page and has
+// not got it is a wait, and a wait has to be named — the same rule as
+// olderPageLines above the feed of an open conversation.
+func (m Model) previewBeginningLines(layout Layout, width int) []string {
+	// A chat with nothing on the screen has the sentence of the empty state
+	// where its feed would be ("No messages yet", `Loading history...`, the
+	// failure), and a second sentence above it says the same thing twice.
+	if !m.chatPreviewShown() || len(m.selected().Messages) == 0 {
+		return nil
+	}
+
+	styles := m.styles()
+
+	switch {
+	case m.historyState == loadStateLoading || m.previewMoreLoading:
+		return []string{styles.dimmed(m.tokens().SecondaryText).
+			Render(m.widths.Fit(previewLoadingText, width, ellipsis))}
+
+	case m.previewBeginning:
+		return []string{styles.dimmed(m.tokens().MutedText).
+			Render(m.widths.Fit(previewBeginningText, width, ellipsis))}
+
+	default:
+		return nil
+	}
+}
+
+// previewBeginningLineCount returns how many rows the line at the top of a
+// preview takes, so that the messages below it are measured against what is
+// really there.
+func (m Model) previewBeginningLineCount(layout Layout, width int) int {
+	return len(m.previewBeginningLines(layout, width))
+}
+
+// previewLoadingText is what the pane says while a page is on its way.
+//
+// It is the same sentence the timeline says while the first page of an
+// opened chat is being read (timelineEmptyLines), because it is the same
+// wait: the words were not invented for the preview and a user who has read
+// one does not have to read the other.
+const previewLoadingText = "Loading history..."
 
 // previewHint is what the foot of a preview says.
 //
@@ -248,6 +454,14 @@ func (m Model) previewFooterRows(layout Layout, width int) int {
 // There is no composer under them and no reason for one: the keys are in the
 // list, and a field under a conversation with the focus elsewhere is a field
 // that swallows nothing and promises a send that nothing will send.
+// previewPaneRegion draws the preview of the chat under the cursor.
+//
+// It is the conversation region of an opened chat with its own foot under
+// it, and it is the same drawing for the same reason — the pane is a
+// conversation. The sentence about what is above the oldest message is drawn
+// with the region (pageLinesBelowRule), where the progress of an older-page
+// request stands in an open one, so the top of a preview reads as one region
+// rather than as a sentence floating over the feed.
 func (m Model) previewPaneRegion(layout Layout) string {
 	width := layout.ChatContentWidth()
 	footer := m.previewFooterRegion(layout, width)

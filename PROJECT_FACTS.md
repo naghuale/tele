@@ -628,9 +628,17 @@
     the newest preview load, so a page for a chat the cursor has left is
     dropped. The foot of a preview reads "Preview · Enter or Tab to open"
     and is its own band, not the hint bar: there are no keys in the pane.
-    The empty state of §17 stays for the first 200 ms and for a list with
-    nothing in it. On a narrow screen there is no preview: the list is the
-    whole screen
+    Above the oldest message on the screen there is one line, where the
+    progress of an older-page request stands in an open conversation
+    (pageLinesBelowRule): "Loading history..." while a page is on its way,
+    and "Beginning of the chat" once a page asked for the beginning comes
+    back empty (previewBeginning). The dark space above the messages the
+    owner named on 2026-10-03 is therefore never silent: it is covered by
+    messages, or it carries one of those two sentences. A chat with nothing
+    on the screen says so in the feed instead ("No messages yet"), so the
+    line above never repeats the sentence below it. The empty state of §17
+    stays for the first 200 ms and for a list with nothing in it. On a
+    narrow screen there is no preview: the list is the whole screen
   - focus cycle (§5.0): Tab walks chat list → composer → timeline →
     chat list and Shift+Tab the same way back, in both forms of
     Shift+Tab (`tea.KeyShiftTab` and the `ESC [ Z` sequence as runes).

@@ -182,8 +182,21 @@ type Model struct {
 	//
 	// The preview is drawn on the chat list screen and never opens a chat:
 	// what Telegram is told about is a chat that was opened on purpose.
-	chatPreviewChat  int64
-	previewOperation uint64
+	//
+	// The rest is the fill of #58 for that pane: previewBeginning says the
+	// pane holds the whole of the chat, previewHasMore is what the last page
+	// said about what is above it, previewMoreLoading and previewMoreErr are
+	// the page on its way and the one that failed, and previewFillRequests
+	// and previewFillMessages bound the fill the way maxHistoryFillRequests
+	// and maxHistoryFillMessages bound the one of an opened chat.
+	chatPreviewChat     int64
+	previewOperation    uint64
+	previewBeginning    bool
+	previewHasMore      bool
+	previewMoreLoading  bool
+	previewMoreErr      error
+	previewFillRequests int
+	previewFillMessages int
 
 	// chatListOffset is the row of the chat list the window starts at,
 	// where -1 means the window is placed for the chat under the cursor

@@ -67,11 +67,20 @@ func previewChat(id int64, title string) Chat {
 	return Chat{ID: id, Title: title, Kind: ChatKindPrivate, Unread: 4}
 }
 
-// previewPage is the newest page of a chat: six messages, which is more than
-// one screenful of a short conversation.
+// previewPage is the newest page of a chat: six messages, which is less
+// than one screenful of a conversation.
 func previewPage(id int64, title string) HistoryPage {
-	page := HistoryPage{}
-	for message := 1; message <= 6; message++ {
+	return previewPageFrom(id, title, 1, 6)
+}
+
+// previewPageFrom is a page of the messages first through last of a range of
+// identifiers, as TDLib answers it: newest first.
+func previewPageFrom(id int64, title string, first, last int) HistoryPage {
+	// HasMore says there is something above the oldest message of the page,
+	// which is what the fill asks about and what an empty answer above the
+	// boundary then contradicts.
+	page := HistoryPage{NextFrom: int64(first), HasMore: true}
+	for message := last; message >= first; message-- {
 		page.Messages = append(page.Messages, Message{
 			ID:     id*100 + int64(message),
 			Text:   fmt.Sprintf("%s line %02d", title, message),
@@ -109,7 +118,12 @@ func loadedModel(t *testing.T) (Model, *fakeChatSource, *recordingViewer, *recor
 func previewDue(t *testing.T, model Model, chatID int64, selection int) (Model, tea.Cmd) {
 	t.Helper()
 
-	return updateModel(t, model, chatPreviewDueMsg{chatID: chatID, selection: selection})
+	return updateModel(t, model, chatPreviewDueMsg{
+		chatID:    chatID,
+		selection: selection,
+		boundary:  0,
+		newest:    true,
+	})
 }
 
 // The pane beside the list shows the conversation of the chat under the
@@ -175,14 +189,19 @@ func TestAFastWalkThroughTheListLoadsOnlyTheLastChat(t *testing.T) {
 		runCommands(t, cmd)
 	}
 
-	if len(source.historyChats) != 1 {
-		t.Fatalf(
-			"history loads = %v, want one: the chat the cursor stopped on",
-			source.historyChats,
-		)
+	// One chat and one chat only: every load is a page of the chat the
+	// cursor stopped on, and nothing was asked for the two it walked past.
+	if len(source.historyChats) == 0 {
+		t.Fatal("the pause asked for nothing")
 	}
-	if source.historyChats[0] != 3 {
-		t.Fatalf("history load for chat %d, want the last one 3", source.historyChats[0])
+	for _, chatID := range source.historyChats {
+		if chatID != 3 {
+			t.Fatalf(
+				"history loads = %v, want pages of the chat the cursor "+
+					"stopped on 3",
+				source.historyChats,
+			)
+		}
 	}
 }
 
@@ -236,6 +255,51 @@ func TestAPreviewPageForAChatTheCursorLeftIsDropped(t *testing.T) {
 	if model.screen != ScreenConversation {
 		t.Fatalf("screen = %v, want the open conversation", model.screen)
 	}
+}
+
+// settlePreview gives the model every message the commands of a preview
+// answer with, until there is nothing left to run.
+//
+// The fill is a chain rather than one answer: a page that arrives asks for
+// the page above it, and a test that fed only the first would be testing a
+// pane that was never covered. The rounds are bounded by the same bound the
+// fill itself is, so a fill that never ends fails here instead of running
+// for ever.
+func settlePreview(t *testing.T, model Model, cmd tea.Cmd) Model {
+	t.Helper()
+
+	for round := 0; round <= maxHistoryFillRequests+1; round++ {
+		if cmd == nil {
+			return model
+		}
+
+		var next tea.Cmd
+		for _, msg := range flattenBatch(t, cmd) {
+			var one tea.Cmd
+			model, one = updateModel(t, model, msg)
+			next = tea.Batch(next, one)
+		}
+		cmd = next
+	}
+
+	t.Fatalf("the preview is still asking for pages after %d rounds", maxHistoryFillRequests+1)
+
+	return model
+}
+
+// applyOne gives the model the first message a command answers with and
+// hands back the command that message answered with, which is how a fill is
+// watched one page at a time.
+func applyOne(t *testing.T, model Model, cmd tea.Cmd) (Model, tea.Cmd) {
+	t.Helper()
+
+	for _, msg := range flattenBatch(t, cmd) {
+		return updateModel(t, model, msg)
+	}
+
+	t.Fatal("the command answered with nothing")
+
+	return model, nil
 }
 
 // The preview is not a read. What Telegram is told about is a chat that was
@@ -412,5 +476,156 @@ func TestAPreviewThatCouldNotBeReadSaysSoAndNothingMore(t *testing.T) {
 	}
 	if viewer.count() != 0 {
 		t.Fatal("a preview that failed marked something read")
+	}
+}
+
+// A preview is read the way an opened chat is read on its first screen
+// (#58): pages are asked for until the pane is covered, because a pane with
+// a screen of messages at the bottom and darkness above them is a pane
+// somebody who has not used the program reads as broken (the owner, 03.10).
+func TestThePreviewReadsPagesUntilThePaneIsCovered(t *testing.T) {
+	model, source, _, _ := loadedModel(t)
+	source.pages = map[int64]HistoryPage{
+		0: previewPage(1, "Alpha"),
+		// Two more pages, each of them older than the last and asked from
+		// the oldest message of the one before it: the newest page holds
+		// messages 1 through 6, and a chat is kept oldest first, so its
+		// oldest message is 101.
+		101: previewPageFrom(1, "Alpha", 11, 20),
+		111: previewPageFrom(1, "Alpha", 21, 30),
+	}
+
+	model, cmd := previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	if len(source.historyBoundaries()) < 2 {
+		t.Fatalf(
+			"the preview asked for one page: boundaries %v",
+			source.historyBoundaries(),
+		)
+	}
+	if source.historyBoundaries()[1] != 101 {
+		t.Fatalf(
+			"the page above the newest one was asked from %d, want the "+
+				"oldest message of it 101",
+			source.historyBoundaries()[1],
+		)
+	}
+	if !model.feedIsFull() {
+		t.Fatalf(
+			"the pane is not covered: %d messages of a pane of %d rows",
+			len(model.selected().Messages),
+			model.feedRows(),
+		)
+	}
+	if model.previewBeginning {
+		t.Fatal("a chat with pages above it says it begins")
+	}
+}
+
+// A chat with fewer messages than the pane has is not a hole above them: it
+// has an end, and the pane says where it is.
+func TestThePreviewOfAChatThatBeginsOnTheScreenSaysSo(t *testing.T) {
+	model, source, _, _ := loadedModel(t)
+
+	// Every page above the newest one comes back empty, which is the answer
+	// "there is nothing older". The first of them was asked for the beginning
+	// of the chat, and that is the one that puts the sentence on the screen.
+	source.pages = map[int64]HistoryPage{
+		0:   previewPage(1, "Alpha"),
+		101: HistoryPage{},
+	}
+
+	model, cmd := previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	if !model.previewBeginning {
+		t.Fatal("the pane does not know it has the whole chat")
+	}
+
+	view := plain(model.View())
+	if !strings.Contains(view, previewBeginningText) {
+		t.Fatalf("the pane does not say where the chat begins:\n%s", view)
+	}
+	if strings.Contains(view, "Failed to load history") {
+		t.Fatalf("the pane says the history failed:\n%s", view)
+	}
+}
+
+// A pane that has asked for a page and has not got it says so, and it says
+// it where the emptiness is rather than in a corner of the feed.
+func TestThePreviewSaysItIsLoadingWhereTheEmptinessWouldBe(t *testing.T) {
+	model, source, _, _ := loadedModel(t)
+	source.pages = map[int64]HistoryPage{
+		0:   previewPage(1, "Alpha"),
+		101: previewPageFrom(1, "Alpha", 11, 20),
+	}
+
+	model, cmd := previewDue(t, model, 1, 0)
+
+	// The first page is on its way.
+	if loading := plain(model.View()); !strings.Contains(loading, previewLoadingText) {
+		t.Fatalf("the pane does not say the page is on its way:\n%s", loading)
+	}
+
+	// And so is a page above it: the six messages that came back do not cover
+	// the pane, so the fill asks for the one above them.
+	model, next := applyOne(t, model, cmd)
+	if !model.previewMoreLoading {
+		t.Fatal("the pane did not ask for the page above what it has")
+	}
+	if filled := plain(model.View()); !strings.Contains(filled, previewLoadingText) {
+		t.Fatalf("the pane does not say the next page is on its way:\n%s", filled)
+	}
+	if next == nil {
+		t.Fatal("the pane asked for nothing above what it has")
+	}
+}
+
+// The fill is bounded the way the fill of an opened chat is: a source that
+// always has another page cannot cost a fixed number of round trips per
+// chat.
+func TestTheFillOfThePreviewIsBounded(t *testing.T) {
+	model, source, _, _ := loadedModel(t)
+	source.history = previewPage(1, "Alpha")
+
+	model, cmd := previewDue(t, model, 1, 0)
+	settlePreview(t, model, cmd)
+
+	if got := len(source.historyBoundaries()); got > maxHistoryFillRequests+1 {
+		t.Fatalf(
+			"the preview asked for %d pages, want no more than %d",
+			got, maxHistoryFillRequests+1,
+		)
+	}
+}
+
+// The fill is still not a read and still not an opening: it asks Telegram
+// for pages and tells it nothing.
+func TestTheFillOfThePreviewStillMarksNothingRead(t *testing.T) {
+	model, source, viewer, opener := loadedModel(t)
+	source.pages = map[int64]HistoryPage{
+		0:   previewPage(1, "Alpha"),
+		101: previewPageFrom(1, "Alpha", 11, 20),
+	}
+
+	model, cmd := previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	if len(source.historyBoundaries()) < 2 {
+		t.Fatal("the pane was never filled")
+	}
+	if viewer.count() != 0 {
+		t.Fatalf("the filled pane marked messages read: %v", viewer.windows)
+	}
+	if len(opener.opened) != 0 {
+		t.Fatalf("the filled pane opened a chat: %v", opener.opened)
+	}
+	if model.screen != ScreenChats || model.focus != FocusChatList {
+		t.Fatalf(
+			"screen = %v, focus = %v: a filled preview opens nothing and "+
+				"takes no keys",
+			model.screen, model.focus,
+		)
 	}
 }

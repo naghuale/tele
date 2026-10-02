@@ -145,8 +145,9 @@ func TestQQuitsOnlyFromTheChatList(t *testing.T) {
 
 // Ctrl+C leaves from every place, and it is the only key that does. A
 // deliberate way out that works whatever the keys are in is what makes a
-// program with text fields safe to sit in front of.
-func TestCtrlCQuitsFromEveryPlace(t *testing.T) {
+// program with text fields safe to sit in front of — and it takes two
+// presses, because it is a key that lands on its own (the owner, 03.10).
+func TestCtrlCQuitsFromEveryPlaceAfterTwoPresses(t *testing.T) {
 	places := map[string]Model{
 		"the chat list": sizedModel(t, 120, 30),
 		"the composer":  openedModel(t, 120, 30),
@@ -156,9 +157,69 @@ func TestCtrlCQuitsFromEveryPlace(t *testing.T) {
 
 	for name, m := range places {
 		t.Run(name, func(t *testing.T) {
+			m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+
+			if m.quitting {
+				t.Fatal("the first Ctrl+C left the program")
+			}
+			if m.notice != noticeQuitAgain {
+				t.Fatalf(
+					"the status line says %q, want %q",
+					m.notice, noticeQuitAgain,
+				)
+			}
+
 			_, cmd := m.Update(press(tea.KeyCtrlC))
 			assertQuit(t, cmd)
 		})
+	}
+}
+
+// Any other key ends the arrangement: the sentence in the status line is
+// about a press that is coming next, and a person who has typed something is
+// not quitting. The second Ctrl+C after that is a first one again.
+func TestAnotherKeyTakesTheSecondCtrlCAway(t *testing.T) {
+	m := sizedModel(t, 120, 30)
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+	m, _ = updateModel(t, m, pressRunes("j"))
+
+	if m.quitArmed {
+		t.Fatal("a key in the list left the key armed")
+	}
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+
+	if m.quitting {
+		t.Fatal("the third Ctrl+C left the program after another key")
+	}
+	if m.notice != noticeQuitAgain {
+		t.Fatalf("the status line says %q, want %q", m.notice, noticeQuitAgain)
+	}
+}
+
+// The window of the second press is two seconds, and a key an hour later is
+// not the second half of a word.
+func TestTheSecondCtrlCIsOnlyTheSecondWhileItsWindowIsOpen(t *testing.T) {
+	m := sizedModel(t, 120, 30)
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+	m, _ = updateModel(t, m, quitArmExpiredMsg{})
+
+	if m.quitArmed {
+		t.Fatal("the arm is still there after its window")
+	}
+	if m.notice != "" {
+		t.Fatalf(
+			"the status line still says %q, want it gone with the arm",
+			m.notice,
+		)
+	}
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+
+	if m.quitting {
+		t.Fatal("a Ctrl+C an hour later left the program")
 	}
 }
 
@@ -249,18 +310,41 @@ func TestAnsweringTheQuestionAboutADraftQuits(t *testing.T) {
 	}
 }
 
-// A draft of spaces is not a draft: there is nothing to lose, and a
-// question about nothing is a question the user has to answer to leave.
-func TestAWayOutWithABlankDraftDoesNotAsk(t *testing.T) {
+// A draft of spaces is not a draft: there is nothing to lose, so there is
+// nothing to ask about, and the way out is the two presses of Ctrl+C like
+// anywhere else. A question about a draft of spaces is a question the user
+// has to answer to leave a program that had nothing to lose.
+func TestABlankDraftIsNotWorthAQuestion(t *testing.T) {
 	m := openedModel(t, 120, 30)
 	m, _ = updateModel(t, m, pressRunes(" "))
 
-	updated, cmd := m.Update(press(tea.KeyCtrlC))
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
 
-	if updated.(Model).modal.open {
+	if m.modal.open {
 		t.Fatal("a blank draft was worth a question")
 	}
+	if m.quitting {
+		t.Fatal("the first Ctrl+C left the program")
+	}
+
+	_, cmd := m.Update(press(tea.KeyCtrlC))
 	assertQuit(t, cmd)
+}
+
+// `q` is not part of the two presses: a single letter in a list of words is
+// deliberate, and what it asks about is a draft rather than the key itself.
+func TestQInTheListQuitsAtOnce(t *testing.T) {
+	m := sizedModel(t, 120, 30)
+
+	updated, cmd := m.Update(pressRunes("q"))
+
+	if cmd == nil {
+		t.Fatal("q in the list asked for a second press")
+	}
+	assertQuit(t, cmd)
+	if !updated.(Model).quitting {
+		t.Fatal("q in the list did not leave the program")
+	}
 }
 
 // Ctrl+C while the question is open is the second press of the key and is

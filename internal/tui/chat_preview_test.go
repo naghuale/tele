@@ -629,3 +629,151 @@ func TestTheFillOfThePreviewStillMarksNothingRead(t *testing.T) {
 		)
 	}
 }
+
+// The pane beside the list shows the chat under the cursor without a key
+// being pressed at all. The owner looked at a program that had been started
+// for a minute, with chats in the list and nothing in the pane, and had to
+// press Enter to find out why (03.10): the pause was armed only where the
+// cursor moved, and at startup the cursor does not move.
+func TestThePreviewIsShownForTheChatUnderTheCursorWithoutAKey(t *testing.T) {
+	viewer := &recordingViewer{}
+	opener := &recordingOpener{}
+	source := &fakeChatSource{}
+
+	model, err := NewModelWithDependencies(context.Background(), Dependencies{
+		Source:           source,
+		MessageSubmitter: &recordingSubmitter{},
+		MessageViewer:    viewer,
+		PresenceOpener:   opener,
+		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
+		ColorProfile:     theme.ProfileNoColor,
+	})
+	if err != nil {
+		t.Fatalf("NewModelWithDependencies: %v", err)
+	}
+
+	// Nothing here is a key. The list arrives, and the pause it arms is what
+	// the program does next, over and over, until the pane is filled.
+	chats := previewChats()
+	source.chats = chats
+	source.history = previewPage(1, "Alpha")
+
+	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: 120, Height: 30})
+	model, cmd := updateModel(t, model, chatsLoadedMsg{chats: chats})
+	if cmd == nil {
+		t.Fatal("the list that arrived armed no pause")
+	}
+
+	model, _ = previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	if !model.chatPreviewShown() {
+		t.Fatal("the pane is not showing the chat under the cursor")
+	}
+	if !strings.Contains(plain(model.View()), "Alpha line 06") {
+		t.Fatalf("the pane is not showing the chat:\n%s", plain(model.View()))
+	}
+	if model.focus != FocusChatList || model.screen != ScreenChats {
+		t.Fatalf(
+			"screen = %v, focus = %v: a preview takes no keys and opens nothing",
+			model.screen, model.focus,
+		)
+	}
+	if viewer.count() != 0 || len(opener.opened) != 0 {
+		t.Fatal("the preview marked something read or opened the chat")
+	}
+}
+
+// A live list that moves the chat under the cursor arms the pause again, for
+// the same reason the first list does: the pane has to say which chat it is
+// showing, and it says so after the pause rather than at once.
+func TestTheLiveListMovingTheCursorArmsThePauseAgain(t *testing.T) {
+	live := newFakeLiveSource()
+	source := &fakeChatSource{}
+
+	model, err := NewModelWithDependencies(context.Background(), Dependencies{
+		Source:           source,
+		MessageSubmitter: &recordingSubmitter{},
+		LiveUpdates:      live,
+		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
+		ColorProfile:     theme.ProfileNoColor,
+	})
+	if err != nil {
+		t.Fatalf("NewModelWithDependencies: %v", err)
+	}
+
+	chats := previewChats()
+	source.chats = chats
+	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: 120, Height: 30})
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: chats})
+	model, _ = previewDue(t, model, 1, 0)
+
+	if !model.chatPreviewShown() {
+		t.Fatal("the first chat was not previewed")
+	}
+
+	// The chat under the cursor is gone from the list — a chat that left the
+	// main list while nobody was looking — and the pane is showing it.
+	live.setChats([]LiveChat{{ID: 3, Title: "Gamma"}, {ID: 4, Title: "Delta"}})
+
+	updated, cmd := model.Update(liveChangedMsg{})
+	after := updated.(Model)
+
+	if after.selectedChatID() != 3 {
+		t.Fatalf(
+			"the cursor is on chat %d, want the first of the new list 3",
+			after.selectedChatID(),
+		)
+	}
+	if cmd == nil {
+		t.Fatal("the live list moved the cursor and armed no pause")
+	}
+	if after.chatPreviewShown() {
+		t.Fatal("the pane is still showing the chat the cursor left")
+	}
+}
+
+// The window is the first thing a terminal sends, so a list can arrive
+// before the screen has a width — and a preview that was not possible on a
+// screen with one pane has to be armed when the second pane appears, without
+// a key: that is the other way the pane used to stay empty at startup.
+func TestAScreenThatGainsItsSecondPanePreviewsWithoutAKey(t *testing.T) {
+	model, _, _, _ := loadedModel(t)
+
+	// One pane: the chat list is the whole screen, and there is nothing
+	// beside it to show a conversation in.
+	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: 60, Height: 30})
+
+	updated, cmd := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	if cmd == nil {
+		t.Fatal("the second pane appeared with no pause armed")
+	}
+	if updated.(Model).chatPreviewShown() {
+		t.Fatal("the pane is showing a chat before its pause has run out")
+	}
+}
+
+// A screen that keeps its second pane and its chat under the cursor is not
+// asked to read the chat again: a resize is not a reason for a load.
+func TestAResizeDoesNotReadThePreviewedChatAgain(t *testing.T) {
+	model, source, _, _ := loadedModel(t)
+	source.history = previewPage(1, "Alpha")
+
+	model, cmd := previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	loads := len(source.historyBoundaries())
+
+	updated, cmd := model.Update(tea.WindowSizeMsg{Width: 124, Height: 30})
+
+	if !updated.(Model).chatPreviewShown() {
+		t.Fatal("the pane forgot the chat it was showing")
+	}
+	if cmd != nil {
+		t.Fatal("the resize armed a pause for a chat that did not change")
+	}
+	if got := len(source.historyBoundaries()); got != loads {
+		t.Fatalf("the resize asked for %d pages, want none", got-loads)
+	}
+}

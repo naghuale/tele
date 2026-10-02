@@ -225,8 +225,17 @@ func TestTheNewestPageOfAChatWithALastMessageIsAskedAgain(t *testing.T) {
 
 // A chat nobody has written in has no last message, and an empty first page
 // of it is the end of its history rather than a history that has not arrived.
-// One ask and the screen says the chat is empty, which is what it is.
-func TestAChatWithNothingInItIsAskedOnceAndSaysItIsEmpty(t *testing.T) {
+// The screen says the chat is empty, which is what it is.
+//
+// It is asked twice and not three times: once for the preview the pane beside
+// the list shows (the owner, 03.10 — the pane is filled without a key), and
+// once when the chat is opened, because a chat that has been previewed can
+// have received a message since. A third ask would be the repeat this file is
+// about, and an empty answer ends it: the empty page is the whole of what
+// there is, so nothing is asked above it.
+func TestAChatWithNothingInItIsAskedForThePreviewAndTheOpeningAndSaysItIsEmpty(
+	t *testing.T,
+) {
 	chats := &notLoadedChats{
 		chat:    telegram.ChatSummary{ID: notLoadedChatID, Title: "Новый чат"},
 		answers: []string{recordedEmptyNewestPage},
@@ -234,8 +243,27 @@ func TestAChatWithNothingInItIsAskedOnceAndSaysItIsEmpty(t *testing.T) {
 
 	screen := conversationOf(t, notLoadedService(chats))
 
-	if chats.asks() != 1 {
-		t.Fatalf("asks = %d, want 1: an empty chat is not asked twice", chats.asks())
+	if chats.asks() != 2 {
+		t.Fatalf(
+			"asks = %d, want 2: the preview beside the list and the opening "+
+				"of the chat",
+			chats.asks(),
+		)
+	}
+	for index, request := range chats.requests {
+		if request.from != 0 {
+			t.Fatalf(
+				"ask %d went from message %d, want the newest page: an empty "+
+					"chat has no boundary to ask above",
+				index+1, request.from,
+			)
+		}
+		if request.limit != defaultHistoryLimit {
+			t.Fatalf(
+				"ask %d asked for %d messages, want %d",
+				index+1, request.limit, defaultHistoryLimit,
+			)
+		}
 	}
 	if !strings.Contains(screen, "No messages yet") {
 		t.Fatalf("an empty chat does not say it is empty:\n%s", screen)

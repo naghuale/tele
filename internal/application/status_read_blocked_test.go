@@ -361,6 +361,15 @@ func (f *statusReadFixture) key(
 // runStatusCmds runs a command and returns what it answered with, a batch
 // expanded and a tick dropped: a tick is a timer two seconds out, and these
 // tests are about the read rather than the wait for it.
+// settleDeadline is how long a command is given to answer before its answer
+// is dropped and the program is left where it was.
+//
+// It is longer than the pause of the preview beside the chat list (200 ms),
+// so that a test which opens a chat reads a screen whose pane was filled —
+// and longer than any other wait these tests drive, so that dropping an
+// answer is still the answer to a timer nobody is waiting for.
+const settleDeadline = 400 * time.Millisecond
+
 func runStatusCmds(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	t.Helper()
 
@@ -374,7 +383,7 @@ func runStatusCmds(t *testing.T, cmd tea.Cmd) []tea.Msg {
 	var answer tea.Msg
 	select {
 	case answer = <-answers:
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(settleDeadline):
 		return nil
 	}
 	if answer == nil {

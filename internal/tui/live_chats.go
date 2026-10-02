@@ -150,7 +150,18 @@ func (m Model) drawLive(wait tea.Cmd) (tea.Model, tea.Cmd) {
 		))
 	}
 
-	return m, withRepaint(m, tea.Batch(wait, reload))
+	// A message that arrived moved a chat up the list, and the chat under
+	// the cursor may be another one now — or the same one under a name that
+	// changed. Either way the pane beside the list has to say which chat it
+	// is showing, and it says it after the pause of a preview
+	// (chat_preview.go).
+	//
+	// It comes after the journal rather than before it: what the journal
+	// writes is what this change did to the list and the frame, and the
+	// pause is a question the change asks afterwards.
+	preview := m.armPreviewIfNeeded()
+
+	return m, withRepaint(m, tea.Batch(wait, reload, preview))
 }
 
 // applyLiveChats puts the live list on the screen.

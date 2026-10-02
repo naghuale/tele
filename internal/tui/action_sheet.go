@@ -295,6 +295,10 @@ const (
 
 	// noticeOpenAChatFirst answers Tab in a chat list with nothing in it.
 	noticeOpenAChatFirst = "Open a chat first"
+
+	// noticeQuitAgain answers the first Ctrl+C, which arms the second one
+	// instead of leaving the program (the owner, 03.10).
+	noticeQuitAgain = "Press Ctrl+C again to quit"
 )
 
 // messageCancelFailedMsg is delivered when a cancel did not happen.

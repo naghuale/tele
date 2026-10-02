@@ -433,14 +433,22 @@ func TestSpaceAppendedToComposer(t *testing.T) {
 	}
 }
 
+// Ctrl+C leaves from every place and nowhere at once: the first press arms
+// the second one and says so (the owner, 03.10: «Ctrl+C выходит без
+// вопроса»).
 func TestCtrlCQuitsFromChats(t *testing.T) {
-	_, cmd := NewModel().Update(press(tea.KeyCtrlC))
+	m := NewModel()
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+	_, cmd := m.Update(press(tea.KeyCtrlC))
 	assertQuit(t, cmd)
 }
 
 func TestCtrlCQuitsFromConversation(t *testing.T) {
 	m := NewModel()
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
 	_, cmd := m.Update(press(tea.KeyCtrlC))
 	assertQuit(t, cmd)
 }

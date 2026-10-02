@@ -176,6 +176,13 @@ type Model struct {
 	selectedChat int
 	selectedMsg  int
 
+	// quitArmed says the first Ctrl+C has been pressed and the second one
+	// inside quitConfirmWindow leaves the program (quit.go). It is a flag and
+	// not a time: the timer that takes it away is a message of its own, and
+	// a model that reads the clock to decide would have two answers to the
+	// question "is the key still armed".
+	quitArmed bool
+
 	// chatPreviewChat is the chat the pane beside the list is showing, and
 	// previewOperation counts the preview loads so that a page for a chat
 	// the cursor has left is dropped rather than painted (chat_preview.go).
@@ -660,6 +667,9 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case noticeExpiredMsg:
 		return m.handleNoticeExpired(msg)
 
+	case quitArmExpiredMsg:
+		return m.updateQuitArmExpired(msg), nil
+
 	case composerPlaceholderExpiredMsg:
 		m.composerPlaceholderLit = false
 		return m, nil
@@ -709,6 +719,15 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	// drawn does not keep the keys.
 	if m.chatSearch.open && !m.chatListDrawn() {
 		m = m.cancelChatSearch()
+	}
+
+	// A resize that gave the screen its second pane has something to show
+	// in it, and the chat under the cursor is not on the screen until the
+	// preview says so (chat_preview.go). The window is the first thing a
+	// terminal sends and the list may have arrived before it, which is one
+	// of the two ways the pane used to stay empty until a key was pressed.
+	if cmd := m.armPreviewIfNeeded(); cmd != nil {
+		return m, cmd
 	}
 
 	return m, nil
@@ -766,16 +785,17 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 		m.selectFirstChatMatch()
 	}
 
-	// A list that arrived with another chat under the cursor has a new chat
-	// to show in the pane beside it (chat_preview.go). A read that kept the
-	// same chat there arms nothing: the pane is already showing it, and
-	// asking for its page again on every read of the list would be a load
-	// per read rather than per step of the cursor.
-	if m.selectedChatID() == selected {
-		return m, nil
+	// The pane beside the list shows the chat under the cursor, and the first
+	// list is what puts one there: the owner looked at a program that had
+	// been started for a minute and the pane was still empty (chat_preview.go).
+	// A read that kept the same chat there arms nothing — the pane is already
+	// showing it, and asking for its page again on every read of the list
+	// would be a load per read rather than per step of the cursor.
+	if cmd := m.armPreviewIfNeeded(); cmd != nil {
+		return m, cmd
 	}
 
-	return m, m.armChatPreview()
+	return m, nil
 }
 
 // mergeLoadedChats keeps what a chat had when the list is read again.
@@ -1535,7 +1555,14 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.quitProgram()
 		}
 
-		return m.quitOrAsk()
+		return m.quitAfterAKeyOrTwo()
+	}
+
+	// The second Ctrl+C has a window, and any other key ends the
+	// arrangement: the sentence in the status line is about a press that is
+	// coming next, and a person who has typed something is not quitting.
+	if m.quitArmed {
+		m = m.disarmQuit()
 	}
 
 	// §8.5 puts the search above the composer in the Esc hierarchy, so

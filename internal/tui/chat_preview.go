@@ -94,6 +94,29 @@ type chatPreviewLoadedMsg struct {
 	newest bool
 }
 
+// armPreviewIfNeeded returns the pause for a preview the screen has not got,
+// and nothing at all where the pane is already showing the chat under the
+// cursor.
+//
+// A pane beside the list with nothing in it is what the owner named twice: on
+// 02.10 «где я выбираю чат, разговора нет, надо жать Enter», and on 03.10 the
+// chat under the cursor was there at startup and the pane stayed empty until
+// something was pressed. It is armed wherever the chat under the cursor can
+// change without a key — a list that arrives, a live list that moves it, a
+// resize that gave the screen its second pane — and nowhere else, so a read
+// of the list that keeps the same chat under the cursor costs nothing.
+func (m Model) armPreviewIfNeeded() tea.Cmd {
+	// A screen with no pane beside the list is not asked anything: the
+	// preview that was on it is not on the screen either, and a chat the
+	// cursor has not left does not need reading twice because the terminal
+	// changed its mind about its width.
+	if m.chatPreviewShown() || !m.chatPreviewPossible() {
+		return nil
+	}
+
+	return m.armChatPreview()
+}
+
 // armChatPreview returns the command that shows the chat under the cursor
 // after the pause, and forgets the preview that is on the screen.
 //

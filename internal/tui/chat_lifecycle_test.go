@@ -206,7 +206,13 @@ func TestQuittingClosesTheOpenChat(t *testing.T) {
 	model, cmd := updateModel(t, model, press(tea.KeyEnter))
 	runCommands(t, cmd)
 	// Ctrl+C is the deliberate shutdown (§8.1): q is a letter in the
-	// composer, which is where a user is after entering a chat.
+	// composer, which is where a user is after entering a chat. It takes two
+	// presses now (the owner, 03.10), and the first one closes nothing.
+	model, _ = updateModel(t, model, press(tea.KeyCtrlC))
+	if len(opener.closed) != 0 {
+		t.Fatalf("closed = %v, want nothing closed by the first Ctrl+C", opener.closed)
+	}
+
 	_, cmd = updateModel(t, model, press(tea.KeyCtrlC))
 	runCommands(t, cmd)
 

@@ -622,11 +622,15 @@
     for a chat opened on purpose, and markVisibleMessagesViewed asks nothing
     on the chat list screen anyway), it never opens a chat in TDLib
     (no openChat, so presence is not counted), and it never moves the focus
-    or draws a composer. One page is asked for and no older-page fill: a
-    preview looks at the end of a conversation. The last selection wins —
-    chatPreviewChat must equal the chat under the cursor and the operation of
-    the newest preview load, so a page for a chat the cursor has left is
-    dropped. The foot of a preview reads "Preview · Enter or Tab to open"
+    or draws a composer. It is read the way an opened chat is read on its
+    first screen (#58): fillChatPreview asks for the page above the oldest
+    message on the screen until feedIsFull says the pane is covered, bounded
+    by the same maxHistoryFillRequests and maxHistoryFillMessages, and each
+    page is asked from the boundary of the one before it (chatPreviewDueMsg
+    carries it, so a fill cannot ask for the same page twice). The last
+    selection wins — chatPreviewChat must equal the chat under the cursor and
+    the operation of the newest preview load, so a page for a chat the cursor
+    has left is dropped. The foot of a preview reads "Preview · Enter or Tab to open"
     and is its own band, not the hint bar: there are no keys in the pane.
     Above the oldest message on the screen there is one line, where the
     progress of an older-page request stands in an open conversation
@@ -638,7 +642,12 @@
     on the screen says so in the feed instead ("No messages yet"), so the
     line above never repeats the sentence below it. The empty state of §17
     stays for the first 200 ms and for a list with nothing in it. On a
-    narrow screen there is no preview: the list is the whole screen
+    narrow screen there is no preview: the list is the whole screen.
+    The pause is armed by armPreviewIfNeeded wherever the chat under the
+    cursor can change without a key — the list arriving (including the first
+    one at startup), the live list moving it, and a resize that gave the
+    screen its second pane — and nowhere else, so a resize that changed
+    nothing asks for nothing and the pane is filled without a key press
   - focus cycle (§5.0): Tab walks chat list → composer → timeline →
     chat list and Shift+Tab the same way back, in both forms of
     Shift+Tab (`tea.KeyShiftTab` and the `ESC [ Z` sequence as runes).

@@ -412,6 +412,22 @@ func snapshotChatPreviewLoading(t *testing.T, f snapshotFixture) Model {
 	return m
 }
 
+// snapshotQuitArmed is the conversation with the sentence the first Ctrl+C
+// leaves in the status line: the key that ends the program says what the
+// second press of it does (the owner, 03.10).
+func snapshotQuitArmed(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	m := snapshotConversation(t, f)
+
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
+	if !m.quitArmed {
+		t.Fatal("the first Ctrl+C did not arm the second one")
+	}
+
+	return m
+}
+
 // previewPageRange is a page of a preview fixture: the identifiers from
 // oldest to oldest+count-1, newest first, as TDLib answers a page.
 //
@@ -658,6 +674,9 @@ func snapshotScreens() []snapshotScreen {
 		}},
 		{"TestSnapshotChatListPreviewLoading", func(t *testing.T) Model {
 			return snapshotChatPreviewLoading(t, wide(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotQuitArmed", func(t *testing.T) Model {
+			return snapshotQuitArmed(t, conversation(theme.ProfileTrueColor))
 		}},
 		{"TestSnapshotNarrowConversation", func(t *testing.T) Model {
 			m := snapshotConversation(t, narrow(theme.ProfileTrueColor))
@@ -1576,6 +1595,12 @@ func TestSnapshotChatListPreviewFull(t *testing.T) {
 // emptiness would otherwise be.
 func TestSnapshotChatListPreviewLoading(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListPreviewLoading"))
+}
+
+// The conversation with the first Ctrl+C on the screen: nothing has left,
+// and the status line says what the second press does.
+func TestSnapshotQuitArmed(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotQuitArmed"))
 }
 
 func TestSnapshotNarrowConversation(t *testing.T) {

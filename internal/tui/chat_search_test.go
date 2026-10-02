@@ -167,6 +167,7 @@ func TestAQueryThatIsAKeyDoesNotRunTheKey(t *testing.T) {
 func TestCtrlCStillQuitsWhileSearching(t *testing.T) {
 	m := typing(t, sizedModel(t, 120, 24), "dev")
 
+	m, _ = updateModel(t, m, press(tea.KeyCtrlC))
 	_, cmd := m.Update(press(tea.KeyCtrlC))
 
 	assertQuit(t, cmd)

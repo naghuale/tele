@@ -337,11 +337,20 @@
     (liveRepaintInterval = 100ms): the changes that arrive in between are
     folded into one redraw, and the redraw reads the state, so the fold
     costs the frame that would have been drawn anyway
-  - the selection follows the chat ID and the window offset is moved by
-    what the list did to the row under the cursor, so a chat that arrives
-    at the top does not move the chat the user is reading. The offset is
-    given up when the chat under the cursor is no longer one of the rows
-    it holds
+  - the selection follows the chat ID, and the window of the list is
+    placed at the top of the list for as long as the chat under the cursor
+    fits in it: a chat that received a message is a row of the screen. A
+    window that followed the cursor's row instead pushed the chat that
+    arrived above it off the top of the window and left the program writing
+    the frame the terminal already had — the list looked frozen until a key
+    was pressed (the owner's report of 02.10, #47). A reader below the top
+    window is given the window of §10.5 around the cursor, which is where
+    the reader was before the list moved on its own
+  - the wait for the next change ends with the context of the program and
+    not with the context of the application, which is still alive when a key
+    quits the loop: runDependenciesProgram derives the one from the other
+    and ends it when the program is over, so `q` leaves no goroutine
+    waiting on the change signal of a store nobody will write to again (#47)
   - a live row keeps what the live state does not carry: the messages of
     the conversation behind it, the aliases of the search, where Telegram
     had been told the reader got to, and the kind of the chat (the store

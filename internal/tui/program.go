@@ -80,18 +80,47 @@ func RunWithDependencies(
 		deps.WidthMeasured = &measured
 	}
 
-	model, err := NewModelWithDependencies(ctx, deps)
+	return runDependenciesProgram(
+		ctx,
+		output,
+		inputWithPending(deps.WidthMeasured),
+		deps,
+	)
+}
+
+// runDependenciesProgram builds the model over the dependencies, builds the
+// program over the model, and runs it until it is over.
+//
+// The model and the program share one context, and that context ends with
+// the program. The context of the application cannot be that one: it is still
+// alive when a key quit the loop, and the wait for the next change of the
+// live state is a goroutine of the program — a goroutine waiting for a
+// change that nobody will announce again is a goroutine that never returns.
+func runDependenciesProgram(
+	ctx context.Context,
+	output *terminalOutput,
+	input io.Reader,
+	deps Dependencies,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	programCtx, endProgram := context.WithCancel(ctx)
+	defer endProgram()
+
+	model, err := NewModelWithDependencies(programCtx, deps)
 	if err != nil {
 		return err
 	}
 	model.clipboard = output
 
 	options := []tea.ProgramOption{tea.WithOutput(output)}
-	if input := inputWithPending(deps.WidthMeasured); input != nil {
+	if input != nil {
 		options = append(options, tea.WithInput(input))
 	}
 
-	program := newProgramWithContext(ctx, model, options...)
+	program := newProgramWithContext(programCtx, model, options...)
 
 	// The modes of the terminal go through the same output the frames go
 	// through: one writer, one lock, so a mode cannot land in the middle of

@@ -35,6 +35,7 @@ type fakeLiveSource struct {
 	available bool
 	reads     int
 	waits     int
+	waiting   int
 	signal    chan struct{}
 }
 
@@ -98,6 +99,26 @@ func (f *fakeLiveSource) readsOf() int {
 	return f.reads
 }
 
+// waitsOf returns how many waits for a change the subscription has started.
+func (f *fakeLiveSource) waitsOf() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.waits
+}
+
+// waitingOf returns how many of those waits are running right now.
+//
+// The difference between the two counts is a goroutine: a wait that was
+// started is a fact of the past, and a wait that is running is a goroutine
+// that is still parked on the change signal.
+func (f *fakeLiveSource) waitingOf() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.waiting
+}
+
 // Available implements ChatLiveSource.
 func (f *fakeLiveSource) Available() bool {
 	if f == nil {
@@ -111,6 +132,10 @@ func (f *fakeLiveSource) Available() bool {
 }
 
 // WaitForChange implements ChatLiveSource.
+//
+// The wait that is running is counted as well as the one that was started,
+// because a program that was closed without letting go of its subscription
+// is a program with a goroutine left waiting.
 func (f *fakeLiveSource) WaitForChange(ctx context.Context) {
 	if f == nil {
 		return
@@ -118,7 +143,14 @@ func (f *fakeLiveSource) WaitForChange(ctx context.Context) {
 
 	f.mu.Lock()
 	f.waits++
+	f.waiting++
 	f.mu.Unlock()
+
+	defer func() {
+		f.mu.Lock()
+		f.waiting--
+		f.mu.Unlock()
+	}()
 
 	select {
 	case <-f.signal:
@@ -403,19 +435,15 @@ func TestAChatThatLeftTheMainListIsGoneAndTheCursorIsOnANeighbour(t *testing.T) 
 	}
 }
 
-// The cursor keeps the row of the screen it was on while the list moves
-// under it: a chat that arrives at the top pushes the rows below it down,
-// and the window moves with them.
-func TestTheWindowKeepsTheCursorOnItsRow(t *testing.T) {
+// The list moves under the cursor and the cursor follows the chat it was on:
+// a chat that received a message goes to the top, and the chat the reader
+// was reading is still the chat under the cursor.
+func TestTheCursorFollowsItsChatWhenTheListMoves(t *testing.T) {
 	live := newFakeLiveSource()
 	chats := liveChatList(20)
 
 	model := liveModel(t, live, chats)
 	model.selectedChat = 9
-
-	rows := model.chatListVisibleRows(LayoutFor(model.width, model.height))
-	before, _ := model.chatListWindow(len(model.chats), model.selectedListRow(), rows)
-	wasRow := model.selectedChat - before
 
 	live.setChats(liveListWith(append(chats, Chat{ID: 21, Title: "brand new"}), 21))
 	model = drawLive(t, model)
@@ -423,12 +451,73 @@ func TestTheWindowKeepsTheCursorOnItsRow(t *testing.T) {
 	if model.selectedChatID() != 10 {
 		t.Fatalf("the cursor moved to chat %d, want 10", model.selectedChatID())
 	}
-
-	after, _ := model.chatListWindow(len(model.chats), model.selectedListRow(), rows)
-	if got := model.selectedChat - after; got != wasRow {
+	if model.chats[0].ID != 21 {
 		t.Fatalf(
-			"the cursor is on row %d of the window, want %d: the screen jumped",
-			got, wasRow,
+			"chat %d is first after the message, want 21: %v",
+			model.chats[0].ID, liveTitlesOf(model),
+		)
+	}
+}
+
+// The window of the list is placed so that the chat that received a message
+// is a row of the screen.
+//
+// It used to keep the row the cursor was on instead, which moved the window
+// down by one row with every chat that arrived above the cursor and left the
+// chat that received the message above the window: the frame the program
+// wrote was the frame the terminal already had, and the list looked frozen
+// until a key was pressed (the owner's report of 02.10).
+func TestTheWindowOfTheListKeepsTheChatThatReceivedAMessageOnTheScreen(t *testing.T) {
+	live := newFakeLiveSource()
+	chats := liveChatList(20)
+
+	model := liveModel(t, live, chats)
+	model.selectedChat = 1
+
+	live.setChats(liveListWith(append(chats, Chat{ID: 21, Title: "brand new"}), 21))
+	model = drawLive(t, model)
+
+	rows := model.chatListVisibleRows(LayoutFor(model.width, model.height))
+	start, _ := model.chatListWindow(len(model.chats), model.selectedListRow(), rows)
+
+	if start != 0 {
+		t.Fatalf("the window of the list starts at row %d, want the top", start)
+	}
+	if model.chats[start].ID != 21 {
+		t.Fatalf(
+			"the top row of the window is chat %d, want the chat that received the message (21)",
+			model.chats[start].ID,
+		)
+	}
+	if model.selectedChatID() != 2 {
+		t.Fatalf(
+			"the cursor is on chat %d, want the chat it was on (2)",
+			model.selectedChatID(),
+		)
+	}
+}
+
+// A reader below the top window keeps the chat under the cursor on the
+// screen: the offset is given up and the window of §10.5 takes over, so a
+// message that arrives at the top of a long list does not take the reader's
+// chat off the screen.
+func TestAReaderBelowTheTopWindowKeepsTheirChatOnTheScreen(t *testing.T) {
+	live := newFakeLiveSource()
+	chats := liveChatList(20)
+
+	model := liveModel(t, live, chats)
+	model.selectedChat = 9
+
+	live.setChats(liveListWith(append(chats, Chat{ID: 21, Title: "brand new"}), 21))
+	model = drawLive(t, model)
+
+	rows := model.chatListVisibleRows(LayoutFor(model.width, model.height))
+	start, end := model.chatListWindow(len(model.chats), model.selectedListRow(), rows)
+
+	if model.selectedChat < start || model.selectedChat >= end {
+		t.Fatalf(
+			"the cursor is on row %d and the window holds rows %d..%d",
+			model.selectedChat, start, end,
 		)
 	}
 }

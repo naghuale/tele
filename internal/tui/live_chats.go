@@ -133,18 +133,17 @@ func (m Model) applyLiveChats(live []LiveChat) Model {
 		return m
 	}
 
-	// The row the cursor is on is remembered before the list moves under
-	// it, and the window is put back afterwards so that the chat the user
-	// is reading stays on the row they were reading it on.
+	// The chat the cursor is on is remembered before the list moves under
+	// it, and the window is put back afterwards so that the chat the reader
+	// is on stays on the screen.
 	selected := m.selectedChatID()
-	row := m.selectedListRow()
 
 	m.chats = safeChats(mergeLiveChats(m.chats, live, m.openedChat))
 	m.chatsState = loadStateLoaded
 
 	if index, found := m.indexOfChat(selected); found {
 		m.selectedChat = index
-		m.chatListOffset = m.chatListOffsetKeepingRow(m.selectedListRow(), row)
+		m.chatListOffset = m.chatListOffsetKeepingCursor(m.selectedListRow())
 	} else if m.selectedChat >= len(m.chats) {
 		m.selectedChat = len(m.chats) - 1
 	}
@@ -239,25 +238,39 @@ func (m Model) selectedListRow() int {
 	return -1
 }
 
-// chatListOffsetKeepingRow returns the window offset that puts the chat now
-// on row where it was on row wasRow.
+// chatListOffsetKeepingCursor returns the window offset the list is given
+// after a change moved it.
 //
-// It is the whole of what "the screen does not jump" means for the list: a
-// chat that arrived at the top pushes every row below it down by one, and
-// the offset moves down by one with it, so the chat under the cursor is
-// still on the row the user was reading. The offset is clamped to the rows
-// there are, and a window that cannot hold the chat in it takes the window
-// of §10.5 for that chat instead.
-func (m Model) chatListOffsetKeepingRow(row, wasRow int) int {
-	if row < 0 || wasRow < 0 {
+// Two things want the window, and they are not always the same thing: the
+// chat the reader is reading must stay on the screen, and so must the chat
+// that has just received a message, which means the top of the list. Both
+// fit on one screen for as long as the reader is within a window of the top,
+// and then the window is placed at the top and the reader's chat goes down a
+// row under it — which is what the list did, said out loud, and what a
+// message that has arrived is for.
+//
+// A window that followed the reader's row instead kept the row and lost the
+// message. A chat that arrived at the top pushed the window down by one with
+// it, the chat that received the message was above the window, and the frame
+// the program wrote was the frame the terminal already had: the list looked
+// frozen until a key was pressed. That is the owner's report of 02.10 on a
+// real account, and the wake-up was never the half that was missing — the
+// loop was told, answered and drew.
+//
+// A reader below the top window is not left in the middle of the list: the
+// offset is given up and the window §10.5 places around the cursor takes
+// over, which is where the reader was before the list moved on its own.
+func (m Model) chatListOffsetKeepingCursor(row int) int {
+	if row < 0 {
 		return m.chatListOffset
 	}
 
 	layout := LayoutFor(m.width, m.height)
-	available := m.chatListVisibleRows(layout)
-	total := len(m.chatListEntries())
+	if available := m.chatListVisibleRows(layout); available > 0 && row < available {
+		return 0
+	}
 
-	return minInt(maxInt(row-wasRow, 0), maxInt(total-available, 0))
+	return liveOffsetUnset
 }
 
 // liveCursor returns the message event cursor of a chat.

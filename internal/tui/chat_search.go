@@ -155,12 +155,8 @@ func (m Model) updateChatSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// being lost, and the line stays above the list with what was typed in
 	// it. A search that Tab closed would be a search with no way to type a
 	// two-word name.
-	switch {
-	case isTab(msg):
-		return m.cycleFocus(1), nil
-
-	case isShiftTab(msg):
-		return m.cycleFocus(-1), nil
+	if step := focusStep(msg); step != 0 {
+		return m.cycleFocus(step), nil
 	}
 
 	// A paste is text, in whole: what was copied elsewhere is not a
@@ -212,7 +208,9 @@ func (m Model) updateChatSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.moveChatSelection(1)
 
 	case tea.KeyEnter:
-		return m.openSelectedResult(true)
+		// Enter in the search opens the result and leaves the keys in the
+		// composer, which is what Enter in the list does (§9).
+		return m.openSelectedResult(FocusComposer)
 	}
 
 	return m, nil
@@ -338,7 +336,7 @@ func (m Model) chatListEdgeIndex(last bool) int {
 //
 // Nothing is opened when the query found nothing: the list is empty, and
 // a chat that is not on the screen is not the one the user chose.
-func (m Model) openSelectedResult(focusComposer bool) (tea.Model, tea.Cmd) {
+func (m Model) openSelectedResult(focus Focus) (tea.Model, tea.Cmd) {
 	if m.chatSearch.open {
 		if len(m.chatListEntries()) == 0 {
 			return m, nil
@@ -347,7 +345,7 @@ func (m Model) openSelectedResult(focusComposer bool) (tea.Model, tea.Cmd) {
 		m = m.closeChatSearch()
 	}
 
-	return m.openSelectedChat(focusComposer)
+	return m.openSelectedChat(focus)
 }
 
 // chatListDrawn reports whether the screen shows the chat list.

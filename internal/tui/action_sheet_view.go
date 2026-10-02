@@ -67,18 +67,20 @@ func (m Model) actionSheetRows() []string {
 	return m.popupRows(rows)
 }
 
-// confirmModalRows returns the rows of the question of §12.3.
+// confirmModalRows returns the rows of the question of §12.3, or of the
+// question the way out asks about a draft.
 func (m Model) confirmModalRows() []string {
 	if !m.modal.open {
 		return nil
 	}
 
+	question := m.modal.question()
 	styles := m.styles()
 	rows := []string{
-		styles.popupTitle(m.tokens()).Render(popupLine(modalTitle)),
+		styles.popupTitle(m.tokens()).Render(popupLine(question.title)),
 		"",
 	}
-	for _, line := range strings.Split(modalExplanation, "\n") {
+	for _, line := range strings.Split(question.explanation, "\n") {
 		rows = append(
 			rows,
 			styles.popupBody(m.tokens()).Render(popupLine(line)),
@@ -86,7 +88,7 @@ func (m Model) confirmModalRows() []string {
 	}
 	rows = append(rows, "")
 
-	for index, label := range modalItems {
+	for index, label := range question.items {
 		text := label
 		if !m.styles().attributesVisible() && index == m.modal.cursor {
 			text = theme.SelectionMark + " " + text

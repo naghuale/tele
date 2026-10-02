@@ -1492,13 +1492,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.composer = nil
 			m.composerCursor = 0
 			m.authCanceled = true
+
+			return m.quitProgram()
 		}
-		m.quitting = true
-		m.invalidateMessageStatusPolling()
-		// A chat that is still open when the program quits is closed on
-		// the way out, or TDLib keeps counting a chat nobody is looking
-		// at until the process is gone.
-		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
+
+		return m.quitOrAsk()
 	}
 
 	// §8.5 puts the search above the composer in the Esc hierarchy, so
@@ -1524,10 +1522,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // updateChatsKey handles the chat list screen.
 //
-// Esc does nothing here. §8.5 ends the Esc hierarchy at the chat list,
-// and leaving the program is `q`, which is the one key the hint bar names:
-// a key that quits is a key a user presses by accident, and there is
-// Ctrl+C for the deliberate case.
+// Esc stops here. §8.5 ends the Esc hierarchy at the chat list, and the
+// one way out of the program from the list is `q` — so Esc says which key
+// that is rather than doing nothing at all (the owner, 02.10: «не всегда
+// понятно, когда нажать q для выхода, а когда Esc»). The bar under the
+// list says the same thing and says it before the key is pressed.
 func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// The search line is a region of the list (§5), so while the keys are
 	// in it they are its: the list keeps its own keys for when the focus
@@ -1538,24 +1537,16 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case msg.Type == tea.KeyEsc:
-		return m, nil
+		return m.withNoticeCleared(noticeQuitKey)
 
 	case isQuit(msg):
-		m.quitting = true
-		m.invalidateMessageStatusPolling()
-		// A chat that is still open when the program quits is closed on
-		// the way out.
-		return m, tea.Batch(m.closeConversationChat(), tea.Quit)
+		return m.quitOrAsk()
 
-	case isTab(msg):
-		// §8.1 makes Tab a key of the whole interface, and with a search
-		// open the chat list is two regions rather than one (§5). With no
-		// search there is nothing to walk to, which is what the key has
-		// always done on this screen.
-		return m.cycleFocus(1), nil
-
-	case isShiftTab(msg):
-		return m.cycleFocus(-1), nil
+	case focusStep(msg) != 0:
+		// Tab is a key of the whole interface (§8.1), and the list is the
+		// one region with something to open rather than somewhere to walk
+		// to: with no conversation open it opens the chat under the cursor.
+		return m.tabFromChatList(focusStep(msg))
 
 	case isReloadChats(msg):
 		// §18: the waiting is over and the load is asked again. R is a
@@ -1577,7 +1568,7 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// user who opened a chat is about to write in it. A search
 		// narrows what Enter means to the results, and the search is
 		// left behind.
-		return m.openSelectedResult(true)
+		return m.openSelectedResult(FocusComposer)
 
 	case isUp(msg):
 		return m.moveChatSelection(-1)
@@ -1649,7 +1640,7 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 		!m.chatSearch.open &&
 		m.screen == ScreenConversation &&
 		LayoutFor(m.width, m.height).TwoPane() {
-		return m.openSelectedChat(false)
+		return m.openSelectedChat(m.focus)
 	}
 
 	if moved {
@@ -1661,21 +1652,19 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 
 // openSelectedChat opens the selected chat in the conversation pane.
 //
-// focusComposer says where the keys go afterwards. The two callers differ
-// in nothing else: opening a chat from the list and following the
-// selection into another chat are the same operation, and the focus is the
-// only difference between them.
-func (m Model) openSelectedChat(
-	focusComposer bool,
-) (tea.Model, tea.Cmd) {
+// focus says where the keys go afterwards. The callers differ in nothing
+// else: opening a chat from the list, following the selection into another
+// chat and walking into a chat with Tab are the same operation, and the
+// focus is the only difference between them — the composer, where the next
+// message is written, the messages, where a chat opened to be read begins,
+// or the list the keys came from (§5).
+func (m Model) openSelectedChat(focus Focus) (tea.Model, tea.Cmd) {
 	if len(m.chats) == 0 {
 		return m, nil
 	}
 
 	m.screen = ScreenConversation
-	if focusComposer {
-		m.focus = FocusComposer
-	}
+	m.focus = focus
 	m.sendState = sendStateIdle
 	m.sendErr = nil
 	if m.pausedErr != nil {
@@ -1794,11 +1783,13 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case msg.Type == tea.KeyEsc:
 		return m.leaveConversationRegion()
 
-	case isTab(msg):
-		return m.cycleFocus(1), nil
-
-	case isShiftTab(msg):
-		return m.cycleFocus(-1), nil
+	case focusStep(msg) != 0:
+		// §8.1: Tab and Shift+Tab walk the regions of the screen and come
+		// back around. The chat list in a conversation is the list's own
+		// screen with a chat open beside it, so its keys are the list's —
+		// including Tab, which opens nothing here because the chat under
+		// the cursor is the one already on the screen.
+		return m.cycleFocus(focusStep(msg)), nil
 	}
 
 	// A two-pane screen shows the chat list beside the conversation, so
@@ -1825,8 +1816,9 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // hierarchy ends at the chat list, and a screen with two panes puts the
 // chat list next to the conversation rather than behind it. Only a
 // single-pane screen returns to the list screen, and only the chat list
-// stops there.
-func (m Model) leaveConversationRegion() (Model, tea.Cmd) {
+// stops there — where Esc says which key leaves the program, because the
+// owner could not tell the two apart on 02.10.
+func (m Model) leaveConversationRegion() (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case FocusComposer:
 		// The draft stays. §8.5 says the composer is left without a loss,
@@ -1846,7 +1838,7 @@ func (m Model) leaveConversationRegion() (Model, tea.Cmd) {
 	default:
 		// The chat list, with a conversation open beside it: there is
 		// nothing above it to go back to.
-		return m, nil
+		return m.withNoticeCleared(noticeQuitKey)
 	}
 }
 
@@ -1878,117 +1870,6 @@ func (m Model) leaveConversation() (Model, tea.Cmd) {
 	m.focus = FocusChatList
 
 	return m, withRepaint(m, m.closeConversationChat())
-}
-
-// cycleFocus moves the focus by delta positions among the visible
-// regions.
-//
-// The order is the one of §5: chat list, timeline, composer. A region
-// that is not on screen is not in the order, which is what makes a narrow
-// conversation screen cycle between the timeline and the composer alone.
-func (m Model) cycleFocus(delta int) Model {
-	regions := m.visibleFocusRegions()
-	if len(regions) == 0 {
-		return m
-	}
-
-	next := 0
-	for index, region := range regions {
-		if region == m.focus {
-			next = index + delta
-			break
-		}
-	}
-
-	// A focus that is not in the order starts at its first region rather
-	// than at itself: the invariant is that exactly one region is
-	// focused, and an invisible one is not it.
-	m.focus = regions[((next%len(regions))+len(regions))%len(regions)]
-
-	return m
-}
-
-// normalizeFocus puts the focus on a region the screen is drawing.
-//
-// A resize can take a region away. A terminal squeezed from wide to
-// narrow loses the chat list pane, and a screen too short for messages
-// loses the timeline, and a focus left on a region that is not drawn is
-// worse than no focus at all: every key would go to a region the user
-// cannot see highlighted.
-func (m Model) normalizeFocus() Model {
-	layout := LayoutFor(m.width, m.height)
-
-	// A screen that shows nothing but the composer has one region, and it
-	// is the composer (§3.4).
-	if m.screen == ScreenConversation && layout.ComposerOnly() {
-		m.focus = FocusComposer
-		return m
-	}
-
-	for _, region := range m.visibleFocusRegions() {
-		if region == m.focus {
-			return m
-		}
-	}
-
-	// The focus was on a region this size does not draw. The composer is
-	// where a conversation is written, so a conversation lands there and
-	// every other screen on the only region it has. A conversation that
-	// cannot be written in lands on the messages instead: the composer of
-	// such a chat is a line and not a place the keys are.
-	if m.screen == ScreenConversation {
-		if m.canWrite() {
-			m.focus = FocusComposer
-		} else {
-			m.focus = FocusHistory
-		}
-
-		return m
-	}
-
-	m.focus = FocusChatList
-
-	return m
-}
-
-// visibleFocusRegions returns the regions Tab visits, in order.
-func (m Model) visibleFocusRegions() []Focus {
-	if m.screen != ScreenConversation {
-		return m.chatListFocusRegions()
-	}
-
-	// A chat this account cannot write in has no composer to visit: the
-	// region under the messages is a line that says why, and Tab has no use
-	// for stopping on a place with no keys.
-	regions := m.conversationFocusRegions()
-	if m.canWrite() {
-		regions = append(regions, FocusComposer)
-	}
-
-	return regions
-}
-
-// conversationFocusRegions returns the regions of a conversation before the
-// composer: the chat list beside it, and the timeline of the open chat.
-func (m Model) conversationFocusRegions() []Focus {
-	if !LayoutFor(m.width, m.height).TwoPane() {
-		return []Focus{FocusHistory}
-	}
-
-	return append(m.chatListFocusRegions(), FocusHistory)
-}
-
-// chatListFocusRegions returns the regions of the chat list, which are the
-// list itself and the search above it while the search is open (§5).
-//
-// They are one after the other because the search belongs to the list: a
-// user who Tabs past it and Tabs back arrives where they left.
-func (m Model) chatListFocusRegions() []Focus {
-	if m.chatSearch.open {
-		return []Focus{FocusChatList, FocusSearch}
-	}
-
-	return []Focus{FocusChatList}
 }
 
 // updateComposerKey handles the keys of the composer (§8.4, §7.4).

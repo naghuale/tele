@@ -339,9 +339,13 @@ func (m Model) emptyConversationState() (string, string, theme.Color) {
 // The words of §17 for a conversation that has not been opened. They are
 // the interface telling the user what to press, which is the only thing an
 // empty pane has to say.
+//
+// Both keys that open the chat are named (the owner, 02.10): Tab moved
+// nothing on this screen and only Enter worked, which is a dark pane with
+// one key on it. The pane says what it is and how to fill it.
 const (
 	emptyConversationTitle = "Select a chat"
-	emptyConversationHint  = "Use ↑ and ↓, then press Enter."
+	emptyConversationHint  = "Enter or Tab to open."
 )
 
 // viewSinglePane draws one pane across the whole width.

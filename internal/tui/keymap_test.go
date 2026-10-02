@@ -72,6 +72,24 @@ func TestIsTabAndShiftTab(t *testing.T) {
 	}
 }
 
+// A terminal that has no name for Shift+Tab sends the sequence `ESC [ Z`,
+// and Bubble Tea passes on whatever it did not recognise as runes. Both
+// forms walk the focus backwards, or the key works on one terminal and does
+// nothing on the next.
+func TestShiftTabIsTheKeyAndTheSequence(t *testing.T) {
+	sequence := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(shiftTabSequence)}
+
+	if !isShiftTab(sequence) {
+		t.Fatalf("%q must be shift-tab", shiftTabSequence)
+	}
+	if isTab(sequence) {
+		t.Fatalf("%q must not be tab", shiftTabSequence)
+	}
+	if isShiftTab(pressRunes("q")) {
+		t.Fatal("a letter must not be shift-tab")
+	}
+}
+
 func TestIsClearComposer(t *testing.T) {
 	if !isClearComposer(press(tea.KeyCtrlU)) {
 		t.Fatal("KeyCtrlU must be clear")

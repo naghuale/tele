@@ -850,8 +850,8 @@ func TestTheSearchHintBarNamesEscAndNotQ(t *testing.T) {
 	m := typing(t, sizedModel(t, 120, 24), "dev")
 
 	hint := m.hintText(LayoutFor(120, 24))
-	if hint != "Enter open · Esc cancel" {
-		t.Fatalf("hint = %q, want %q", hint, "Enter open · Esc cancel")
+	if hint != "Enter open · Tab chats · Esc cancel" {
+		t.Fatalf("hint = %q, want %q", hint, "Enter open · Tab chats · Esc cancel")
 	}
 }
 

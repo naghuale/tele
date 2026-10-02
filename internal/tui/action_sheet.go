@@ -181,17 +181,88 @@ const (
 	modalCancelText = "Cancel"
 )
 
-// The items of the question, in the order they are drawn.
+// The words of the question about a draft, which the way out asks before
+// it takes one away.
+//
+// It is the same shape as §12.3 and it is a question for the same reason:
+// the thing on the screen cannot be put back. The title says what is being
+// asked about, the second line says what is lost, and the answer the
+// question opens on is the one that changes nothing.
+const (
+	quitModalTitle       = "Quit with a draft?"
+	quitModalExplanation = "The text in the composer was not sent.\n" +
+		"Quitting now leaves it behind."
+	quitModalQuitText = "Quit and lose it"
+	quitModalStayText = "Stay and write"
+)
+
+// The items of the question of §12.3, in the order they are drawn.
 const (
 	modalCreateCopyItem = iota
 	modalKeepUncertain
 	modalCancelItem
 )
 
-// confirmModal is the question of §12.3.
+// The items of the question about a draft, in the order they are drawn. The
+// question opens on the second of them: quitting is the answer the key was
+// pressed for, and leaving is the answer that changes nothing.
+const (
+	quitModalQuitItem = iota
+	quitModalStayItem
+)
+
+// modalKind is which question of the interface is open.
+type modalKind uint8
+
+const (
+	// modalKindUncertain is the question of §12.3: may a copy of an
+	// uncertain delivery be sent.
+	modalKindUncertain modalKind = iota
+
+	// modalKindQuit is the question the way out asks about a draft in the
+	// composer.
+	modalKindQuit
+)
+
+// modalQuestion is the text and the answers of one question.
+//
+// The question is a value rather than two sets of constants with a branch
+// at every place that draws or answers one, so a new question is a new
+// value here and every place that reads a question reads it the same way.
+type modalQuestion struct {
+	title       string
+	explanation string
+	items       []string
+}
+
+// theModalQuestion is the question of §12.3.
+var theModalQuestion = modalQuestion{
+	title:       modalTitle,
+	explanation: modalExplanation,
+	items:       []string{modalCreateCopy, modalKeepText, modalCancelText},
+}
+
+// theQuitQuestion is the question about a draft on the way out.
+var theQuitQuestion = modalQuestion{
+	title:       quitModalTitle,
+	explanation: quitModalExplanation,
+	items:       []string{quitModalQuitText, quitModalStayText},
+}
+
+// confirmModal is the question of §12.3, or the question about a draft.
 type confirmModal struct {
 	open   bool
 	cursor int
+	kind   modalKind
+}
+
+// question returns the question the modal is asking.
+func (c confirmModal) question() modalQuestion {
+	if c.kind == modalKindQuit {
+		return theQuitQuestion
+	}
+
+	return theModalQuestion
 }
 
 // noticeTTL is how long a notice stays in the status line.
@@ -208,6 +279,22 @@ const (
 	noticeCopyFailed  = "Could not copy. The terminal refused the request."
 	noticeStateMoved  = "This message changed state. Nothing was canceled."
 	noticeNotCanceled = "This message was not canceled."
+)
+
+// The notices of the keys that do not do what a user expected them to
+// (the owner, 02.10).
+//
+// They are the same kind of sentence as the notices of the actions: what
+// the key did, or did not do, and what to press instead. They are short
+// enough to be read in the three seconds they stay on the status line, and
+// they are not in the hint bar, which says both of these before either key
+// is pressed.
+const (
+	// noticeQuitKey answers Esc in the chat list.
+	noticeQuitKey = "q to quit"
+
+	// noticeOpenAChatFirst answers Tab in a chat list with nothing in it.
+	noticeOpenAChatFirst = "Open a chat first"
 )
 
 // messageCancelFailedMsg is delivered when a cancel did not happen.

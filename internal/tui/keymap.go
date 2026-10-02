@@ -84,9 +84,24 @@ func isTab(msg tea.KeyMsg) bool {
 	return msg.Type == tea.KeyTab
 }
 
+// isShiftTab reports the same key in the two forms a terminal sends it.
+//
+// Bubble Tea reads `ESC [ Z` as KeyShiftTab, and a terminal that sends it
+// that way never reaches the table above: the sequence arrives as the three
+// runes of the escape. Both forms walk the focus backwards (§8.1), because
+// a key that works on one terminal and does nothing on the next is a key a
+// user cannot rely on.
 func isShiftTab(msg tea.KeyMsg) bool {
-	return msg.Type == tea.KeyShiftTab
+	if msg.Type == tea.KeyShiftTab {
+		return true
+	}
+
+	return msg.Type == tea.KeyRunes && string(msg.Runes) == shiftTabSequence
 }
+
+// shiftTabSequence is how a terminal spells Shift+Tab without a name of
+// its own.
+const shiftTabSequence = "\x1b[Z"
 
 // isClearComposer, isKillLine and isDeleteWordBefore are the readline keys
 // the composer answers (§8.4).

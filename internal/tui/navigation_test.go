@@ -159,19 +159,31 @@ func TestEscapeFromTimelineFocusesTheListBesideTheConversation(t *testing.T) {
 	}
 }
 
-// The third Esc, on the list, does nothing: there is nowhere further out
-// to go, and a key that sometimes quits and sometimes does not is a key
-// nobody trusts.
-func TestEscapeOnTheListOfAConversationDoesNothing(t *testing.T) {
+// The third Esc, on the list beside a conversation, leaves nothing: there
+// is nowhere further out to go, and a key that sometimes quits and
+// sometimes does not is a key nobody trusts. It says which key quits
+// instead of doing nothing quietly, because the owner could not tell the
+// two apart on 02.10.
+func TestEscapeOnTheListOfAConversationDoesNotLeaveTheProgram(t *testing.T) {
 	m := NewModel()
 	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 30})
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 	m, _ = updateModel(t, m, press(tea.KeyEsc))
 
-	_, cmd := m.Update(press(tea.KeyEsc))
-	if cmd != nil {
-		t.Fatalf("Esc on the list returned %T, want no command", cmd())
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
+
+	if m.screen != ScreenConversation {
+		t.Fatalf("screen = %v, want the conversation beside the list", m.screen)
+	}
+	if m.focus != FocusChatList {
+		t.Fatalf("focus = %v, want FocusChatList", m.focus)
+	}
+	if m.quitting {
+		t.Fatal("Esc on the list left the program")
+	}
+	if m.notice != noticeQuitKey {
+		t.Fatalf("notice = %q, want %q", m.notice, noticeQuitKey)
 	}
 }
 
@@ -434,11 +446,28 @@ func TestCtrlCQuitsFromConversation(t *testing.T) {
 }
 
 // Esc in the list is the key to leave a conversation with, so it cannot
-// also be the key to leave the program (§4.3).
+// also be the key to leave the program (§4.3). It says which key does
+// instead, because a key that closes nothing and says nothing is a key the
+// user has to try twice (the owner, 02.10).
 func TestEscapeInChatsDoesNotQuit(t *testing.T) {
-	_, cmd := NewModel().Update(press(tea.KeyEsc))
-	if cmd != nil {
-		t.Fatalf("Esc in the list returned %T, want no command", cmd())
+	updated, cmd := NewModel().Update(press(tea.KeyEsc))
+
+	m := updated.(Model)
+	if m.quitting {
+		t.Fatal("Esc in the list quit the program")
+	}
+	if m.notice != noticeQuitKey {
+		t.Fatalf("notice = %q, want %q", m.notice, noticeQuitKey)
+	}
+
+	// The command is the timer that takes the notice away, and whatever it
+	// answers with is not the end of the program. It is asked through
+	// flattenOne, which drops a timer rather than waiting three seconds
+	// for it.
+	for _, msg := range flattenOne(t, cmd) {
+		if _, isQuit := msg.(tea.QuitMsg); isQuit {
+			t.Fatal("Esc in the list quit the program")
+		}
 	}
 }
 

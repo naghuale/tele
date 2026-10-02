@@ -616,17 +616,17 @@ func TestTheScreenIsARectangleAtEverySize(t *testing.T) {
 // the rule is on. A rule that did not move with the keys would be a
 // decoration rather than a claim.
 //
-// The cycle is the composer, the list, the conversation, and the rule of a
+// The cycle is the composer, the conversation, the list, and the rule of a
 // pane closes that pane's header — which is two rows for a conversation and
 // three for a list, so the two rules are a row apart.
 func TestTabMovesTheRuleBetweenThePanes(t *testing.T) {
 	m := focusedOn(openedProgramModel(t, theme.ProfileNoColor, 120, 30), FocusComposer)
 
 	m, _ = updateModel(t, m, press(tea.KeyTab))
-	assertPanelRule(t, m, listPane)
+	assertPanelRule(t, m, conversationPane)
 
 	m, _ = updateModel(t, m, press(tea.KeyTab))
-	assertPanelRule(t, m, conversationPane)
+	assertPanelRule(t, m, listPane)
 }
 
 // Every cell of both rows of the selected chat carries the Selected

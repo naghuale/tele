@@ -36,7 +36,7 @@
                                          Спасибо, посмотрю после обеда                                                  
                                                                                                                         
                                     › Write a message…                                                                  
-                                    Enter open · / search · q quit                                                      
+                                    Enter open · Tab composer · / search · q quit                                       
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m  \x1b[1;38;5;183mChats        \x1b[0m      \x1b[38;5;102m2 unread\x1b[0m  \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[1;38;5;189mAnna Example                                                                        \x1b[0m\x1b[0m"
@@ -68,4 +68,4 @@
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[1;38;5;146;48;5;232m \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[38;5;189;48;5;59mСпасибо, посмотрю после обеда\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[48;5;232m                                                \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;59m \x1b[0m\x1b[48;5;59m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[38;5;102m› \x1b[0m\x1b[38;5;102mWrite a message…\x1b[0m                                                                  \x1b[0m"
-"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[38;5;146mEnter open · / search · q quit                                                      \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;59m \x1b[0m\x1b[48;5;59m\x1b[38;5;146mEnter open · Tab composer · / search · q quit                                       \x1b[0m\x1b[0m"

@@ -102,48 +102,66 @@ func (m Model) updateActionSheetKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	items := m.modal.question().items
+
 	switch {
 	case msg.Type == tea.KeyEsc:
 		// Cancel: the question was not answered, and nothing about the
-		// record changes.
+		// record or the draft changes.
 		m.closeActionSheet()
 
 		return m, nil
 
 	case isUp(msg):
-		m.modal.cursor = (m.modal.cursor + len(modalItems) - 1) % len(modalItems)
+		m.modal.cursor = (m.modal.cursor + len(items) - 1) % len(items)
 
 		return m, nil
 
 	case isDown(msg):
-		m.modal.cursor = (m.modal.cursor + 1) % len(modalItems)
+		m.modal.cursor = (m.modal.cursor + 1) % len(items)
 
 		return m, nil
 
 	case msg.Type == tea.KeyEnter:
-		switch m.modal.cursor {
-		case modalCreateCopyItem:
-			m.draftFromActionSheet()
-
-			return m, nil
-
-		case modalKeepUncertain:
-			m.closeActionSheet()
-
-			return m, nil
-
-		default:
-			m.closeActionSheet()
-
-			return m, nil
-		}
+		return m.answerModal()
 	}
 
 	return m, nil
 }
 
-// modalItems are the items of the question of §12.3, in order.
-var modalItems = []string{modalCreateCopy, modalKeepText, modalCancelText}
+// answerModal acts on the answer under the cursor.
+//
+// The question about a draft ends in the way out itself: quitting is what
+// it is a question about. The question of §12.3 has three answers and none
+// of them is the program, which is why it has a branch of its own here.
+func (m Model) answerModal() (tea.Model, tea.Cmd) {
+	if m.modal.kind == modalKindQuit {
+		if m.modal.cursor == quitModalQuitItem {
+			return m.quitProgram()
+		}
+
+		m.closeActionSheet()
+
+		return m, nil
+	}
+
+	switch m.modal.cursor {
+	case modalCreateCopyItem:
+		m.draftFromActionSheet()
+
+		return m, nil
+
+	case modalKeepUncertain:
+		m.closeActionSheet()
+
+		return m, nil
+
+	default:
+		m.closeActionSheet()
+
+		return m, nil
+	}
+}
 
 // runAction performs the item under the cursor.
 func (m Model) runAction() (tea.Model, tea.Cmd) {
@@ -170,7 +188,11 @@ func (m Model) runAction() (tea.Model, tea.Cmd) {
 		// §12.3: the one action in this interface that can put a duplicate
 		// into a conversation asks first, and the answer it starts on is
 		// the one that changes nothing.
-		m.modal = confirmModal{open: true, cursor: modalKeepUncertain}
+		m.modal = confirmModal{
+			open:   true,
+			cursor: modalKeepUncertain,
+			kind:   modalKindUncertain,
+		}
 
 		return m, nil
 

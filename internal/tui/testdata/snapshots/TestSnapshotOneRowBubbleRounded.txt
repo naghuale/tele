@@ -24,7 +24,7 @@
                                          the build is green again                                                     
                                                                                                                         
                                     › Write a message…                                                                  
-                                    j/k scroll · a actions · Enter composer · Tab focus · Esc chats                     
+                                    j/k scroll · a actions · Enter composer · Tab chats · Esc back                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m  \x1b[38;2;126;131;155mChats        \x1b[0m      \x1b[38;2;126;131;155m2 unread\x1b[0m  \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[1;38;2;205;214;243mAnna Example                                                                        \x1b[0m\x1b[0m"
@@ -44,4 +44,4 @@
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[48;2;17;17;27m  \x1b[0m\x1b[1;38;2;203;166;247;48;2;17;17;27m \x1b[0m\x1b[38;2;69;71;89;48;2;17;17;27m\ue0b6\x1b[0m\x1b[48;2;69;71;89m  \x1b[0m\x1b[38;2;205;214;243;48;2;69;71;89mthe build is green again\x1b[0m\x1b[48;2;69;71;89m  \x1b[0m\x1b[38;2;69;71;89;48;2;17;17;27m\ue0b4\x1b[0m\x1b[48;2;17;17;27m                                                   \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;126;131;155m› \x1b[0m\x1b[38;2;126;131;155mWrite a message…\x1b[0m                                                                  \x1b[0m"
-"\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;166;173;200mj/k scroll · a actions · Enter composer · Tab focus · Esc chats                     \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;166;173;200mj/k scroll · a actions · Enter composer · Tab chats · Esc back                      \x1b[0m\x1b[0m"

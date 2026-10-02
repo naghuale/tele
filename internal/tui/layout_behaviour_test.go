@@ -72,9 +72,13 @@ func TestChatListTakesTheWholeWidthWithoutAConversation(t *testing.T) {
 
 // The height rules of §3.4: below ten rows there is no hint bar, and a
 // conversation on a screen below six rows is the composer alone.
+//
+// The bar of a narrow composer is the short one — the send key, where Tab
+// goes and the way back — and the newline key it leaves out is why the
+// check is for the focus key rather than for Alt+Enter.
 func TestShortScreenRules(t *testing.T) {
 	withHints := openedModel(t, 60, 20).View()
-	if !strings.Contains(withHints, "Alt+Enter newline") {
+	if !strings.Contains(withHints, "Tab timeline") {
 		t.Fatalf("a screen of 20 rows has no hint bar:\n%s", withHints)
 	}
 
@@ -155,7 +159,7 @@ func TestTabCycleKeepsOneAccentAtEveryStop(t *testing.T) {
 		"wide": {
 			width:   120,
 			height:  30,
-			regions: []Focus{FocusComposer, FocusChatList, FocusHistory, FocusComposer},
+			regions: []Focus{FocusComposer, FocusHistory, FocusChatList, FocusComposer},
 		},
 		"narrow": {
 			width:   60,
@@ -260,7 +264,8 @@ func TestViewColoursComeFromTheResolvedProfile(t *testing.T) {
 
 // The hint bar says what works where the user is, and it says nothing that
 // does not. §4.6 asks for a bar that depends on the focus and shrinks with
-// the width.
+// the width, and the owner asked on 02.10 for the two things a user could
+// not work out: where Tab goes and how to get out of the place they are in.
 func TestHintBarFollowsFocusAndWidth(t *testing.T) {
 	cases := map[string]struct {
 		model Model
@@ -270,15 +275,31 @@ func TestHintBarFollowsFocusAndWidth(t *testing.T) {
 		"list narrow": {model: sizedModel(t, 60, 30), want: hintChatList},
 		"composer wide": {
 			model: openedModel(t, 120, 30),
-			want:  "Enter send · Alt+Enter newline · Tab focus · Esc timeline",
+			want:  "Enter send · Alt+Enter newline · Tab timeline · Esc back",
 		},
-		"composer medium": {
+		"composer with room for the newline key": {
 			model: openedModel(t, 80, 30),
-			want:  "Enter send · Alt+Enter newline · Esc timeline",
+			want:  "Enter send · Alt+Enter newline · Tab timeline · Esc back",
 		},
-		"composer narrow": {
-			model: openedModel(t, 60, 30),
-			want:  "Enter send · Alt+Enter newline · Esc back",
+		"composer without room for the newline key": {
+			model: openedModel(t, 72, 30),
+			want:  "Enter send · Tab timeline · Esc back",
+		},
+		"composer on the narrowest screen": {
+			model: openedModel(t, minWidth, 30),
+			want:  "Enter send · Tab timeline · Esc back",
+		},
+		"messages wide": {
+			model: focusedOn(openedModel(t, 120, 30), FocusHistory),
+			want:  "j/k scroll · a actions · Enter composer · Tab chats · Esc back",
+		},
+		"messages narrow": {
+			model: focusedOn(openedModel(t, 60, 30), FocusHistory),
+			want:  "j/k scroll · a actions · Tab composer · Esc back",
+		},
+		"list beside a conversation": {
+			model: focusedOn(openedModel(t, 120, 30), FocusChatList),
+			want:  "Enter open · Tab composer · / search · q quit",
 		},
 	}
 

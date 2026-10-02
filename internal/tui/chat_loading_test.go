@@ -310,7 +310,7 @@ func TestSelectAChatAndWhatToDoAboutIt(t *testing.T) {
 	if !strings.Contains(view, "Select a chat") {
 		t.Fatalf("the screen does not ask for a chat: %q", viewLines(view))
 	}
-	if !strings.Contains(view, "Use ↑ and ↓, then press Enter.") {
+	if !strings.Contains(view, "Enter or Tab to open.") {
 		t.Fatalf("the screen does not say how: %q", viewLines(view))
 	}
 }

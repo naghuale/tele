@@ -586,9 +586,11 @@
     conversation is the composer alone, and below 40x5 the screen says
     it is too small instead of drawing something that does not fit
   - Wide and Medium always have two panes: before a chat is chosen the
-    right one carries the empty state of §17 ("Select a chat", and the
-    reason when the list is loading or has failed), and the list keeps
-    the width of §3.3 either way. Narrow has one region
+    right one carries the empty state of §17 ("Select a chat",
+    "Enter or Tab to open.", and the reason when the list is loading or
+    has failed), and the list keeps the width of §3.3 either way. Narrow
+    has one region. The pane is never left as a dark empty field: it
+    says what to choose and which keys do it (owner, 2026-10-02)
   - one focus at a time: the focus of a pane is one accent rule
     (`━`, the focusRuleGlyph) under the heading of that pane, and the
     unfocused pane has a blank line of the same height in the same
@@ -610,15 +612,42 @@
     its own while it is open (FocusSearch, §5/§9) and is stacked
     above the rows, so the list gives up the column rather than there
     being two of them. Styles: styles.go
+  - focus cycle (§5.0): Tab walks chat list → composer → timeline →
+    chat list and Shift+Tab the same way back, in both forms of
+    Shift+Tab (`tea.KeyShiftTab` and the `ESC [ Z` sequence as runes).
+    A region that is not on the screen is not in the circle: a chat this
+    account cannot write in has no composer and a narrow screen has no
+    chat list beside the conversation, so the circle there is the
+    composer and the timeline alone. In the chat list with no
+    conversation open, Tab opens the chat under the cursor and focuses
+    the timeline (Enter opens the same chat and focuses the composer);
+    with no chat in the list at all the focus stays put and the status
+    line says `Open a chat first`. A step of the circle
+    changes nothing else: the draft, the cursor in it and the message
+    under the timeline cursor are where they were
   - Esc hierarchy (§8.5): search to composer, composer to timeline,
     timeline to the chat list, and then it stops. On a two-pane screen
     the third step focuses the list beside the conversation instead of
-    throwing the conversation away. A draft is never discarded
+    throwing the conversation away. A draft is never discarded. In the
+    chat list Esc closes nothing and the status line says `q to quit`,
+    because the owner could not tell the two keys apart on 2026-10-02
   - `q` leaves the program from the chat list and is a letter in the
-    composer and in the chat search; Esc in the list does nothing.
-    Ctrl+C quits everywhere
+    composer and in the chat search, and does nothing in the timeline;
+    Ctrl+C quits from every place. Every way out asks first when the
+    composer holds a non-blank draft (`Quit with a draft?`, opening on
+    the answer that stays), because a draft is the one thing here a
+    person cannot get back; a draft of spaces is not a draft
   - Enter in the list opens the chat and focuses the composer, and the
     conversation follows the selection while it is beside the list
+  - hint bar (§4.6): every bar names where Tab goes from that focus,
+    with the words read off the cycle rather than written per focus, and
+    the last words of every bar are the way out or the way back
+    (`Esc back`, `q quit`). The bar is fitted to the width it is drawn
+    in, and the key that is given up to make room is chosen before the
+    way out: `Alt+Enter` is the first to go, so the send key, the focus
+    key and the way back survive on the narrowest screen of each width
+    class. The three focus bars are golden files among the others
+    (testdata/snapshots)
   - widths are terminal columns (the model's WidthModel), never runes,
     and a line is padded rather than left ragged so a surface covers its
     whole pane. One width model per model, read by every view: the

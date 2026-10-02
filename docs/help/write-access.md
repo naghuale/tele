@@ -8,7 +8,7 @@
   build 12 is green
 
   Read-only channel
-  j/k scroll · a actions · Esc chats
+  j/k scroll · a actions · Tab chats · Esc back
 ```
 
 ## Почему поля нет

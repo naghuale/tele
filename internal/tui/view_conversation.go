@@ -343,6 +343,15 @@ func timelineEntries(messages []Message) []timelineEntry {
 // above, and they are the space the cursor and the anchor already count in.
 func (m Model) feedEntries() []timelineEntry {
 	messages := m.selected().Messages
+
+	// A preview shows what Telegram holds of a chat, and not the rows of the
+	// queue: those belong to an open conversation, and on the chat list
+	// screen they are the leftovers of the last chat that was open
+	// (chat_preview.go).
+	if m.chatPreviewShown() {
+		return m.withSeparators(timelineEntries(messages))
+	}
+
 	if len(m.pending) == 0 {
 		// Nothing to interleave, and the history is already in order, so
 		// its own indices are the conversation's.
@@ -1666,7 +1675,14 @@ func (m Model) timelineEmptyLines(layout Layout, width int) []string {
 	case loadStateEmpty:
 		// §17: a chat with nothing in it says so, and says where to
 		// write. "No messages" on its own is the same sentence with the
-		// answer removed.
+		// answer removed — and in a preview the sentence with the answer
+		// is not true either, because there is no field below to write in
+		// and nobody has opened the chat yet.
+		if m.chatPreviewShown() {
+			return []string{styles.dimmed(m.tokens().MutedText).
+				Render(m.widths.Fit("No messages yet", width, ellipsis))}
+		}
+
 		return []string{
 			styles.dimmed(m.tokens().MutedText).
 				Render(m.widths.Fit("No messages yet", width, ellipsis)),

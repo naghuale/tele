@@ -176,6 +176,15 @@ type Model struct {
 	selectedChat int
 	selectedMsg  int
 
+	// chatPreviewChat is the chat the pane beside the list is showing, and
+	// previewOperation counts the preview loads so that a page for a chat
+	// the cursor has left is dropped rather than painted (chat_preview.go).
+	//
+	// The preview is drawn on the chat list screen and never opens a chat:
+	// what Telegram is told about is a chat that was opened on purpose.
+	chatPreviewChat  int64
+	previewOperation uint64
+
 	// chatListOffset is the row of the chat list the window starts at,
 	// where -1 means the window is placed for the chat under the cursor
 	// alone, as it was before the list learned to move on its own.
@@ -584,6 +593,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case historyLoadedMsg:
 		return m.updateHistoryLoaded(msg)
 
+	case chatPreviewDueMsg:
+		return m.updateChatPreviewDue(msg)
+
+	case chatPreviewLoadedMsg:
+		return m.updateChatPreviewLoaded(msg)
+
 	case messageSentMsg:
 		return m.updateMessageSent(msg)
 
@@ -717,6 +732,8 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 	if len(msg.chats) == 0 {
 		m.chatsState = loadStateEmpty
 		m.selectedChat = 0
+		m.chatPreviewChat = 0
+
 		return m, nil
 	}
 
@@ -736,7 +753,16 @@ func (m Model) updateChatsLoaded(msg chatsLoadedMsg) (tea.Model, tea.Cmd) {
 		m.selectFirstChatMatch()
 	}
 
-	return m, nil
+	// A list that arrived with another chat under the cursor has a new chat
+	// to show in the pane beside it (chat_preview.go). A read that kept the
+	// same chat there arms nothing: the pane is already showing it, and
+	// asking for its page again on every read of the list would be a load
+	// per read rather than per step of the cursor.
+	if m.selectedChatID() == selected {
+		return m, nil
+	}
+
+	return m, m.armChatPreview()
 }
 
 // mergeLoadedChats keeps what a chat had when the list is read again.
@@ -1633,21 +1659,25 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 	moved := chatIndex != m.selectedChat
 	m.selectedChat = chatIndex
 
+	if !moved {
+		return m, nil
+	}
+
 	// The conversation is only drawn from the selection where the list and
 	// the conversation share the screen. Everywhere else the selection is
 	// only a selection, and nothing is opened behind the user's back.
-	if moved &&
-		!m.chatSearch.open &&
+	if !m.chatSearch.open &&
 		m.screen == ScreenConversation &&
 		LayoutFor(m.width, m.height).TwoPane() {
 		return m.openSelectedChat(m.focus)
 	}
 
-	if moved {
-		return m, repaintCmd(m)
-	}
-
-	return m, nil
+	// On the list screen the conversation is a preview of the chat under the
+	// cursor, and the preview waits for the cursor to be still
+	// (chat_preview.go): a person walking a list presses ↓ faster than a
+	// page of history comes back, and one page for the chat they stopped
+	// on is what they wanted.
+	return m, tea.Batch(repaintCmd(m), m.armChatPreview())
 }
 
 // openSelectedChat opens the selected chat in the conversation pane.

@@ -231,6 +231,15 @@ func (m Model) rowsFromTopTo(
 // screen without the composer's band, which is the draft, the hints and the
 // line of space above them.
 func (m Model) conversationRegionHeight(layout Layout, width int) int {
+	// A preview has no composer under its messages and a foot of its own
+	// instead (chat_preview.go), so the rows the feed gets are measured
+	// against what is actually there: a feed placed against a composer that
+	// is not drawn leaves blank rows under the newest message, which is the
+	// conversation that opens with a screenful in the corner.
+	if m.chatPreviewShown() {
+		return maxInt(layout.Height-m.previewFooterRows(layout, width), 0)
+	}
+
 	return maxInt(layout.Height-m.composerHeight(layout, width), 0)
 }
 

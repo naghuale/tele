@@ -21,6 +21,13 @@ type fakeChatSource struct {
 		limit         int
 	}
 
+	// historyChats is every chat a history load was asked for, in order.
+	// The last call is the one historyCall holds, and this is how many there
+	// were: a screen that asks for a page per key press is the question the
+	// pause of the preview exists to answer, and it can only be asked of the
+	// whole list.
+	historyChats []int64
+
 	sentMessage Message
 	sendErr     error
 	sendCall    struct {
@@ -46,6 +53,7 @@ func (f *fakeChatSource) LoadHistory(
 	f.historyCall.chatID = chatID
 	f.historyCall.fromMessageID = fromMessageID
 	f.historyCall.limit = limit
+	f.historyChats = append(f.historyChats, chatID)
 	if f.historyErr != nil {
 		return HistoryPage{}, f.historyErr
 	}

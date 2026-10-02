@@ -185,17 +185,15 @@ func (m Model) popupRowsAndRow(layout Layout) ([]string, int) {
 
 // viewTwoPanes draws the chat list and the conversation side by side.
 //
-// A screen with no chat chosen draws the empty state of §17 in the right
-// pane, under the same hint bar the conversation has. The empty pane is not
-// focusable: the list is the only region with keys, and a second one that
-// cannot be reached would be a second one that cannot be seen.
+// The pane beside the list is the preview of the chat under the cursor, and
+// the empty state of §17 while there is nothing to preview yet
+// (chat_preview.go). Either way the keys are in the list: the pane is not
+// focusable, and a second region that cannot be reached would be a second
+// one that cannot be seen.
 func (m Model) viewTwoPanes(layout Layout) string {
 	right := m.conversationPaneRegion(layout)
 	if m.screen != ScreenConversation {
-		right = m.joinRegions(
-			m.emptyConversationRegion(layout),
-			m.footerRegion(layout, layout.ChatContentWidth()),
-		)
+		right = m.listSidePaneRegion(layout)
 	}
 
 	return m.joinSides(
@@ -203,6 +201,18 @@ func (m Model) viewTwoPanes(layout Layout) string {
 		layout.SidebarWidth(),
 		right,
 		layout.ChatWidth(),
+	)
+}
+
+// listSidePaneRegion draws the pane beside the chat list.
+func (m Model) listSidePaneRegion(layout Layout) string {
+	if m.chatPreviewShown() {
+		return m.previewPaneRegion(layout)
+	}
+
+	return m.joinRegions(
+		m.emptyConversationRegion(layout),
+		m.footerRegion(layout, layout.ChatContentWidth()),
 	)
 }
 

@@ -586,11 +586,13 @@
     conversation is the composer alone, and below 40x5 the screen says
     it is too small instead of drawing something that does not fit
   - Wide and Medium always have two panes: before a chat is chosen the
-    right one carries the empty state of §17 ("Select a chat",
-    "Enter or Tab to open.", and the reason when the list is loading or
-    has failed), and the list keeps the width of §3.3 either way. Narrow
-    has one region. The pane is never left as a dark empty field: it
-    says what to choose and which keys do it (owner, 2026-10-02)
+    right one carries the preview of the chat under the cursor (§5.1), or
+    the empty state of §17 while the preview has not been armed ("Select a
+    chat", "Enter or Tab to open.", and the reason when the list is loading
+    or has failed), and the list keeps the width of §3.3 either way. Narrow
+    has one region. The pane is never left as a dark empty field: it shows
+    the chat under the cursor or says what to choose and which keys do it
+    (owner, 2026-10-02)
   - one focus at a time: the focus of a pane is one accent rule
     (`━`, the focusRuleGlyph) under the heading of that pane, and the
     unfocused pane has a blank line of the same height in the same
@@ -612,6 +614,23 @@
     its own while it is open (FocusSearch, §5/§9) and is stacked
     above the rows, so the list gives up the column rather than there
     being two of them. Styles: styles.go
+  - chat preview (§5.1): while no conversation is open, the pane beside the
+    chat list shows the conversation of the chat under the cursor, and it
+    does so after a 200 ms pause with the cursor still on that chat
+    (chatPreviewPause, chat_preview.go). Three things it is not, each a rule
+    with a test: it never marks messages read (viewMessages is called only
+    for a chat opened on purpose, and markVisibleMessagesViewed asks nothing
+    on the chat list screen anyway), it never opens a chat in TDLib
+    (no openChat, so presence is not counted), and it never moves the focus
+    or draws a composer. One page is asked for and no older-page fill: a
+    preview looks at the end of a conversation. The last selection wins —
+    chatPreviewChat must equal the chat under the cursor and the operation of
+    the newest preview load, so a page for a chat the cursor has left is
+    dropped. The foot of a preview reads "Preview · Enter or Tab to open"
+    and is its own band, not the hint bar: there are no keys in the pane.
+    The empty state of §17 stays for the first 200 ms and for a list with
+    nothing in it. On a narrow screen there is no preview: the list is the
+    whole screen
   - focus cycle (§5.0): Tab walks chat list → composer → timeline →
     chat list and Shift+Tab the same way back, in both forms of
     Shift+Tab (`tea.KeyShiftTab` and the `ESC [ Z` sequence as runes).
@@ -983,7 +1002,7 @@
     it. It is a focus region of its own (FocusSearch, §5), not a mode of
     the list: it is a region stacked above the rows, so the list gives up
     the accent column while the keys are in it and the screen still has
-    one accent column (§5.2)
+    one accent column (§5.3)
   - while the focus is in the search, letters are the query: q does not
     quit, j/k do not walk the list, g does not jump, R does not reload.
     The arrow keys are the way to walk the results. Ctrl+C still quits

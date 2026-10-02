@@ -340,6 +340,32 @@ func snapshotChatList(t *testing.T, f snapshotFixture) Model {
 	return snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
 }
 
+// snapshotChatPreview is the screen a person is in while they walk a list of
+// chats with the arrows: the chat under the cursor is shown in the pane
+// beside it, and the foot of that pane says what it is and what opens the
+// chat for real (chat_preview.go).
+//
+// The pause is not waited for here, exactly as no snapshot waits for a
+// timer: the message it would carry is handed to the model, and the page it
+// would ask for with it.
+func snapshotChatPreview(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+
+	m, _ = updateModel(t, m, chatPreviewDueMsg{
+		chatID:    m.selectedChatID(),
+		selection: m.selectedChat,
+	})
+	m, _ = updateModel(t, m, chatPreviewLoadedMsg{
+		chatID:    m.selectedChatID(),
+		operation: m.previewOperation,
+		page:      HistoryPage{Messages: snapshotMessages()},
+	})
+
+	return m.scrollToNewest()
+}
+
 // snapshotDelivery is a conversation with one outgoing message in the given
 // state of §6, with the cursor still on the history below it.
 //
@@ -502,6 +528,9 @@ func snapshotScreens() []snapshotScreen {
 		}},
 		{"TestSnapshotNarrowChatList", func(t *testing.T) Model {
 			return snapshotChatList(t, narrow(theme.ProfileTrueColor))
+		}},
+		{"TestSnapshotChatListPreview", func(t *testing.T) Model {
+			return snapshotChatPreview(t, wide(theme.ProfileTrueColor))
 		}},
 		{"TestSnapshotNarrowConversation", func(t *testing.T) Model {
 			m := snapshotConversation(t, narrow(theme.ProfileTrueColor))
@@ -1402,6 +1431,12 @@ func TestSnapshotMediumChatListAndConversation(t *testing.T) {
 // and the conversation is what the way back in the header is for.
 func TestSnapshotNarrowChatList(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotNarrowChatList"))
+}
+
+// The preview of the chat under the cursor: a conversation beside the list
+// that nobody has opened yet, with the words under it that say so.
+func TestSnapshotChatListPreview(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListPreview"))
 }
 
 func TestSnapshotNarrowConversation(t *testing.T) {

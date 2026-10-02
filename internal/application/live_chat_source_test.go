@@ -502,3 +502,77 @@ var (
 	_ LiveChatLoader     = (*stubChatListLoader)(nil)
 	_ tui.ChatLiveSource = (*TelegramLiveUpdates)(nil)
 )
+
+// recordedNotificationSettings is an updateChatNotificationSettings for one
+// chat: the mute is the chat's own, with seconds left on it.
+func recordedNotificationSettings(chatID, muteFor int) string {
+	return `{"@type":"updateChatNotificationSettings","chat_id":` +
+		strconv.Itoa(chatID) +
+		`,"notification_settings":{"@type":"chatNotificationSettings",` +
+		`"use_default_mute_for":false,"mute_for":` + strconv.Itoa(muteFor) + `}}`
+}
+
+// The pin and the mute cross the boundary with the rest of the row: the pin
+// says why a chat is at the top of the list, and the mute is what keeps it
+// out of the number in the header. Both come from the recorded updates of
+// the account, so a row that arrived without them would be a row about the
+// moment the program started rather than about the chat (#46).
+func TestTheLiveListBringsThePinAndTheMuteOfAChat(t *testing.T) {
+	store := recordedAccount(t)
+	applyRecorded(t, store, recordedPosition(1, 300, true))
+	applyRecorded(t, store, recordedNotificationSettings(3, 3600))
+
+	live, err := NewTelegramLiveUpdates(store, nil)
+	if err != nil {
+		t.Fatalf("NewTelegramLiveUpdates: %v", err)
+	}
+
+	chats := live.Chats()
+	if len(chats) != 3 {
+		t.Fatalf("Chats() = %d chats, want 3", len(chats))
+	}
+
+	for _, chat := range chats {
+		switch chat.ID {
+		case 1:
+			if !chat.Pinned {
+				t.Error("the chat the position marked as pinned is not marked")
+			}
+			if chat.Muted {
+				t.Error("a chat nobody silenced is marked as silenced")
+			}
+		case 3:
+			if !chat.Muted {
+				t.Error("the silenced chat is not marked as silenced")
+			}
+		case 2:
+			if chat.Pinned || chat.Muted {
+				t.Errorf(
+					"chat 2 arrived as pinned=%v muted=%v, want neither",
+					chat.Pinned, chat.Muted,
+				)
+			}
+		}
+	}
+}
+
+// Lifting the mute is the same update with the time back at zero, and the
+// chat comes back out of the number without the program knowing anything
+// about it: the header counts what the state says, and the state is what
+// Telegram keeps sending.
+func TestUnsilencingAChatIsTheSameUpdateWithNoTimeLeft(t *testing.T) {
+	store := recordedAccount(t)
+	applyRecorded(t, store, recordedNotificationSettings(3, 3600))
+	applyRecorded(t, store, recordedNotificationSettings(3, 0))
+
+	live, err := NewTelegramLiveUpdates(store, nil)
+	if err != nil {
+		t.Fatalf("NewTelegramLiveUpdates: %v", err)
+	}
+
+	for _, chat := range live.Chats() {
+		if chat.ID == 3 && chat.Muted {
+			t.Fatal("the chat is still marked as silenced after its mute ran out")
+		}
+	}
+}

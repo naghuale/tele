@@ -7,7 +7,7 @@
 # width:   grapheme
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-    Chats              3 unread     Anna Example                                                                        
+    Chats              2 unread     Anna Example                                                                        
     / search                                                                                                            
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
     Anna Example          12:07                                                                                         
@@ -39,7 +39,7 @@
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"\x1b[1G    \x1b[1;96mChats        \x1b[0m      \x1b[90m3 unread\x1b[0m   \x1b[35G  \x1b[1;97mAnna Example                                                                        \x1b[0m"
+"\x1b[1G    \x1b[1;96mChats        \x1b[0m      \x1b[90m2 unread\x1b[0m   \x1b[35G  \x1b[1;97mAnna Example                                                                        \x1b[0m"
 "\x1b[1G    \x1b[90m/ search                   \x1b[0m   \x1b[35G                                                                                      "
 "\x1b[1G  \x1b[96m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m \x1b[35G                                                                                      "
 "\x1b[1G  \x1b[1;96;107m \x1b[0m\x1b[107m \x1b[0m\x1b[1;96;107mAnna Example\x1b[0m\x1b[107m          \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m  \x1b[0m \x1b[35G                                                                                      "

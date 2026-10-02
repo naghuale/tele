@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -196,12 +197,16 @@ func (m Model) panelHeadingStyle(focused bool) lipgloss.Style {
 // chatListSummaryText is the unread count of the header, which is the words
 // alone: it shares its row with the title of the pane, and the row that puts
 // it at its right edge is the row that fits it to the room the title leaves.
+//
+// What it counts is the setting's business (unread_counter.go) and not the
+// view's: the default counts the chats that have something unread in them
+// and leaves out the ones a person has silenced, which is what the same
+// header says in Telegram.
 func (m Model) chatListSummaryText() string {
-	unread := 0
-	for _, chat := range m.chats {
-		unread += chat.Unread
+	unread, counted := m.chatListUnreadTotal()
+	if !counted {
+		return ""
 	}
-
 	if unread == 0 {
 		return "no unread"
 	}
@@ -274,7 +279,13 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 	for index, entry := range entries {
 		rows = append(
 			rows,
-			m.chatListRowLines(entry, entry.index == m.selectedChat, layout, width),
+			m.chatListRowLines(
+				entry,
+				entry.index == m.selectedChat,
+				chatPinnedBoundary(entries, index),
+				layout,
+				width,
+			),
 		)
 
 		if entry.index == m.selectedChat {
@@ -283,6 +294,21 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 	}
 
 	return rows, selected
+}
+
+// chatPinnedBoundary reports whether the gap under the entry at index is the
+// line between the pinned chats and the rest.
+//
+// It is asked of the rows that are on the screen rather than of the whole
+// list, because the line says where the pinned chats end: the pinned chats
+// below the window are not drawn, and a line under the last row of the
+// window would separate a row from nothing.
+func chatPinnedBoundary(entries []chatListEntry, index int) bool {
+	if index >= len(entries)-1 {
+		return false
+	}
+
+	return entries[index].chat.Pinned && !entries[index+1].chat.Pinned
 }
 
 // chatListRowLines renders one chat as two rows of words and a row of
@@ -318,6 +344,7 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 func (m Model) chatListRowLines(
 	entry chatListEntry,
 	selected bool,
+	pinnedEdge bool,
 	layout Layout,
 	width int,
 ) []string {
@@ -350,9 +377,8 @@ func (m Model) chatListRowLines(
 	}
 
 	mark := styles.selectionMarker(selected)
-	at := m.chatListTimeText(chat.At)
+	pin := m.chatListPinText(chat)
 	badge := m.chatListUnreadBadge(chat, surface)
-	timeColumns := m.widths.StringWidth(at)
 	timeStyle := styles.text(m.tokens().MutedText)
 
 	// §4.2 gives the time up before the name does, on a list too narrow to
@@ -366,12 +392,17 @@ func (m Model) chatListRowLines(
 	// the air, so it costs the row nothing: a name cut to a width that
 	// does not leave the time's room is a name a column too long, and a row
 	// a column over the width of the pane is a row the terminal wraps.
+	//
+	// The pin is asked of the same room, and is given up before the time is,
+	// because §4.2 hides the extra icons first: a pin is about one row of
+	// the list and a time is about every row of it.
+	marks := m.chatListHeadMarks(chat, content)
+	markColumns := m.widths.StringWidth(marks)
 	nameWidth := content
-	if nameWidth-timeColumns-timeGapColumns >= minNameBesideTime {
-		nameWidth -= timeColumns + timeGapColumns
-	} else {
-		at = ""
+	if markColumns > 0 {
+		nameWidth -= markColumns + timeGapColumns
 	}
+	at := marks
 
 	// The marker is handed to the painter as text and a style and not as a
 	// rendered run: Lip Gloss re-reads the sequences of what it is given,
@@ -409,12 +440,26 @@ func (m Model) chatListRowLines(
 		// (§4.2), because a chat list that has a preview has a time beside
 		// it and a count on its own line, and a screen short enough to have
 		// neither can keep one number or one timestamp but not both.
-		short := maxInt(nameWidth-m.widths.StringWidth(badge.text())-2, 1)
+		//
+		// The pin stands in the same place as the time it gave up: the
+		// right edge of the row, before the count, which is where a reader
+		// looks for whether a chat is pinned.
+		pinColumns := m.widths.StringWidth(pin)
+		short := maxInt(
+			nameWidth-pinColumns-pinGapColumns-m.widths.StringWidth(badge.text())-2,
+			1,
+		)
 
 		head := edge(badge.write(
-			lead(m.painter(theme.Color{})).
-				add(styles.rowText(selected).Bold(true),
-					m.widths.TruncateMarked(title, short, ellipsis)),
+			m.chatListPinBeforeBadge(
+				lead(m.painter(theme.Color{})).
+					add(styles.rowText(selected).Bold(true),
+						m.widths.TruncateMarked(title, short, ellipsis)),
+				pin,
+				badge,
+				width-inset,
+				timeStyle,
+			),
 			width-inset,
 		))
 
@@ -467,15 +512,164 @@ func (m Model) chatListRowLines(
 	return []string{
 		head,
 		detail,
-		m.painter(theme.Color{}).own(separator, spaces(width)).String(),
+		m.chatListSeparatorLine(width, inset, separator, pinnedEdge),
 	}
 }
+
+// chatListSeparatorLine is the gap under a chat: air of the background of the
+// list, and a thin line of the theme where the pinned chats end.
+//
+// The line is what says the list is in two parts. It is drawn in the row that
+// was air anyway, so it costs no height and no chat: a row of its own between
+// the last pinned chat and the first of the rest would make the two groups
+// two lists, and the window of §10.5 divides the budget by three either way.
+//
+// It is a line and not a frame because the whole of §1 is that nothing here
+// is outlined, and it is thin where the rule under a header is heavy because
+// this one is inside a list: the heaviest line on the screen is the one that
+// says which pane has the keys, and a second line as heavy as it would be a
+// second thing shouting. It is a character rather than a colour alone, so a
+// terminal with no colour still shows where the pinned chats end.
+func (m Model) chatListSeparatorLine(
+	width, inset int,
+	separator lipgloss.Style,
+	pinnedEdge bool,
+) string {
+	if !pinnedEdge {
+		return m.painter(theme.Color{}).own(separator, spaces(width)).String()
+	}
+
+	// The row is written as three runs rather than an air row with the line
+	// written over it: a run written after the air is a run past the width of
+	// the pane, and the region cuts it at the edge.
+	return m.painter(theme.Color{}).
+		own(separator, spaces(inset)).
+		own(m.styles().on(
+			m.tokens().SidebarBackground,
+			m.styles().dimmed(m.tokens().MutedText),
+		), strings.Repeat(chatListPinnedRuleGlyph, maxInt(width-2*inset, 1))).
+		own(separator, spaces(inset)).
+		String()
+}
+
+// chatListPinnedRuleGlyph is the character the line between the pinned chats
+// and the rest is drawn with: a light horizontal, one thin stroke, and no
+// ends that turn a line into a frame.
+const chatListPinnedRuleGlyph = "─"
 
 // chatListBadgeGap is the air between the end of a preview and the badge
 // of the chat, and it is wider than the gap between a name and its time
 // because the badge is a pill rather than a word: a pill one column from
 // the last letter of the preview reads as one run of the row.
 const chatListBadgeGap = 2
+
+// chatListPinText is what marks a pinned chat in its row, and nothing at all
+// for a chat that is not pinned.
+//
+// It is the pin of Telegram where the reader already knows that shape, and
+// the word that says it where the terminal cannot be asked: an emoji that
+// the font has not got is drawn as an empty square, and an empty square
+// beside a name says nothing at all about why that name is at the top of the
+// list. So the mark is the glyph only when the user has said the terminal is
+// drawn with a Nerd Font — the setting that already decides whether this
+// program may draw a glyph it cannot check for — and the word everywhere
+// else.
+func (m Model) chatListPinText(chat Chat) string {
+	if !chat.Pinned {
+		return ""
+	}
+
+	if m.nerdFont {
+		return chatPinGlyph
+	}
+
+	return chatPinWord
+}
+
+// The two marks of a pinned chat, and the gap between a mark and the time
+// beside it.
+const (
+	// chatPinGlyph is the pin of Telegram, U+1F4CC.
+	chatPinGlyph = "\U0001F4CC"
+
+	// chatPinWord is what a terminal without the glyph gets.
+	chatPinWord = "pin"
+
+	// pinGapColumns is the air between the pin and the time of the row.
+	//
+	// It is the same air as between a name and its time, because it is
+	// between two things at the same end of the row and not between two
+	// kinds of thing: a pin one column from the digits of a time reads as
+	// one run.
+	pinGapColumns = 1
+)
+
+// chatListHeadMarks returns what stands at the right end of the head row of
+// a chat: the pin, the time, both, or neither, and nothing that does not
+// fit beside a name a reader can recognise.
+//
+// The order they are given up in is the order §4.2 hides things in — the
+// extra icon first, then the time, then the name is never cut for it — so a
+// narrow list keeps the time of a chat and loses the pin, and only a list
+// that cannot carry the name and the time together loses both.
+//
+// The whole run is one string because it is one run of the row: the pin and
+// the time are drawn in the same colour, and a painter that put them in two
+// runs would end the first with a reset that took the second with it.
+func (m Model) chatListHeadMarks(chat Chat, room int) string {
+	pin := m.chatListPinText(chat)
+	at := m.chatListTimeText(chat.At)
+
+	// The pin is never what the time is spent for: §4.2 gives up the extra
+	// icons before it gives up the timestamp, and a row that kept a pin and
+	// lost its time would have moved a mark of one chat in front of the one
+	// thing every chat of the list has.
+	for _, marks := range [][2]string{
+		{pin, at},
+		{"", at},
+		{"", ""},
+	} {
+		text := joinChatListMarks(marks[0], marks[1])
+		if room-m.widths.StringWidth(text)-timeGapColumns >= minNameBesideTime {
+			return text
+		}
+	}
+
+	return ""
+}
+
+// joinChatListMarks puts the pin and the time of a row together, with the air
+// between them, and leaves out the gap when there is only one of them.
+func joinChatListMarks(pin, at string) string {
+	switch {
+	case pin == "":
+		return at
+	case at == "":
+		return pin
+	default:
+		return pin + spaces(pinGapColumns) + at
+	}
+}
+
+// chatListPinBeforeBadge puts the pin of a Short row before the count, at the
+// place the time would have been on a row that had one.
+//
+// The badge is written at the right edge afterwards, so the pin is placed at
+// the column the badge is going to leave free: a pin drawn at the edge of a
+// row that then has a count written over it is a pin under a pill.
+func (m Model) chatListPinBeforeBadge(
+	row *rowPainter,
+	pin string,
+	badge chatBadge,
+	width int,
+	style lipgloss.Style,
+) *rowPainter {
+	if pin == "" {
+		return row
+	}
+
+	return row.right(pin, width-m.widths.StringWidth(badge.text())-pinGapColumns, style)
+}
 
 // timeGapColumns is the space kept between the name of a chat and the
 // time at the other end of its row, and between a preview and its badge.

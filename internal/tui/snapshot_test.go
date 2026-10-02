@@ -618,6 +618,12 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotChatListRowsRounded", func(t *testing.T) Model {
 			return snapshotChatListRows(t, true)
 		}},
+		{"TestSnapshotPinnedChatsPlain", func(t *testing.T) Model {
+			return snapshotPinnedChats(t, false)
+		}},
+		{"TestSnapshotPinnedChatsNerdFont", func(t *testing.T) Model {
+			return snapshotPinnedChats(t, true)
+		}},
 		{"TestSnapshotBlockRows", func(t *testing.T) Model {
 			return snapshotBlockRows(t, wide(theme.ProfileTrueColor))
 		}},
@@ -971,6 +977,48 @@ func snapshotChatListRows(t *testing.T, nerdFont bool) Model {
 			Preview: "everything that came out of it is in the notes",
 		},
 	}
+
+	return snapshotChatList(t, f)
+}
+
+// pinnedSnapshotChats is the list a reader of a Telegram account has: two
+// pinned chats at the top however old their last messages are, then the
+// rest by the time of their last message, and one of those silenced — which
+// is what the number in the header leaves out (#46).
+func pinnedSnapshotChats() []Chat {
+	return []Chat{
+		{ID: 1, Title: "Anime & News", Unread: 3, Pinned: true,
+			Preview: "the season has started", At: mockMoment("09:02")},
+		{ID: 2, Title: "Release Room", Pinned: true,
+			Preview: "the tag is pushed", At: mockMoment("08:41"),
+			Kind: ChatKindGroup},
+		{ID: 3, Title: "Anna Example", Unread: 2,
+			Preview: "the build is green again", At: mockMoment("12:07")},
+		{ID: 4, Title: "Xiaomi News", Unread: 12, Muted: true,
+			Preview: "the firmware is out", At: mockMoment("11:29"),
+			Kind: ChatKindChannel},
+		{ID: 5, Title: "Notes", Preview: "milk, bread, coffee",
+			At: mockMoment("10:58")},
+	}
+}
+
+// snapshotPinnedChats is the chat list of an account that pins its chats,
+// drawn once with a Nerd Font and once without one.
+//
+// The two are goldens rather than one because the mark is a different thing
+// in each: a glyph the terminal has to have the font for, and the word that
+// says the same thing where it has not. A golden of one of them cannot show
+// what the other one draws.
+//
+// The header is on the same screen on purpose: the pin says why a chat is at
+// the top of the list, and the number beside the title says how much of the
+// list is unread — the two answers to "what is in this pane" (02.10).
+func snapshotPinnedChats(t *testing.T, nerdFont bool) Model {
+	t.Helper()
+
+	f := wide(theme.ProfileTrueColor)
+	f.nerdFont = nerdFont
+	f.chats = pinnedSnapshotChats()
 
 	return snapshotChatList(t, f)
 }
@@ -1676,6 +1724,19 @@ func TestSnapshotChatListRowsRounded(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChatListRowsRounded"))
 }
 
+// The same list on an account that pins its chats, drawn twice: the mark of
+// a pinned chat is a glyph with a Nerd Font and the word without one, and
+// the two goldens are the proof that the mark is there in both — and that
+// the number in the header leaves the silenced chat out while the pins and
+// the line under them are on the same screen (#46).
+func TestSnapshotPinnedChatsPlain(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotPinnedChatsPlain"))
+}
+
+func TestSnapshotPinnedChatsNerdFont(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotPinnedChatsNerdFont"))
+}
+
 // A block of one row with the setting on is a pill and with it off is a
 // rectangle, and these two files are the whole of that difference. They are
 // the counterpart of the pair above, which is two files that are the same
@@ -2332,10 +2393,21 @@ func snapshotLine(lines []string, index int, view snapshotView) string {
 // of nothing but frame characters, which is what a border is and is not
 // what a message is, so the check cannot be fooled by a message that
 // happens to contain a dash.
+//
+// The thin line that ends the pinned chats of a list is the one thing on
+// the screen drawn with a glyph from this list, and it is a separator
+// rather than a frame: it is one line, in one place, with no ends and no
+// sides, and it stands where the list is in two parts (#46). It is
+// exempted by the row it is on rather than by its glyph, so any other
+// frame drawn with the same character is still a failure.
 func assertNoFrame(t *testing.T, test string, lines []string) {
 	t.Helper()
 
 	for index, line := range lines {
+		if index > 0 && strings.Contains(line, chatListPinnedRuleGlyph) {
+			continue
+		}
+
 		for _, glyph := range boxDrawing {
 			if strings.ContainsRune(line, glyph) {
 				t.Errorf("%s: line %d draws the box glyph %q", test, index+1, glyph)

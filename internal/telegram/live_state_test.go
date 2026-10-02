@@ -403,6 +403,13 @@ var liveStateUpdateFixtures = map[string]RawMessage{
 		`"is_pinned":false,"source":null}]}`),
 	"updateChatReadInbox": RawMessage(`{"@type":"updateChatReadInbox","chat_id":10,` +
 		`"last_read_inbox_message_id":0,"unread_count":1}`),
+	// A chat the seed has not silenced becomes a silenced one, so the update
+	// is a change rather than a repetition of what is there.
+	"updateChatNotificationSettings": RawMessage(
+		`{"@type":"updateChatNotificationSettings","chat_id":10,` +
+			`"notification_settings":{"@type":"chatNotificationSettings",` +
+			`"use_default_mute_for":false,"mute_for":3600}}`,
+	),
 	updateConnectionStateType: RawMessage(`{"@type":"updateConnectionState",` +
 		`"state":{"@type":"connectionStateReady"}}`),
 }
@@ -526,6 +533,138 @@ func TestChatListIgnoresPinnedOutsideTheMainList(t *testing.T) {
 	got := liveIDs(state.ChatList())
 	if len(got) != 1 || got[0] != 1 {
 		t.Fatalf("ChatList() = %v, want [1]", got)
+	}
+}
+
+// The mute of a chat is what its own notification settings say, and the
+// header of the chat list leaves a silenced chat out of the number it draws.
+//
+// Three shapes of the same answer, because all three are what TDLib sends:
+// a chat with a mute of its own and time on it, a chat whose mute has run
+// out, and a chat that defers to the settings of its kind — the last one is
+// not muted here, because the scope is not part of the main list and the
+// store never reads it.
+func TestTheChatListCarriesTheMuteOfTheChatsOwnSettings(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		settings string
+		want     bool
+	}{
+		{
+			name: "muted by the chat itself",
+			settings: `{"@type":"chatNotificationSettings",` +
+				`"use_default_mute_for":false,"mute_for":3600}`,
+			want: true,
+		},
+		{
+			name: "the mute has run out",
+			settings: `{"@type":"chatNotificationSettings",` +
+				`"use_default_mute_for":false,"mute_for":0}`,
+			want: false,
+		},
+		{
+			name: "deferred to the scope, which the store does not read",
+			settings: `{"@type":"chatNotificationSettings",` +
+				`"use_default_mute_for":true,"mute_for":3600}`,
+			want: false,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := NewLiveState()
+			mustApplyLiveChat(t, state, 1, "a chat", 100)
+
+			raw := `{"@type":"updateChatNotificationSettings","chat_id":1,` +
+				`"notification_settings":` + testCase.settings + `}`
+			changed, err := state.apply(RawMessage(raw))
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			// The seed is not muted, so an update that leaves it unmuted
+			// changes nothing and says so — a store that reported a change
+			// per update would repaint a list nobody moved.
+			if changed != testCase.want {
+				t.Fatalf("changed = %v, want %v", changed, testCase.want)
+			}
+
+			chats := state.ChatList()
+			if len(chats) != 1 {
+				t.Fatalf("ChatList() = %d chats, want 1", len(chats))
+			}
+			if got := chats[0].Muted; got != testCase.want {
+				t.Fatalf("Muted = %v, want %v", got, testCase.want)
+			}
+		})
+	}
+}
+
+// The chat object carries its own notification settings, so a chat that
+// TDLib announces already silenced is read as silenced: the header must not
+// count a chat that has been quiet since the list was loaded.
+func TestANewChatArrivesWithTheMuteItAlreadyHas(t *testing.T) {
+	state := NewLiveState()
+	raw := `{"@type":"updateNewChat","chat":{"@type":"chat","id":42,` +
+		`"title":"Release Notes","unread_count":120,` +
+		`"notification_settings":{"@type":"chatNotificationSettings",` +
+		`"use_default_mute_for":false,"mute_for":86400},` +
+		`"positions":[{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"700","is_pinned":true,"source":null}]}}`
+	if _, err := state.apply(RawMessage(raw)); err != nil {
+		t.Fatalf("apply updateNewChat: %v", err)
+	}
+
+	chats := state.ChatList()
+	if len(chats) != 1 {
+		t.Fatalf("ChatList() = %d chats, want 1", len(chats))
+	}
+	if !chats[0].Muted {
+		t.Error("Muted = false, want true for a chat silenced when it arrived")
+	}
+	if !chats[0].Pinned {
+		t.Error("Pinned = false, want true for the position that says so")
+	}
+}
+
+// Silencing a chat says about that chat and nothing else: the title, the
+// count, the position and the pin are what they were an update ago, because
+// a mute that took the pin with it would be a mute that moved a chat.
+func TestSilencingAChatChangesNothingButTheMute(t *testing.T) {
+	state := NewLiveState()
+	mustApplyLiveChat(t, state, 1, "Release Notes", 700)
+	mustPinLiveChat(t, state, 1, 700)
+	mustMuteLiveChat(t, state, 1, 3600)
+	drainChanged(state)
+	before := state.ChatList()[0]
+
+	raw := `{"@type":"updateChatNotificationSettings","chat_id":1,` +
+		`"notification_settings":{"@type":"chatNotificationSettings",` +
+		`"use_default_mute_for":false,"mute_for":0}}`
+	changed, err := state.apply(RawMessage(raw))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !changed {
+		t.Fatal("lifting a mute must report a change")
+	}
+	after := state.ChatList()[0]
+
+	if after.Muted {
+		t.Error("Muted = true after the mute ran out, want false")
+	}
+	if before.Muted != true {
+		t.Fatal("the seed is not muted, so the test above proved nothing")
+	}
+	// The last message is a pointer into a copy, so the two records are
+	// compared by what they say rather than by where they point.
+	after.LastMessage, before.LastMessage = nil, nil
+	if after == before {
+		t.Fatal("lifting the mute changed nothing else, which is the claim")
+	}
+	after.Muted = true
+	if after != before {
+		t.Fatalf(
+			"the mute changed the rest of the record: before %+v, after %+v",
+			before, after,
+		)
 	}
 }
 
@@ -1063,6 +1202,19 @@ func mustPinLiveChat(t *testing.T, state *LiveState, id ChatID, order int64) {
 		`","is_pinned":true,"source":null}}`
 	if _, err := state.apply(RawMessage(raw)); err != nil {
 		t.Fatalf("pin apply: %v", err)
+	}
+}
+
+// mustMuteLiveChat silences a chat for the given number of seconds, the way
+// TDLib says it with updateChatNotificationSettings.
+func mustMuteLiveChat(t *testing.T, state *LiveState, id ChatID, seconds int64) {
+	t.Helper()
+	raw := `{"@type":"updateChatNotificationSettings","chat_id":` + strconv.Itoa(int(id)) +
+		`,"notification_settings":{"@type":"chatNotificationSettings",` +
+		`"use_default_mute_for":false,"mute_for":` +
+		strconv.FormatInt(seconds, 10) + `}}`
+	if _, err := state.apply(RawMessage(raw)); err != nil {
+		t.Fatalf("mute apply: %v", err)
 	}
 }
 

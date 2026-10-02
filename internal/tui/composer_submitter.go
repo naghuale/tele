@@ -182,6 +182,17 @@ type Dependencies struct {
 	// It is false unless it was asked for, because a terminal without the
 	// font draws the halves as empty squares.
 	NerdFont bool
+
+	// UnreadCounter is what the number in the header of the chat list
+	// counts: the chats with something unread in them, every unread
+	// message, or nothing.
+	//
+	// The composition root resolves it from the configuration for the same
+	// reason it resolves the theme and the clock: a setting that is read
+	// per frame is a setting whose answer can change under a reader, and
+	// telecli doctor has to report the one the TUI will draw with. The zero
+	// value counts chats, which is the setting's default.
+	UnreadCounter UnreadCounterMode
 }
 
 type composerSubmissionMsg struct {
@@ -239,6 +250,7 @@ func NewModelWithDependencies(
 	)
 	model.hourFormat = deps.Clock
 	model.nerdFont = deps.NerdFont
+	model.unreadCounter = deps.UnreadCounter
 	if deps.SendError != nil {
 		// Sending is already known to be impossible. Showing it now
 		// means the user is not invited to press Enter to find out, and

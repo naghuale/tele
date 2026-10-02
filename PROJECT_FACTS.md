@@ -267,12 +267,17 @@
     in it (Grouped) and the last message; the store keeps no name of a
     person and no is_channel, so a channel arrives as a group until a
     loaded list says otherwise
+  - LiveChat carries Muted, read from the chat's own notification
+    settings: not use_default_mute_for and mute_for > 0 (#46). The
+    scope's setting is not read, so a chat that defers to it is not
+    muted here; updateChatNotificationSettings changes only this field
+    and an update that carries no settings keeps the mute it has
   - a live message carries its sender_id (identifier and kind, never a
     name); the interface asks TDLib for the name when it draws the row
     (#41)
   - applied updates: updateNewChat, updateChatTitle, updateChatPosition,
     updateChatLastMessage, updateChatDraftMessage (positions only),
-    updateChatReadInbox
+    updateChatReadInbox, updateChatNotificationSettings
   - the message updates below are routed by the same apply and never
     move the list: the two projections are independent, and a chat
     update spends no message sequence
@@ -340,7 +345,11 @@
   - a live row keeps what the live state does not carry: the messages of
     the conversation behind it, the aliases of the search, where Telegram
     had been told the reader got to, and the kind of the chat (the store
-    cannot tell a channel from a group)
+    cannot tell a channel from a group). What the live state does carry is
+    taken from it: the pin and the mute of the chat as well (#46)
+  - a loaded list says nothing about the pin or the mute, so a reload (R)
+    keeps the answers the live state gave the rows rather than taking them
+    away
   - the text of a live row and of a live message goes through the same
     cleaner as the text of a page (internal/tui/screen_text.go, #53): the
     preview of a chat and the body of a message are the two texts anybody
@@ -1303,6 +1312,27 @@
     composition root like the theme and the width rule; under the
     no-colour profile neither the ends nor the background of a block is
     drawn, because there is no colour for the half to be the colour of
+  - unread_counter: a word, default `chats`, resolved once by the
+    composition root (resolveInterfaceUnreadCounter in
+    internal/application/unread_counter.go) and reported by telecli
+    doctor like the theme, the width rule and the clock. `chats` counts
+    the chats that have something unread and leaves out the muted ones,
+    which is what the same header says in Telegram; `messages` is the sum
+    over the whole list the header used to be, and `off` draws no number.
+    The badge of a row is the number of MESSAGES in that chat either way,
+    and it is never touched by this setting. The zero value is `chats`, so
+    a model built as a value counts chats
+  - a pinned chat is marked in the row, before the time: U+1F4CC with a
+    Nerd Font and the word `pin` without one, because an emoji the font
+    does not have is an empty square and an empty square beside a name
+    says nothing about why the chat is at the top of the list. It is drawn
+    in the muted step like the time, and it is given up before the time is
+    (the hiding order of §4.2), never the other way round. The pinned
+    chats are separated from the rest by a thin `─` line drawn in the row
+    that was air under the last of them: no height is spent and no chat is
+    lost, and it is asked of the rows on the screen rather than of the
+    whole list, so a line under the last row of the window separates
+    nothing
   - the chosen chat of the list is a card of two rows of words and the air
     inside them, and nothing above or below it: a half row of air at each
     end was tried and is gone, because a row of half blocks is a band of

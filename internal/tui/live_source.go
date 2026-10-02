@@ -89,6 +89,17 @@ type LiveChat struct {
 	// channel is a supergroup here, and the row a live update brings keeps
 	// the kind the loaded list gave it.
 	Kind ChatKind
+
+	// Pinned and Muted are the two things about a chat that the row draws
+	// and the header counts: the pin marks the row, and the mute keeps the
+	// chat out of the number.
+	//
+	// Both come from the live state because both change under a user's
+	// hand in Telegram rather than under this program's, and a row that
+	// kept the answer the list was loaded with would be a row about the
+	// moment of the load.
+	Pinned bool
+	Muted  bool
 }
 
 // LiveMessageEventKind is what happened to the messages of a chat.

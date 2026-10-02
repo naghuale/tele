@@ -83,6 +83,24 @@ type Chat struct {
 	// Kind is what kind of chat this is.
 	Kind ChatKind
 
+	// Pinned is that a person pinned this chat in the main list of
+	// Telegram, which is why it stands above the rest however old its last
+	// message is.
+	//
+	// The pin belongs to the place of the chat in the list rather than to
+	// the chat, and Telegram keeps it there: telecli reads it off the
+	// position and marks the row with it, so that a reader can see why the
+	// chat is where it is. telecli does not pin anything itself (#46).
+	Pinned bool
+
+	// Muted is that the chat has been silenced in Telegram, which is what
+	// keeps it out of the number the header of the list draws.
+	//
+	// It is the chat's own mute and not the account's: a chat that defers
+	// to the settings of its kind is not muted here, because those settings
+	// are not about this list.
+	Muted bool
+
 	// Aliases are the other names this chat is found by in the search of
 	// §9, and not the words of its title.
 	//

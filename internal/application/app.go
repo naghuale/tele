@@ -213,6 +213,12 @@ type App struct {
 	// value draws square corners, which is what a terminal without the
 	// font needs.
 	nerdFont bool
+
+	// unreadCounter is what the number in the header of the chat list
+	// counts: the chats with something unread, every unread message, or
+	// nothing. The zero value counts chats, which is what the setting says
+	// when it says nothing and what the same header says in Telegram.
+	unreadCounter tui.UnreadCounterMode
 }
 
 // WithInterface returns a copy of the app that draws with the given theme
@@ -329,6 +335,25 @@ func (a *App) WithNerdFont(enabled bool) *App {
 
 	copied := *a
 	copied.nerdFont = enabled
+
+	return &copied
+}
+
+// WithUnreadCounter returns a copy of the app whose chat list header counts
+// what the given mode counts.
+//
+// It is resolved by the composition root for the reason the theme and the
+// clock are: the setting is a word in a file, the header draws one answer
+// for the whole session, and telecli doctor reports the answer the TUI will
+// draw with. An app built without it counts chats, which is the default of
+// the setting and the behaviour of every other client.
+func (a *App) WithUnreadCounter(mode tui.UnreadCounterMode) *App {
+	if a == nil {
+		return nil
+	}
+
+	copied := *a
+	copied.unreadCounter = mode
 
 	return &copied
 }
@@ -486,12 +511,13 @@ func (a *App) RunTUI(ctx context.Context) error {
 						// The causes the screen must not show go here:
 						// why a message could not be queued and why the
 						// chat list could not be read.
-						Diagnostics:  a.diagnosticsWriter(),
-						Theme:        a.interfaceTheme(),
-						ColorProfile: a.colorProfile,
-						WidthMode:    a.widthMode,
-						Clock:        a.clock,
-						NerdFont:     a.nerdFont,
+						Diagnostics:   a.diagnosticsWriter(),
+						Theme:         a.interfaceTheme(),
+						ColorProfile:  a.colorProfile,
+						WidthMode:     a.widthMode,
+						Clock:         a.clock,
+						NerdFont:      a.nerdFont,
+						UnreadCounter: a.unreadCounter,
 					},
 				)
 			}
@@ -682,6 +708,12 @@ func runDoctor(args []string, env Environment) int {
 		return 1
 	}
 
+	unreadCounter, err := resolveInterfaceUnreadCounter(cfg)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
 	fmt.Fprintln(env.Stdout, "telecli doctor")
 	fmt.Fprintln(env.Stdout, buildinfo.Get().String())
 	fmt.Fprintf(env.Stdout, "Go: %s %s/%s\n",
@@ -693,6 +725,7 @@ func runDoctor(args []string, env Environment) int {
 	writeWidthStatus(env.Stdout, widthMode)
 	writeClockStatus(env.Stdout, clockMode)
 	writeFontStatus(env.Stdout, cfg.TUI.NerdFont)
+	writeUnreadCounterStatus(env.Stdout, unreadCounter)
 	reportOutboxStatus(
 		env.Stdout,
 		context.Background(),
@@ -757,6 +790,12 @@ func runTUI(args []string, env Environment) int {
 	}
 
 	clockMode, err := tui.ParseClockMode(cfg.TUI.Clock)
+	if err != nil {
+		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
+		return 1
+	}
+
+	unreadCounter, err := resolveInterfaceUnreadCounter(cfg)
 	if err != nil {
 		fmt.Fprintf(env.Stderr, "config error: %v\n", err)
 		return 1
@@ -922,6 +961,7 @@ func runTUI(args []string, env Environment) int {
 		WithWidthMode(widthMode).
 		WithClock(resolveSystemClock(clockMode)).
 		WithNerdFont(cfg.TUI.NerdFont).
+		WithUnreadCounter(unreadCounter).
 		WithLog(uiLog.Logger, uiLog.Writer, uiLog.Close)
 	appErr := app.RunTUI(ctx)
 	cause := context.Cause(ctx)

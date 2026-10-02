@@ -792,6 +792,10 @@ func TestAPasteGoesIntoTheQueryWhole(t *testing.T) {
 // The key is there because a list that can be searched has to say so
 // before anybody goes looking for the key, and a line that names a key
 // that does nothing is a promise the interface cannot keep.
+//
+// The count is of chats and not of messages: the mock list holds seven
+// unread messages in two chats, and a reader scanning the header wants to
+// know how many rows to look at (#46).
 func TestTheHeaderNamesTheSearchAndTheUnreadCount(t *testing.T) {
 	m := sizedModel(t, 120, 24)
 
@@ -801,13 +805,13 @@ func TestTheHeaderNamesTheSearchAndTheUnreadCount(t *testing.T) {
 		t.Fatalf("the header = %q, want the search", header)
 	}
 	if !strings.Contains(lines[0], chatListTitle) ||
-		!strings.Contains(lines[0], "7 unread") {
+		!strings.Contains(lines[0], "2 unread") {
 		t.Fatalf(
 			"the first line of the header = %q, want the title and the count on it",
 			lines[0],
 		)
 	}
-	if !strings.Contains(header, "7 unread") {
+	if !strings.Contains(header, "2 unread") {
 		t.Fatalf("the header = %q, want the unread count", header)
 	}
 }

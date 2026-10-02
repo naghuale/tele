@@ -279,9 +279,25 @@ func TestTheInterfaceIsNotLeftWritingToStandardError(t *testing.T) {
 	}
 
 	// diagnosticsWriter is what the TUI's Diagnostics field is set from.
+	//
+	// The check is per line rather than one string over the file, because a
+	// block of fields is aligned by gofmt and the spaces in the middle of it
+	// are the gofmt's business: a test that reads the alignment fails on
+	// the next field added to the block and proves nothing about the wire.
 	text := string(source)
-	if !strings.Contains(text, "Diagnostics:  a.diagnosticsWriter(),") {
-		t.Fatal("the interface's diagnostics writer is not wired")
+	diagnostics := ""
+	for _, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, "Diagnostics:") {
+			diagnostics = line
+
+			break
+		}
+	}
+	if diagnostics == "" || !strings.Contains(diagnostics, "a.diagnosticsWriter()") {
+		t.Fatalf(
+			"the interface's diagnostics writer is not wired: %q",
+			diagnostics,
+		)
 	}
 	if !strings.Contains(text, "WithLog(") {
 		t.Fatal("the app is never given a log destination")

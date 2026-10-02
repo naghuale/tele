@@ -29,6 +29,10 @@ var ErrLiveStateOrder = errors.New("telegram live state: invalid chat position o
 //	    = Update;                                                  // :10512
 //	updateChatDraftMessage chat_id:int53 draft_message:draftMessage
 //	    positions:vector<chatPosition> = Update;                    // :10539
+//	chatNotificationSettings use_default_mute_for:Bool mute_for:int32 ...;
+//	    = ChatNotificationSettings;                                // :3364
+//	updateChatNotificationSettings chat_id:int53
+//	    notification_settings:chatNotificationSettings = Update;    // :10553
 //
 // Two consequences are easy to get wrong and are load-bearing here:
 //
@@ -69,6 +73,19 @@ type LiveChat struct {
 	// is_channel is not part of that question. A chat it has not been told
 	// the type of is not grouped.
 	Grouped bool
+
+	// Muted is what the chat's own notification settings say: the chat has
+	// a mute of its own with time left on it, which is what makes it
+	// quiet rather than merely unread.
+	//
+	// It is the second half of the counter the interface draws, and it is
+	// here rather than in the count because the store is what reads
+	// chatNotificationSettings (td_api.tl:3364) and the count is a
+	// question about what the store knows. A chat whose settings defer to
+	// the scope — use_default_mute_for — is not muted here: the scope is
+	// not part of the main list, and a chat that says "ask the scope" must
+	// not be counted as quiet on the store's word.
+	Muted bool
 }
 
 // liveChatEntry is the store's own mutable record for one chat.
@@ -82,6 +99,7 @@ type liveChatEntry struct {
 	Order       int64
 	inMain      bool
 	Pinned      bool
+	Muted       bool
 	UnreadCount int
 	lastMessage *Message
 
@@ -337,6 +355,13 @@ type livePatch struct {
 	setMessage  bool
 	message     *Message
 
+	// setMuted carries the mute of the chat's own notification settings,
+	// which is a question asked of the chat and not of its place in the
+	// list — the same update that says a chat is pinned says nothing about
+	// whether it is quiet.
+	setMuted bool
+	muted    bool
+
 	setMain bool
 	inMain  bool
 	order   int64
@@ -367,6 +392,9 @@ func (p livePatch) applyTo(base *liveChatEntry) *liveChatEntry {
 	if p.setMessage {
 		after.lastMessage = p.message
 	}
+	if p.setMuted {
+		after.Muted = p.muted
+	}
 	if p.setMain {
 		after.inMain = p.inMain
 		after.Order = p.order
@@ -385,6 +413,7 @@ func (e *liveChatEntry) equal(other *liveChatEntry) bool {
 		e.Order != other.Order ||
 		e.inMain != other.inMain ||
 		e.Pinned != other.Pinned ||
+		e.Muted != other.Muted ||
 		e.chatKind != other.chatKind ||
 		e.UnreadCount != other.UnreadCount ||
 		e.peerUserID != other.peerUserID ||
@@ -410,6 +439,7 @@ func (e *liveChatEntry) clone() LiveChat {
 		Order:       e.Order,
 		UnreadCount: e.UnreadCount,
 		Pinned:      e.Pinned,
+		Muted:       e.Muted,
 		Grouped:     e.chatKind == chatKindGroup,
 	}
 	if e.lastMessage != nil {
@@ -434,6 +464,11 @@ type livePatchJSON struct {
 	LastMessage json.RawMessage `json:"last_message"`
 	Positions   json.RawMessage `json:"positions"`
 	Type        chatTypeJSON    `json:"type"`
+
+	// NotificationSettings is the chat's own quietness, which the chat
+	// carries as a field of itself (td_api.tl:3628) and which is updated on
+	// its own afterwards (updateChatNotificationSettings, td_api.tl:10553).
+	NotificationSettings json.RawMessage `json:"notification_settings"`
 }
 
 type updateChatTitleJSON struct {
@@ -462,6 +497,55 @@ type updateChatReadInboxJSON struct {
 	UnreadCount int   `json:"unread_count"`
 }
 
+type updateChatNotificationSettingsJSON struct {
+	ChatID               int64           `json:"chat_id"`
+	NotificationSettings json.RawMessage `json:"notification_settings"`
+}
+
+// chatNotificationSettingsRaw mirrors the two fields of
+// chatNotificationSettings (td_api.tl:3364) that say whether the chat is
+// quiet: whether its own mute is the one in force, and how much of it is
+// left.
+//
+// The other thirteen fields are about the sound and the preview of a
+// notification, and the main list asks about neither.
+type chatNotificationSettingsRaw struct {
+	UseDefaultMuteFor bool  `json:"use_default_mute_for"`
+	MuteFor           tdInt `json:"mute_for"`
+}
+
+// muted reports whether the chat is quiet by its own settings.
+//
+// It is a chat's own mute and not the scope's: use_default_mute_for means
+// "the value for this kind of chat applies instead", and the scope is not
+// part of the main list. A chat that defers is therefore not counted as
+// quiet, which is the answer that leaves a chat in the count unless the
+// chat itself was silenced — and a user who muted everything in Telegram
+// sees no counter, which is what Telegram does with an account they have
+// silenced.
+func (s chatNotificationSettingsRaw) muted() bool {
+	return !s.UseDefaultMuteFor && s.MuteFor > 0
+}
+
+// decodeChatMute reads the quietness of a chat out of the notification
+// settings it carries, and reports whether there was anything to read.
+//
+// A field that is absent says nothing: the store keeps the mute it has
+// rather than taking a chat for unmuted on an update that never mentioned
+// it.
+func decodeChatMute(raw json.RawMessage) (muted, known bool) {
+	if isAbsentJSON(raw) {
+		return false, false
+	}
+
+	var settings chatNotificationSettingsRaw
+	if err := json.Unmarshal(raw, &settings); err != nil {
+		return false, false
+	}
+
+	return settings.muted(), true
+}
+
 // chatPositionRaw mirrors chatPosition (td_api.tl:3545).
 type chatPositionRaw struct {
 	List struct {
@@ -486,13 +570,14 @@ func (p chatPositionRaw) isMain() bool {
 // rights for the chat they are about, and dropped — while the read that
 // follows the login asks TDLib, whose answer is newer than the update was.
 var liveStateUpdateTypes = map[string]struct{}{
-	"updateNewChat":           {},
-	"updateChatTitle":         {},
-	"updateChatPosition":      {},
-	"updateChatLastMessage":   {},
-	"updateChatDraftMessage":  {},
-	"updateChatReadInbox":     {},
-	updateConnectionStateType: {},
+	"updateNewChat":                  {},
+	"updateChatTitle":                {},
+	"updateChatPosition":             {},
+	"updateChatLastMessage":          {},
+	"updateChatDraftMessage":         {},
+	"updateChatReadInbox":            {},
+	"updateChatNotificationSettings": {},
+	updateConnectionStateType:        {},
 }
 
 // The updates the store applies to something other than a chat-list row.
@@ -548,6 +633,8 @@ func decodeLivePatch(raw RawMessage) (livePatch, bool, error) {
 		return decodeChatDraftPatch(raw)
 	case "updateChatReadInbox":
 		return decodeChatReadInboxPatch(raw)
+	case "updateChatNotificationSettings":
+		return decodeChatNotificationSettingsPatch(raw)
 	default:
 		return livePatch{}, false, nil
 	}
@@ -578,6 +665,10 @@ func decodeNewChatPatch(raw RawMessage) (livePatch, bool, error) {
 	if err := patch.applyPositions(update.Chat.Positions); err != nil {
 		return livePatch{}, false, err
 	}
+	if muted, known := decodeChatMute(update.Chat.NotificationSettings); known {
+		patch.setMuted = true
+		patch.muted = muted
+	}
 	return patch, true, nil
 }
 
@@ -602,6 +693,35 @@ func decodeChatReadInboxPatch(raw RawMessage) (livePatch, bool, error) {
 		chatID:      ChatID(update.ChatID),
 		setUnread:   true,
 		unreadCount: update.UnreadCount,
+	}, true, nil
+}
+
+// decodeChatNotificationSettingsPatch reads the quietness of a chat off the
+// update that carries it.
+//
+// The update says about the chat and not about its place in the list, so it
+// touches nothing else: a chat that is being unmuted keeps its title, its
+// position and its count, and only the answer to "is this chat quiet"
+// changes.
+func decodeChatNotificationSettingsPatch(
+	raw RawMessage,
+) (livePatch, bool, error) {
+	var update updateChatNotificationSettingsJSON
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return livePatch{}, false, fmt.Errorf(
+			"decode updateChatNotificationSettings: %w", err,
+		)
+	}
+
+	muted, known := decodeChatMute(update.NotificationSettings)
+	if !known {
+		return livePatch{chatID: ChatID(update.ChatID)}, true, nil
+	}
+
+	return livePatch{
+		chatID:   ChatID(update.ChatID),
+		setMuted: true,
+		muted:    muted,
 	}, true, nil
 }
 

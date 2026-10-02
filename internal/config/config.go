@@ -60,6 +60,16 @@ type TUIConfig struct {
 	// squares, and a message with empty squares at both ends is worse
 	// than a message with square ones.
 	NerdFont bool `toml:"nerd_font"`
+
+	// UnreadCounter is what the number in the header of the chat list
+	// counts: "chats", "messages" or "off".
+	//
+	// The default is "chats" because that is what the counter in the same
+	// place in Telegram counts, and because the sum of the messages of a
+	// list is decided by one channel however small the badges on the rows
+	// are. A configuration written before this setting existed has none of
+	// it and gets the default, which is the same answer.
+	UnreadCounter string `toml:"unread_counter"`
 }
 
 // The interface defaults, spelled out here so that Default is a complete
@@ -106,6 +116,15 @@ const (
 	// what it decided, and what it decides about a font it cannot see is
 	// that it does not assume one.
 	DefaultTUINerdFont = false
+
+	// DefaultTUIUnreadCounter counts the chats that have something unread
+	// in them, and leaves out the silenced ones, which is what the same
+	// header says in Telegram.
+	//
+	// It is spelled out here for the reason the theme name and the width
+	// rule are: the word belongs to internal/tui, which parses it, and it
+	// is duplicated for the same reason theirs is.
+	DefaultTUIUnreadCounter = "chats"
 )
 
 // MessageDeliveryConfig holds the durable outbox settings.
@@ -176,11 +195,12 @@ func Default() Config {
 			Mode: DefaultMessageSendMode,
 		},
 		TUI: TUIConfig{
-			Theme:    DefaultTUITheme,
-			Color:    string(DefaultTUIColorMode),
-			Width:    DefaultTUIWidthMode,
-			Clock:    DefaultTUIClock,
-			NerdFont: DefaultTUINerdFont,
+			Theme:         DefaultTUITheme,
+			Color:         string(DefaultTUIColorMode),
+			Width:         DefaultTUIWidthMode,
+			Clock:         DefaultTUIClock,
+			NerdFont:      DefaultTUINerdFont,
+			UnreadCounter: DefaultTUIUnreadCounter,
 		},
 	}
 }

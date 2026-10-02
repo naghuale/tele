@@ -391,6 +391,15 @@ type Model struct {
 	// program has to be told rather than measure.
 	nerdFont bool
 
+	// unreadCounter is what the number at the right end of the header of
+	// the chat list counts: the chats that have something unread in them,
+	// every unread message, or nothing at all.
+	//
+	// It is the zero value that counts chats, which is what the
+	// configuration says when it says nothing, and what Telegram's own
+	// counter says.
+	unreadCounter UnreadCounterMode
+
 	width  int
 	height int
 
@@ -755,9 +764,18 @@ func mergeLoadedChats(loaded, previous []Chat, openChat int64) []Chat {
 	}
 
 	for index := range loaded {
-		if was, known := byID[loaded[index].ID]; known {
-			loaded[index].Messages = was.Messages
+		was, known := byID[loaded[index].ID]
+		if !known {
+			continue
 		}
+		loaded[index].Messages = was.Messages
+		// A loaded list says nothing about the pin or the mute: it is one
+		// getChat per chat, and neither the pin nor the mute is what that
+		// read is for. So the row keeps the answers the live state gave
+		// it — a reload of the list must not take the pins off the screen
+		// until Telegram says a chat is no longer pinned.
+		loaded[index].Pinned = was.Pinned
+		loaded[index].Muted = was.Muted
 	}
 
 	if openChat == 0 {

@@ -198,11 +198,19 @@ func (u *TelegramLiveUpdates) Chats() []tui.LiveChat {
 // loaded list composes it, and the moment is the moment of that message: a
 // row whose preview is the newest message and whose time is the oldest is a
 // row about two different conversations.
+//
+// The pin and the mute cross the line with the rest, because they are the
+// two answers a row of a chat list gives about the chat itself: the pin says
+// why the chat is where it is, and the mute is what keeps it out of the
+// number in the header. Neither is read from the name or guessed from the
+// kind — a channel is not silenced because it is a channel.
 func (u *TelegramLiveUpdates) chatOf(chat telegram.LiveChat) tui.LiveChat {
 	row := tui.LiveChat{
 		ID:     int64(chat.ID),
 		Title:  chat.Title,
 		Unread: chat.UnreadCount,
+		Pinned: chat.Pinned,
+		Muted:  chat.Muted,
 		Kind:   liveChatKind(chat),
 	}
 

@@ -167,7 +167,8 @@ func (m Model) applyLiveChats(live []LiveChat) Model {
 // to, and the kind of the chat — the store knows that a chat has more than
 // one person in it, and not whether it is a channel. What TDLib keeps
 // updating is what the live list brings: the name, the unread count, the
-// preview and the moment of the last message.
+// preview and the moment of the last message, the pin of the chat's position
+// and the mute of its notification settings.
 //
 // The open conversation keeps its row even when the chat has left the main
 // list, for the reason mergeLoadedChats keeps it: the conversation on the
@@ -215,6 +216,8 @@ func liveChatRow(was Chat, known bool, live LiveChat) Chat {
 	chat.Unread = live.Unread
 	chat.Preview = live.Preview
 	chat.At = live.At
+	chat.Pinned = live.Pinned
+	chat.Muted = live.Muted
 
 	if !known {
 		chat.Kind = live.Kind

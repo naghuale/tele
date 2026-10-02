@@ -7,7 +7,7 @@
 # width:   grapheme
 #
 # Plain text: the screen as a user reads it, without escape sequences.
-    Chats              3 unread     Anna Example                                                                        
+    Chats              2 unread     Anna Example                                                                        
     / search                                                                                                            
   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                                                       
     Anna Example          12:07                                                                                         
@@ -39,7 +39,7 @@
                                     Enter open · / search · q quit                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
-"\x1b[1G \x1b[48;2;26;27;38m \x1b[0m\x1b[48;2;26;27;38m  \x1b[1;38;2;121;162;247mChats        \x1b[0m      \x1b[38;2;126;135;178m3 unread\x1b[0m  \x1b[0m \x1b[35G \x1b[48;2;21;22;30m \x1b[0m\x1b[48;2;21;22;30m\x1b[1;38;2;192;202;245mAnna Example                                                                        \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;2;26;27;38m \x1b[0m\x1b[48;2;26;27;38m  \x1b[1;38;2;121;162;247mChats        \x1b[0m      \x1b[38;2;126;135;178m2 unread\x1b[0m  \x1b[0m \x1b[35G \x1b[48;2;21;22;30m \x1b[0m\x1b[48;2;21;22;30m\x1b[1;38;2;192;202;245mAnna Example                                                                        \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;2;26;27;38m \x1b[0m\x1b[48;2;26;27;38m  \x1b[38;2;126;135;178m/ search                   \x1b[0m  \x1b[0m \x1b[35G \x1b[48;2;21;22;30m \x1b[0m\x1b[48;2;21;22;30m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;26;27;38m \x1b[0m\x1b[48;2;26;27;38m\x1b[38;2;121;162;247m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\x1b[0m\x1b[0m \x1b[35G \x1b[48;2;21;22;30m \x1b[0m\x1b[48;2;21;22;30m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;26;27;38m \x1b[0m\x1b[48;2;26;27;38m\x1b[1;38;2;121;162;247;48;2;59;65;97m \x1b[0m\x1b[48;2;59;65;97m \x1b[0m\x1b[1;38;2;121;162;247;48;2;59;65;97mAnna Example\x1b[0m\x1b[48;2;59;65;97m          \x1b[0m\x1b[38;2;126;135;178;48;2;59;65;97m12:07\x1b[0m\x1b[48;2;59;65;97m  \x1b[0m\x1b[0m \x1b[35G \x1b[48;2;21;22;30m \x1b[0m\x1b[48;2;21;22;30m                                                                                    \x1b[0m"

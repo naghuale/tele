@@ -434,6 +434,8 @@ func citations() []struct {
 		{name: "updateChatDraftMessage", line: 10539},
 		{name: "updateChatLastMessage", line: 10507},
 		{name: "updateChatPosition", line: 10512},
+		{name: "updateChatNotificationSettings", line: 10553},
+		{name: "chatNotificationSettings", line: 3364},
 		{name: "updateNewChat", line: 10483},
 		{name: "getChatHistory", line: 11830},
 		{name: "openChat", line: 13220},

@@ -80,8 +80,9 @@ max_tasks = 1
 owner_approval = "risky"
 
 [acceptance]
-# The label that goes with the owner's acceptance of a merge; acceptance itself is by SHA,
-# ACCEPTED <sha> (AGENTS.md §3).
+# The label of a task that needs an answer of the owner; the owner answers one word on
+# the card the orchestrator shows, and the orchestrator records the decision under the
+# PR, first line ACCEPTED <sha> (AGENTS.md §4.1).
 label = "owner-check"
 
 [requirements]

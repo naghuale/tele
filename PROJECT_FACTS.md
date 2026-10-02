@@ -436,6 +436,21 @@
   - chat rows carry LastReadInboxMessageID from
     `chat.last_read_inbox_message_id`; the TUI reads it when the chat
     is opened and draws the unread line of the feed from it
+  - an empty FIRST page of a chat whose summary carries LastMessageID
+    is not the end of the history (#27, owner 02.10: a channel that was
+    in no local database read "No messages yet" until the program was
+    restarted, at which point TDLib had downloaded it). The adapter
+    asks for the newest page again up to historyNotLoadedRetries (5)
+    times, waiting historyNotLoadedRetryWait (300ms) and doubling it up
+    to historyNotLoadedRetryWaitMax (2s), and reports
+    ErrHistoryNotLoaded when the repeats are used up. An older page
+    (fromMessageID != 0) is not repeated, and a page whose entries
+    were all unreadable is not an empty answer at all. The wait is
+    inside the one LoadHistory call, so the feed is honest while it
+    lasts: the model is still in loadStateLoading and draws
+    "Loading history...", and the exhausted case is an error, which
+    the model draws as "Failed to load history". "No messages yet" is
+    left to a chat with no last message
 - TUI ChatSource: internal/tui/chat_source.go
   - ListChats, LoadHistory, SendMessage
   - async tea.Cmd-based loading with loadState

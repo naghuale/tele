@@ -56,6 +56,31 @@ const (
 	// looks for.
 	ownChatTitle = "Saved Messages"
 
+	// historyNotLoadedRetries is how many times the newest page of a chat is
+	// asked again while it comes back empty and Telegram says the chat has a
+	// last message (#27).
+	//
+	// Five is a bound and not a patience: the owner saw a channel whose
+	// whole conversation was replaced by "No messages yet", and a wait that
+	// never ends is the same defect with a spinner on it. Five repeats with
+	// the pause below are a little over six seconds of waiting, which is
+	// what TDLib needs to bring a channel's history down from the server on
+	// a connection that is worth having.
+	historyNotLoadedRetries = 5
+
+	// historyNotLoadedRetryWait is the pause before the first repeat of a
+	// page that came back empty, and every repeat doubles it up to
+	// historyNotLoadedRetryWaitMax.
+	//
+	// The pause is what gives TDLib the time to answer at all: the first
+	// request is the one that starts the download, and asking again
+	// immediately asks about a download that has not begun. Doubling is
+	// what a wait of unknown length looks like — far enough apart to be
+	// worth waiting, close enough that a user who opened a chat reads a
+	// conversation and not a countdown.
+	historyNotLoadedRetryWait    = 300 * time.Millisecond
+	historyNotLoadedRetryWaitMax = 2 * time.Second
+
 	// nameCacheLimit is how many names the adapter keeps.
 	//
 	// It is a bound and not a policy: a conversation with a thousand
@@ -98,12 +123,33 @@ type TelegramSenderNames interface {
 	GetChat(ctx context.Context, chatID telegram.ChatID) (telegram.ChatSummary, error)
 }
 
+// ErrHistoryNotLoaded says the newest page of a chat came back empty as
+// many times as it was asked, while Telegram reports a last message in that
+// chat (#27).
+//
+// It is not an error of the wire and not a failure of the program: it is
+// TDLib holding a conversation it has not brought down from the server yet.
+// The interface has to say something about it, and the one thing it must
+// not say is that the chat is empty — the chat list was drawn from the same
+// last message a moment earlier, and the owner read both on one screen.
+//
+// It is a named error rather than a string because the difference matters to
+// whoever asks again: this conversation is not empty, and a wait will find
+// it where an empty page says there is nothing to find.
+var ErrHistoryNotLoaded = errors.New("telegram: history is not loaded yet")
+
 // TelegramChatService adapts a TelegramChats source to tui.ChatSource.
 type TelegramChatService struct {
 	chats        TelegramChats
 	names        TelegramSenderNames
 	listLimit    int
 	historyLimit int
+
+	// historyRetryWait is the pause before the newest page of a chat is
+	// asked again while it comes back empty, and it is a field rather than
+	// the constant so that a test can wait for the repeat instead of for
+	// the wait.
+	historyRetryWait time.Duration
 
 	// ownUserID is the user this client is, and is what tells the chat
 	// with oneself from a chat with a contact. It is zero when it could
@@ -126,10 +172,11 @@ type TelegramChatService struct {
 // its messages rather than not at all.
 func NewTelegramChatService(chats TelegramChats) *TelegramChatService {
 	service := &TelegramChatService{
-		chats:        chats,
-		listLimit:    defaultChatListLimit,
-		historyLimit: defaultHistoryLimit,
-		names2:       newNameCache(nameCacheLimit),
+		chats:            chats,
+		listLimit:        defaultChatListLimit,
+		historyLimit:     defaultHistoryLimit,
+		historyRetryWait: historyNotLoadedRetryWait,
+		names2:           newNameCache(nameCacheLimit),
 	}
 	if names, ok := chats.(TelegramSenderNames); ok {
 		service.names = names
@@ -232,6 +279,12 @@ func (s *TelegramChatService) isOwnChat(summary telegram.ChatSummary) bool {
 // The TDLib-level limit is clamped to (0, 100]; when the caller passes
 // a non-positive or out-of-range value, the service substitutes its
 // default history limit.
+//
+// The newest page of a chat that answers empty while Telegram reports a
+// last message in that chat is asked for again, a bounded number of times
+// and with a pause between the asks. A chat with no last message is empty
+// and is said to be, and a page that ends without an answer is reported as
+// ErrHistoryNotLoaded rather than as a chat with nothing in it (#27).
 func (s *TelegramChatService) LoadHistory(
 	ctx context.Context,
 	chatID int64,
@@ -262,9 +315,29 @@ func (s *TelegramChatService) LoadHistory(
 	// a personal chat and a channel are named by the chat itself, and
 	// asking TDLib about the same chat fifty times to learn the same
 	// thing fifty times is fifty round trips for one row.
+	//
+	// It is also what tells an empty newest page from an empty chat: the
+	// chat carries a last message, and TDLib does not put one in a chat
+	// that has nothing in it.
 	chat := telegram.ChatSummary{ID: telegram.ChatID(chatID), Kind: telegram.ChatKindPrivate}
 	if summary, err := s.chatOfID(ctx, chatID); err == nil {
 		chat = summary
+	}
+
+	// An empty newest page of a chat Telegram says has a last message is
+	// not the end of the conversation — it is a chat whose history TDLib
+	// has not brought down from the server yet (#27). The owner opened a
+	// channel that was in no local database and the whole of it read
+	// "No messages yet" until the program was closed and opened again, at
+	// which point the same chat was there: the messages had arrived in
+	// between. A page that is empty because the chat is empty gets no
+	// second question, so a chat a person has never written in says what
+	// it is straight away.
+	if fromMessageID == 0 && chat.LastMessageID != 0 && pageWithoutMessages(page) {
+		page, err = s.awaitHistory(ctx, telegram.ChatID(chatID), limit)
+		if err != nil {
+			return tui.HistoryPage{}, err
+		}
 	}
 
 	out := make([]tui.Message, 0, len(page.Messages))
@@ -278,6 +351,88 @@ func (s *TelegramChatService) LoadHistory(
 		HasMore:    page.HasMore,
 		Unreadable: page.Unreadable,
 	}, nil
+}
+
+// awaitHistory asks TDLib for the newest page of a chat again until it has
+// something to say, or until the repeats are used up.
+//
+// The pause before every repeat is what makes the question worth asking: the
+// request that comes back empty is the request that started the download, so
+// asking again at once would ask about a download that has not begun. It is
+// a wait and not a poll — the repeats are counted, and the count is the end
+// of them.
+//
+// Everything that ends without a page is an error rather than an empty chat.
+// Returning the empty page would say "this conversation has nothing in it"
+// about a chat whose own last message is on the screen, and that sentence is
+// the defect this answers.
+func (s *TelegramChatService) awaitHistory(
+	ctx context.Context,
+	chatID telegram.ChatID,
+	limit int,
+) (telegram.HistoryPage, error) {
+	wait := s.historyRetryWait
+	if wait <= 0 {
+		wait = historyNotLoadedRetryWait
+	}
+
+	for range historyNotLoadedRetries {
+		if !sleepContext(ctx, wait) {
+			return telegram.HistoryPage{}, fmt.Errorf(
+				"load history: %w", ctx.Err(),
+			)
+		}
+
+		page, err := s.chats.GetChatHistory(
+			ctx,
+			chatID,
+			0,
+			limit,
+		)
+		if err != nil {
+			return telegram.HistoryPage{}, fmt.Errorf("load history: %w", err)
+		}
+
+		if !pageWithoutMessages(page) {
+			return page, nil
+		}
+
+		wait = min(2*wait, historyNotLoadedRetryWaitMax)
+	}
+
+	return telegram.HistoryPage{}, fmt.Errorf(
+		"%w: chat %d answered with an empty page %d times and Telegram"+
+			" reports a last message in it",
+		ErrHistoryNotLoaded,
+		chatID,
+		historyNotLoadedRetries+1,
+	)
+}
+
+// pageWithoutMessages reports that an answer of getChatHistory held nothing
+// to show: no message this build could read and no entry it could not.
+//
+// An answer whose entries were all unreadable is a page TDLib did send, and
+// it is not the case this function is about. Counting it as empty would
+// make a chat of messages of kinds this build has no words for wait five
+// times for a page that is already there, and then be reported as a history
+// that is not loaded.
+func pageWithoutMessages(page telegram.HistoryPage) bool {
+	return len(page.Messages) == 0 && page.Unreadable == 0
+}
+
+// sleepContext waits for d or until ctx is done, and reports whether the
+// whole of it elapsed.
+func sleepContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // chatOfID asks what kind of chat a chat is, and says what it does not

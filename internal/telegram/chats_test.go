@@ -348,10 +348,12 @@ func TestGetChatExtractsTextContent(t *testing.T) {
 // feed draws it in.
 //
 // The label is the same one the feed of the open chat uses, so a sticker is
-// "[sticker 😀]" in both places and a message this build has no words for
-// is named by its own type in both (#17). The old preview for an unknown
-// content was the same "[unsupported message]" in both, which is what the
-// owner read in the list and could not act on (01.10).
+// "[sticker 😀]" in both places and a kind this build has no words for is
+// called a message in both (#50). The old preview for an unknown content was
+// the same "[unsupported message]" in both, which is what the owner read in
+// the list and could not act on (01.10), and a later build drew the name of
+// the TDLib class instead, which the owner read as "[messageRichMessage]" on
+// 02.10 and could not act on either.
 func TestGetChatPreviewSaysWhatTheLastMessageCarries(t *testing.T) {
 	for _, preview := range []struct {
 		name    string
@@ -381,9 +383,17 @@ func TestGetChatPreviewSaysWhatTheLastMessageCarries(t *testing.T) {
 			want:    "joined the chat",
 		},
 		{
-			name:    "a content this build has no words for",
+			name:    "a kind this build has no words for",
 			content: map[string]any{"@type": "messageUnsupported"},
-			want:    "[messageUnsupported]",
+			want:    "[message]",
+		},
+		{
+			name: "a rich message",
+			content: map[string]any{
+				"@type":   "messageRichMessage",
+				"message": map[string]any{"@type": "richMessage", "blocks": []any{}},
+			},
+			want: "[message]",
 		},
 	} {
 		t.Run(preview.name, func(t *testing.T) {

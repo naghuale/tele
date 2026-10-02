@@ -10,11 +10,11 @@ import (
 
 // What a message carries, in the words the screen draws it in.
 //
-// The projection names every content type there is — down to the ones this
-// build has no words for yet, which are drawn by the @type TDLib gave them
-// so that the type can be added (#17). What the screen does with the three
-// fields is here: the word in brackets, whatever the payload said about it
-// inside them, and the caption after them.
+// The adapter names every kind of content there is that it has a word for, and
+// calls the rest a message — the same word this screen uses for a record that
+// has lost its label (internal/tui/view_conversation.go, #50). What the screen
+// does with the three fields is here: the word in brackets, whatever the
+// payload said about it inside them, and the caption after them.
 
 // The labels below are the same strings the adapter sends (internal/telegram,
 // message_content.go), written out again here because the TUI may not import
@@ -113,14 +113,9 @@ func TestAMessageSaysWhatItCarries(t *testing.T) {
 			want:    "[photo] the deck the final",
 		},
 		{
-			name:    "a content this build has no words for",
-			message: Message{Media: "messageUnsupported"},
-			want:    "[messageUnsupported]",
-		},
-		{
-			name:    "a type that does not exist yet",
-			message: Message{Media: "messageSomethingNewerThanThisBuild"},
-			want:    "[messageSomethingNewerThanThisBuild]",
+			name:    "a kind the adapter has no word for",
+			message: Message{Media: "message"},
+			want:    "[message]",
 		},
 	} {
 		t.Run(label.name, func(t *testing.T) {
@@ -135,13 +130,15 @@ func TestAMessageSaysWhatItCarries(t *testing.T) {
 // A label of somebody else's making is drawn as it was named and not as a
 // file.
 //
-// The projection names every content type, and a screen that renamed
-// "[dice 🎲 4]" to "[file]" because it only knows the six words of an album
-// would take away the one thing the label is for.
+// The adapter gives every kind a word of its own, and the screen does not
+// rename them: a screen that renamed "[dice 🎲 4]" to "[file]" because it
+// only knows the six words of an album would take away the one thing the
+// label is for. "message" is the word of a kind the adapter has no words for,
+// and it is drawn as it was named, like any other.
 func TestALabelTheScreenHasNoWordForIsNotRenamed(t *testing.T) {
 	for _, media := range []string{
 		"GIF", "poll", "dice", "story", "venue", "location", "contact",
-		"messageUnsupported", "messageSomethingNewerThanThisBuild",
+		"message",
 	} {
 		entry := timelineEntry{
 			message: Message{Media: media},

@@ -1110,10 +1110,10 @@ func snapshotContentLabels(t *testing.T, f snapshotFixture) Model {
 		operation: m.historyOperation,
 		page: HistoryPage{Messages: []Message{
 			{
-				// A content this build has no words for is named by the
-				// @type TDLib gave it, which is the name to add it under.
+				// A kind the adapter has no words for is called a
+				// message, and not by the name TDLib gave it (#50).
 				ID: 1, At: mockMoment("12:00"), Author: "Дмитрий С",
-				Media: "messageUnsupported",
+				Media: "message",
 			},
 			{
 				ID: 2, At: mockMoment("12:01"), Author: "Дмитрий С",
@@ -1145,8 +1145,8 @@ func snapshotContentLabels(t *testing.T, f snapshotFixture) Model {
 
 // TestSnapshotContentLabels is the screen of the labels of a message: a
 // sticker with its emoji, a file with its name and its caption, a poll with
-// its question, a dice with its number, a content this build has no words
-// for by its own @type, and what happened in the chat in a row of its own.
+// its question, a dice with its number, a kind this build has no words for
+// called a message, and what happened in the chat in a row of its own.
 func TestSnapshotContentLabels(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotContentLabels"))
 }

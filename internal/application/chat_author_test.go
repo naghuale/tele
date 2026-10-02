@@ -431,7 +431,7 @@ func TestTheWordsOfALabelReachTheScreenTogether(t *testing.T) {
 			Caption: "at the bridge",
 		},
 		telegram.Message{ID: 2, Service: "joined the chat by a link"},
-		telegram.Message{ID: 3, Media: "messageUnsupported"},
+		telegram.Message{ID: 3, Media: "message"},
 	)
 
 	if got[0].Media != "sticker" || got[0].MediaDetail != " 😀" {
@@ -446,10 +446,12 @@ func TestTheWordsOfALabelReachTheScreenTogether(t *testing.T) {
 		t.Errorf("the service phrase is %q, want what happened in the chat",
 			got[1].Service)
 	}
-	// A content this build has no words for travels as its own @type, and
-	// the screen draws it by that name — the type a maintainer adds.
-	if got[2].Media != "messageUnsupported" {
-		t.Errorf("an unnamed content travels as %q, want its @type", got[2].Media)
+	// A kind the adapter has no words for travels as the word it was named
+	// with on the screen, and the screen draws that word — the name of the
+	// TDLib class never travels (#50).
+	if got[2].Media != "message" {
+		t.Errorf("an unnamed content travels as %q, want the word of a "+
+			"message with no kind named", got[2].Media)
 	}
 }
 

@@ -191,6 +191,16 @@ var mediaLabelCases = []contentLabelCase{
 		want:    contentLabel{word: "invoice"},
 		line:    "[invoice]",
 	},
+	{
+		// The type the owner read in the chat list on 02.10. Its blocks are
+		// not drawn yet, and all this build can say about the message is
+		// what every kind has: it is a message (50).
+		name: "messageRichMessage",
+		content: `{"@type":"messageRichMessage","message":{"@type":"richMessage",` +
+			`"blocks":[]}}`,
+		want: contentLabel{word: "message"},
+		line: "[message]",
+	},
 }
 
 // serviceLabelCases is every service message the table names, one case for
@@ -526,31 +536,84 @@ func TestAMessageAboutAddedMembersSaysHowManyJoined(t *testing.T) {
 	}
 }
 
-// A content this build has no words for is drawn by the name TDLib gave it.
+// A content this build has no words for is called a message, and never by the
+// name TDLib gave it.
 //
-// That is the whole of what can be said about a message the program knows
-// nothing else of, and it is the row that has to be addable: the name on the
-// screen is the name to look for in the schema. "[unsupported message]" said
-// nothing about the message at all, and the owner could not tell what a
-// chat had sent them (01.10, #17).
-func TestAContentWithNoWordsIsDrawnByItsOwnType(t *testing.T) {
+// The owner read `[messageRichMessage]` in the preview of a chat on 02.10, on
+// a real account, and could not tell what had been sent to them: the name of
+// a class of the schema is not a word a person uses. What a label can say
+// about a kind this build cannot name is the one thing that is true of all of
+// them — it is a message — and the name to add to contentWords is a name for
+// the table, not for the screen (#50).
+func TestAContentWithNoWordsIsCalledAMessageAndNotByItsType(t *testing.T) {
 	for _, contentType := range []string{
 		"messageUnsupported",
 		"messageSomethingNewerThanThisBuild",
-		"messageRichMessage",
 	} {
 		content := `{"@type":"` + contentType + `"}`
 
 		got := readContentLabel(json.RawMessage(content))
-		if got.word != contentType {
+		if got.word != unnamedContentWord {
+			t.Errorf("readContentLabel(%s) has the word %q, want %q",
+				contentType, got.word, unnamedContentWord)
+		}
+
+		line := got.line()
+		if line != "["+unnamedContentWord+"]" {
+			t.Errorf("the line of %s is %q, want [%s]",
+				contentType, line, unnamedContentWord)
+		}
+		if strings.Contains(line, contentType) {
 			t.Errorf(
-				"readContentLabel(%s) has the word %q, want the type itself",
-				contentType, got.word,
+				"the line of %s is %q: the name of the class is on the screen",
+				contentType, line,
 			)
 		}
-		if line := got.line(); line != "["+contentType+"]" {
-			t.Errorf("the line of %s is %q", contentType, line)
-		}
+	}
+}
+
+// The chat list and the feed say the same words about the same message, and
+// they say them together for a kind this build cannot name.
+//
+// The two answers are different objects — a chat carries its last message and
+// a page of history carries every message — and both reach the screen with
+// whatever the label read, so a kind with no words of its own has to be one
+// word in both places and not two. The owner read `[messageRichMessage]` in a
+// chat list beside a feed and had no way to tell what had arrived (#50).
+func TestThePreviewAndTheFeedSayTheSameAboutAKindWithNoWords(t *testing.T) {
+	const content = `{"@type":"messageRichMessage","message":{"@type":"richMessage","blocks":[]}}`
+
+	last := json.RawMessage(
+		`{"@type":"message","id":5,"date":1700000000,"content":` + content + `}`,
+	)
+	_, preview, _ := parseLastMessage(last)
+	if preview != "["+unnamedContentWord+"]" {
+		t.Errorf("the preview reads %q, want [%s]", preview, unnamedContentWord)
+	}
+
+	entry := json.RawMessage(
+		`{"@type":"message","id":5,"chat_id":9,"date":1700000000,"content":` +
+			content + `}`,
+	)
+	message, err := decodeHistoryMessage(entry, ChatID(9))
+	if err != nil {
+		t.Fatalf("decodeHistoryMessage: %v", err)
+	}
+	if message.Media != unnamedContentWord {
+		t.Errorf(
+			"the message of the feed carries %q, want %q",
+			message.Media, unnamedContentWord,
+		)
+	}
+	if message.Text != "" {
+		t.Errorf(
+			"the message of the feed has the text %q, want a message that "+
+				"carries what it is rather than words",
+			message.Text,
+		)
+	}
+	if got := message.PreviewLine(); got != preview {
+		t.Errorf("the feed says %q and the chat list says %q", got, preview)
 	}
 }
 
@@ -590,18 +653,21 @@ func TestAMessageOfWordsHasNoLabel(t *testing.T) {
 	}
 }
 
-// A text message with nothing in it is named by its type, like any other.
+// A text message with nothing in it is a message and not the name of a type.
 //
 // The one case of a message with no words and nothing to label is a text
 // message with no text in it — a link preview and an empty string — and a
 // block with nothing in it is a block a user cannot tell from a message that
-// failed to load.
-func TestATextMessageWithNoWordsIsNamedByItsType(t *testing.T) {
+// failed to load. It used to be drawn as "[messageText]", which is a name of
+// a class where a sentence about the message belongs (#50).
+func TestATextMessageWithNoWordsIsCalledAMessage(t *testing.T) {
 	got := readContentLabel(json.RawMessage(
 		`{"@type":"messageText","text":{"@type":"formattedText","text":""}}`,
 	))
-	if got.word != "messageText" {
-		t.Errorf("an empty text message reads as %+v, want the type", got)
+	if got.word != unnamedContentWord {
+		t.Errorf(
+			"an empty text message reads as %+v, want %q", got, unnamedContentWord,
+		)
 	}
 }
 

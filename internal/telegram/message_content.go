@@ -19,10 +19,13 @@ import (
 //
 // So the types are named here. The ones a person meets get words a person
 // uses — `[sticker 😀]`, `[GIF]`, `[poll: Friday?]`, `[file счёт.pdf]` — and
-// everything else says what it is by the name TDLib gives it, `[messageX]`,
-// which is a name a maintainer can look up in the schema and a sentence that
-// is at least true. A type with no word here is a type that has to be added,
-// and it says so on the screen.
+// a type this build has no words for says the one thing that is true of all
+// of them: it is a message, `[message]`. It used to say what it was by the
+// name TDLib gave it, `[messageX]`, and the owner read `[messageRichMessage]`
+// in the chat list on 02.10 without being able to tell what had been sent.
+// A type with no word here is a type that has to be added, and the table is
+// where it is added — a name of a class is a name for the table, not a
+// sentence for the screen.
 //
 // A label is three things, and each of them is read where the schema says it
 // is:
@@ -63,14 +66,23 @@ type contentLabel struct {
 	service string
 }
 
+// unnamedContentWord is what a type this build has no words for is called on
+// the screen.
+//
+// The name TDLib gave the type is not a word: the owner read
+// `[messageRichMessage]` in the preview of a chat on 02.10 and could not tell
+// what had been sent to them. A name of a class is a name to add to
+// contentWords, not a sentence on a row of a chat list.
+const unnamedContentWord = "message"
+
 // readContentLabel reads one message content into the label the interface
 // writes for it.
 //
 // Every content gets a label: one this build has words for, one that is a
-// service message, or one that is named by its own @type. The last is what
-// makes a type this build has not heard of addable — the name on the screen
-// is the name to look for in the schema, and a word is all the truth about
-// a message the program knows nothing else of.
+// service message, or one that is a message with nothing to say about its type
+// — unnamedContentWord. The last is what makes a type this build has not heard
+// of addable, and it is a sentence about the message rather than a name of a
+// class of the schema (#50).
 func readContentLabel(content json.RawMessage) contentLabel {
 	if len(content) == 0 || string(content) == "null" {
 		return contentLabel{}
@@ -93,22 +105,19 @@ func readContentLabel(content json.RawMessage) contentLabel {
 	// A message of words is its own words and has no label: the text is
 	// drawn instead of a noun for it, and a block that said "[messageText]"
 	// above the sentence somebody wrote would say it twice. One with
-	// nothing in it — a link preview and no text — is named by its type
-	// like any other, because there is nothing else to draw.
+	// nothing in it — a link preview and no text — is a message this build
+	// can say nothing else about, like any other.
 	if messageTexts[envelope.Type] {
 		if extractMessageText(content) != "" {
 			return contentLabel{}
 		}
 
-		return contentLabel{word: envelope.Type}
+		return contentLabel{word: unnamedContentWord}
 	}
 
 	word, known := contentWords[envelope.Type]
 	if !known {
-		// The type is drawn by the name TDLib gave it. A type this build
-		// has no words for is a type somebody has to add, and the name on
-		// the screen is the name to add it under.
-		return contentLabel{word: envelope.Type}
+		return contentLabel{word: unnamedContentWord}
 	}
 
 	return contentLabel{
@@ -230,13 +239,21 @@ var contentWords = map[string]string{
 
 	// The rest of the kinds a user meets in a chat. A type missing from
 	// this table is not a message that cannot be named: it is one that is
-	// named by its own @type until somebody gives it words.
+	// called a message until somebody gives it words.
 	"messageCall":      "call",
 	"messageChecklist": "checklist",
 	"messageGiveaway":  "giveaway",
 	"messageGift":      "gift",
 	"messageInvoice":   "invoice",
 	"messagePaidMedia": "paid media",
+
+	// A type this build has heard of and cannot draw: a rich message is a
+	// page of blocks, and this build reads none of them, so the label says
+	// what is true of it — it is a message — instead of the name TDLib
+	// gave the type (td_api.tl:5144). It is the row the owner read on
+	// 02.10, and it is in the table so that the next type of blocks can be
+	// added next to it (#50).
+	"messageRichMessage": "message",
 }
 
 // contentDetail returns what the label of a content says beyond its word,

@@ -461,6 +461,7 @@ func citations() []struct {
 		// name that is not one of them is a label no message can carry
 		// (message_content.go).
 		{name: "messageText", line: 5141},
+		{name: "messageRichMessage", line: 5144},
 		{name: "messageDice", line: 5232},
 		{name: "messageChatAddMembers", line: 5346},
 		{name: "messageForumTopicIsClosedToggled", line: 5406},

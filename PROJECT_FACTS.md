@@ -247,8 +247,8 @@
   - getChats limit is a telecli policy (maxChatListLimit = 1000) and
     performs one GetChat per returned id
   - GetChat validates response @type and id match the request
-  - messageText previews extracted; other content types use a
-    placeholder such as [photo] or [unsupported message]; the
+  - messageText previews extracted; other content types use the
+    label of what they carry, such as [photo] or [sticker 😀]; the
     message ID is always preserved
   - still the path that fills the chat list at startup and that R loads
     again; the live store below is what the list follows afterwards
@@ -413,6 +413,24 @@
     missing silently otherwise
   - Message.MediaAlbumID is int64 and 0 is not an album; the timeline
     groups runs of messages that share a non-zero id
+- Message content labels: internal/telegram/message_content.go
+  - every content gets a label: a word for the kinds in contentWords, a
+    phrase for the service messages in servicePhrases, or
+    unnamedContentWord for a kind this build has no words for
+  - a label is word + detail (with its own separator: a poll has ": ",
+    every other one " ") + caption, and a content of words has no label at
+    all: the text is drawn instead of a noun for it
+  - unnamedContentWord is "message", and never the name of a TDLib class:
+    the owner read [messageRichMessage] in a chat list on 02.10 (#50) and
+    could not tell what had been sent. A class name is a name for
+    contentWords, where a kind is added, and not a sentence for the screen
+  - it is the same word the interface writes for a record that has lost its
+    label (internal/tui/view_conversation.go), so a kind with nothing to say
+    and a row that lost its label read alike
+  - the keys of both tables are constructors of the pinned schema and are
+    held against it. messageRichMessage is in the table even though it has
+    no words of its own: the kind the owner met is written down rather than
+    met by accident
 - Send projection: internal/telegram/send.go
   - SendTextMessage sends one plain-text message through sendMessage
   - chatID == 0 rejected; whitespace-only text rejected

@@ -1531,13 +1531,14 @@ func messageText(message Message, parts int) string {
 // wordlessMessageWord is what a record says when it has no words, no file
 // and no phrase of its own.
 //
-// The projection names every content type there is, down to the name TDLib
-// gives one this build has never heard of (#17), so a record with nothing in
-// it is not a message Telegram sent: it is a message that lost its label
-// somewhere between the adapter and the screen, or a fixture written by hand.
-// It is named rather than left blank, because a block with nothing in it is
-// a block a user cannot read and cannot tell from a message that failed to
-// load.
+// The adapter names a kind it has no words for a message
+// (internal/telegram/message_content.go), and it is that same word here: a
+// record with nothing in it is a message this program cannot say more about,
+// whichever side lost the label — and a block with nothing in it is a block a
+// user cannot read and cannot tell from a message that failed to load. It used
+// to be impossible to lose, because the adapter drew a kind it had no words
+// for by the name TDLib gave it; the owner read `[messageRichMessage]` in a
+// chat list on 02.10 and could not tell what had been sent (#50).
 const wordlessMessageWord = "[message]"
 
 // mediaLabel returns what a message carries, in the words §4.4 uses: the

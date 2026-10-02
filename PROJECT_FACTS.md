@@ -1322,17 +1322,21 @@
     The badge of a row is the number of MESSAGES in that chat either way,
     and it is never touched by this setting. The zero value is `chats`, so
     a model built as a value counts chats
-  - a pinned chat is marked in the row, before the time: U+1F4CC with a
-    Nerd Font and the word `pin` without one, because an emoji the font
-    does not have is an empty square and an empty square beside a name
-    says nothing about why the chat is at the top of the list. It is drawn
-    in the muted step like the time, and it is given up before the time is
-    (the hiding order of §4.2), never the other way round. The pinned
-    chats are separated from the rest by a thin `─` line drawn in the row
-    that was air under the last of them: no height is spent and no chat is
-    lost, and it is asked of the rows on the screen rather than of the
-    whole list, so a line under the last row of the window separates
-    nothing
+  - a pinned chat is marked in the row, before the time, with U+1F4CC
+    (📌) and with nothing else: no setting governs it, because it is a
+    standard emoji and not a glyph out of a Nerd Font, so it is drawn
+    wherever emoji are drawn and its width is the width the rules of
+    internal/tui/termwidth state for one — two columns in both modes
+    (#51) — and not a measurement of the terminal behind it. A word was
+    drawn there without the font, and the owner's account on 03.10 said
+    it read as a word rather than as a mark. The mark is drawn in the
+    muted step like the time, and it is given up before the time is (the
+    hiding order of §4.2), never the other way round
+  - nothing else separates the pinned chats from the rest: under the last
+    of them is the same air as under every other chat. A thin `─` line
+    was there and is gone — on a real account (03.10) the list read
+    poorer with it, and the mark on the rows is what says which chats are
+    pinned
   - the chosen chat of the list is a card of two rows of words and the air
     inside them, and nothing above or below it: a half row of air at each
     end was tried and is gone, because a row of half blocks is a band of

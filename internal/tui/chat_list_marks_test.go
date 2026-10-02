@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
 
@@ -217,34 +218,70 @@ func pinnedModel(t *testing.T, nerdFont bool) Model {
 // there for no visible reason is a question every reader of the list has to
 // ask (#46).
 //
-// It is proved on a Nerd Font and without one, because the mark is a glyph
-// in one case and a word in the other, and a mark that only exists with the
-// font is a mark half the readers never see.
+// It is the pin of Telegram — 📌 — whatever the terminal is, and that is the
+// owner's decision of 03.10: it is a standard emoji and not a glyph out of a
+// Nerd Font, so the setting that governs the rounded ends of a block has no
+// say over it. The row of a pinned chat is proved here with the setting on
+// and with it off, because a mark that only exists with the font is a mark
+// half the readers never see.
 func TestAPinnedChatIsMarkedWithAndWithoutANerdFont(t *testing.T) {
 	for _, nerdFont := range []bool{true, false} {
 		m := pinnedModel(t, nerdFont)
-		want := chatPinWord
-		if nerdFont {
-			want = chatPinGlyph
-		}
 
 		rows, _ := m.chatListRows(LayoutFor(m.width, m.height), 40)
 
 		head := renderedCells(t, m, rows[0][0])
-		if !strings.Contains(cellText(head), want) {
+		if !strings.Contains(cellText(head), chatPinGlyph) {
 			t.Fatalf(
-				"nerdFont=%v: the row of a pinned chat = %q, want the pin %q",
-				nerdFont, cellText(head), want,
+				"nerdFont=%v: the row of a pinned chat = %q, want the pin %s",
+				nerdFont, cellText(head), chatPinGlyph,
 			)
 		}
 
 		// The chat below the two pinned ones carries no pin, or the mark
 		// says nothing at all.
 		third := renderedCells(t, m, rows[2][0])
-		if strings.Contains(cellText(third), want) {
+		if strings.Contains(cellText(third), chatPinGlyph) {
 			t.Fatalf(
-				"nerdFont=%v: an unpinned chat is marked with %q: %q",
-				nerdFont, want, cellText(third),
+				"nerdFont=%v: an unpinned chat is marked with %s: %q",
+				nerdFont, chatPinGlyph, cellText(third),
+			)
+		}
+	}
+}
+
+// The pin is two columns wide in both rules of internal/tui/termwidth, like
+// every other emoji the program draws, and not a measurement of the terminal
+// behind it (#51). A mark counted as one column would be a row the terminal
+// draws a column wider than the program laid out, and the terminal wraps a
+// row that is a column over.
+func TestThePinIsTwoColumnsWideInBothWidthRules(t *testing.T) {
+	// The width every row of the list is laid out in, which is the width
+	// the painter is given.
+	const paneCells = 40
+
+	for _, mode := range []termwidth.Mode{termwidth.ModeGrapheme, termwidth.ModeCodepoint} {
+		m := pinnedModel(t, false)
+		m.widths = unmeasured(mode)
+
+		if got := m.widths.StringWidth(chatPinGlyph); got != 2 {
+			t.Errorf("%v: the pin is %d columns, want 2", mode, got)
+		}
+		if !termwidth.EmojiLike(chatPinGlyph) {
+			t.Errorf(
+				"%v: the pin is not an emoji to the width rules, so its "+
+					"width would be counted rather than stated",
+				mode,
+			)
+		}
+
+		// And the row is laid out in that same rule, so the mark does not
+		// put the time a column off the right edge.
+		rows, _ := m.chatListRows(LayoutFor(m.width, m.height), 40)
+		if got := len(renderedCells(t, m, rows[0][0])); got != paneCells {
+			t.Errorf(
+				"%v: the row of a pinned chat is %d cells, want the %d of the pane",
+				mode, got, paneCells,
 			)
 		}
 	}
@@ -288,82 +325,41 @@ func TestThePinIsGivenUpBeforeTheTimeOnANarrowList(t *testing.T) {
 	}
 }
 
-// The pinned chats end where a thin line says so, and the line is drawn in
-// the row that was air: a row of its own would make the two groups two
-// lists, and every chat would cost one more row.
-func TestThePinnedChatsAreSeparatedByAThinLine(t *testing.T) {
+// Nothing separates the pinned chats from the rest but the mark on the rows
+// themselves. The line that was there was the owner's to judge and he judged
+// it on his own account on 03.10: with the pin in front of it the list reads
+// as two groups already, and a line under the last pinned row only made the
+// list look poorer.
+//
+// So the gap under the last pinned chat is the same air as under every other
+// chat, and the list is the one list it was before.
+func TestNothingIsDrawnBetweenThePinnedChatsAndTheRest(t *testing.T) {
 	m := pinnedModel(t, false)
 	layout := LayoutFor(m.width, m.height)
 	rows, _ := m.chatListRows(layout, 40)
 
-	// Three rows per chat, and the third of the second chat is the gap where
-	// the pinned chats end.
 	if len(rows) != 4 {
 		t.Fatalf("the list drew %d chats, want 4", len(rows))
 	}
-	for _, index := range []int{0, 1} {
-		if len(rows[index]) != m.chatListRowHeight(layout) {
+
+	for index, row := range rows {
+		if len(row) != m.chatListRowHeight(layout) {
 			t.Fatalf(
-				"chat %d takes %d rows, want %d: a line of its own would cost one",
-				index, len(rows[index]), m.chatListRowHeight(layout),
+				"chat %d takes %d rows, want %d",
+				index, len(row), m.chatListRowHeight(layout),
 			)
 		}
-	}
 
-	line := rows[1][len(rows[1])-1]
-	if !strings.Contains(cellText(renderedCells(t, m, line)), chatListPinnedRuleGlyph) {
-		t.Fatalf(
-			"the gap under the last pinned chat = %q, want the line",
-			cellText(renderedCells(t, m, line)),
-		)
-	}
-
-	// No other gap carries it: not under the first pinned chat, and not
-	// under a chat that is not pinned.
-	for _, index := range []int{0, 2, 3} {
-		gap := rows[index][len(rows[index])-1]
-		if strings.Contains(cellText(renderedCells(t, m, gap)), chatListPinnedRuleGlyph) {
-			t.Fatalf("chat %d carries the pinned line: %q", index, cellText(renderedCells(t, m, gap)))
+		gap := renderedCells(t, m, row[len(row)-1])
+		for column, cell := range gap {
+			if strings.TrimSpace(cell.text) == "" {
+				continue
+			}
+			t.Fatalf(
+				"the gap under chat %d carries %q at column %d, want air",
+				index, cell.text, column,
+			)
 		}
-	}
-}
-
-// The line is inside the air of the row like every other cell of it: a line
-// from edge to edge is the frame that §1 forbids, and it is the frame of the
-// pane drawn in a colour of the theme.
-func TestThePinnedLineKeepsTheAirInsideTheRow(t *testing.T) {
-	m := pinnedModel(t, false)
-	layout := LayoutFor(m.width, m.height)
-	inset := layout.ChatListInset()
-	rows, _ := m.chatListRows(layout, 40)
-
-	line := renderedCells(t, m, rows[1][len(rows[1])-1])
-
-	first, last := -1, -1
-	for column, cell := range line {
-		if cell.text != chatListPinnedRuleGlyph {
-			continue
-		}
-		if first < 0 {
-			first = column
-		}
-		last = column
-	}
-	if first < 0 {
-		t.Fatalf("the gap under the last pinned chat carries no line: %q", cellText(line))
-	}
-
-	if first < inset {
-		t.Fatalf(
-			"the line starts at column %d, want at least the %d columns of air: %q",
-			first, inset, cellText(line),
-		)
-	}
-	if last >= len(line)-inset {
-		t.Fatalf(
-			"the line ends at column %d of %d, want the %d columns of air at the right",
-			last, len(line), inset,
-		)
 	}
 }
 
@@ -466,22 +462,28 @@ func TestTheCounterModeIsGivenToTheModelWithTheRestOfTheScreen(t *testing.T) {
 	}
 }
 
-// The mark of a pinned chat is a glyph only where the user has said the
-// terminal has a font with one: an emoji the font has not got is drawn as an
-// empty square, and an empty square beside a name says nothing at all.
-func TestThePinIsAWordWithoutANerdFontAndAGlyphWithIt(t *testing.T) {
-	m := pinnedModel(t, false)
-	if got := m.chatListPinText(pinnedChats()[0]); got != chatPinWord {
-		t.Fatalf("the mark without the font = %q, want %q", got, chatPinWord)
+// The mark is the same on every terminal, and a chat that is not pinned has
+// none: 📌 is a standard emoji, so `[tui] nerd_font` — which is about the
+// characters a terminal might not have — does not reach it (the owner,
+// 03.10).
+func TestTheMarkOfAPinnedChatIsTheSameWithAndWithoutTheFont(t *testing.T) {
+	without := pinnedModel(t, false).chatListPinText(pinnedChats()[0])
+	with := pinnedModel(t, true).chatListPinText(pinnedChats()[0])
+
+	if without != chatPinGlyph {
+		t.Fatalf("the mark without the font = %q, want %q", without, chatPinGlyph)
+	}
+	if with != without {
+		t.Fatalf(
+			"the mark with the font = %q, want the same mark %q: the setting "+
+				"governs the rounded ends of a block and not an emoji",
+			with, without,
+		)
 	}
 
-	withFont := pinnedModel(t, true)
-	if got := withFont.chatListPinText(pinnedChats()[0]); got != chatPinGlyph {
-		t.Fatalf("the mark with the font = %q, want %q", got, chatPinGlyph)
-	}
-
+	unpinned := pinnedModel(t, false)
 	for _, chat := range pinnedChats()[2:] {
-		if got := m.chatListPinText(chat); got != "" {
+		if got := unpinned.chatListPinText(chat); got != "" {
 			t.Fatalf("an unpinned chat is marked %q", got)
 		}
 	}
@@ -499,7 +501,7 @@ func TestAShortRowKeepsThePinBesideTheBadge(t *testing.T) {
 
 	rows, _ := m.chatListRows(layout, 40)
 	head := renderedCells(t, m, rows[0][0])
-	if !strings.Contains(cellText(head), chatPinWord) {
+	if !strings.Contains(cellText(head), chatPinGlyph) {
 		t.Fatalf("the Short row of a pinned chat = %q, want the pin", cellText(head))
 	}
 }

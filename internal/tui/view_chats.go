@@ -2,7 +2,6 @@ package tui
 
 import (
 	"strconv"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -282,7 +281,6 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 			m.chatListRowLines(
 				entry,
 				entry.index == m.selectedChat,
-				chatPinnedBoundary(entries, index),
 				layout,
 				width,
 			),
@@ -294,21 +292,6 @@ func (m Model) chatListRows(layout Layout, width int) ([][]string, int) {
 	}
 
 	return rows, selected
-}
-
-// chatPinnedBoundary reports whether the gap under the entry at index is the
-// line between the pinned chats and the rest.
-//
-// It is asked of the rows that are on the screen rather than of the whole
-// list, because the line says where the pinned chats end: the pinned chats
-// below the window are not drawn, and a line under the last row of the
-// window would separate a row from nothing.
-func chatPinnedBoundary(entries []chatListEntry, index int) bool {
-	if index >= len(entries)-1 {
-		return false
-	}
-
-	return entries[index].chat.Pinned && !entries[index+1].chat.Pinned
 }
 
 // chatListRowLines renders one chat as two rows of words and a row of
@@ -344,7 +327,6 @@ func chatPinnedBoundary(entries []chatListEntry, index int) bool {
 func (m Model) chatListRowLines(
 	entry chatListEntry,
 	selected bool,
-	pinnedEdge bool,
 	layout Layout,
 	width int,
 ) []string {
@@ -512,50 +494,9 @@ func (m Model) chatListRowLines(
 	return []string{
 		head,
 		detail,
-		m.chatListSeparatorLine(width, inset, separator, pinnedEdge),
+		m.painter(theme.Color{}).own(separator, spaces(width)).String(),
 	}
 }
-
-// chatListSeparatorLine is the gap under a chat: air of the background of the
-// list, and a thin line of the theme where the pinned chats end.
-//
-// The line is what says the list is in two parts. It is drawn in the row that
-// was air anyway, so it costs no height and no chat: a row of its own between
-// the last pinned chat and the first of the rest would make the two groups
-// two lists, and the window of §10.5 divides the budget by three either way.
-//
-// It is a line and not a frame because the whole of §1 is that nothing here
-// is outlined, and it is thin where the rule under a header is heavy because
-// this one is inside a list: the heaviest line on the screen is the one that
-// says which pane has the keys, and a second line as heavy as it would be a
-// second thing shouting. It is a character rather than a colour alone, so a
-// terminal with no colour still shows where the pinned chats end.
-func (m Model) chatListSeparatorLine(
-	width, inset int,
-	separator lipgloss.Style,
-	pinnedEdge bool,
-) string {
-	if !pinnedEdge {
-		return m.painter(theme.Color{}).own(separator, spaces(width)).String()
-	}
-
-	// The row is written as three runs rather than an air row with the line
-	// written over it: a run written after the air is a run past the width of
-	// the pane, and the region cuts it at the edge.
-	return m.painter(theme.Color{}).
-		own(separator, spaces(inset)).
-		own(m.styles().on(
-			m.tokens().SidebarBackground,
-			m.styles().dimmed(m.tokens().MutedText),
-		), strings.Repeat(chatListPinnedRuleGlyph, maxInt(width-2*inset, 1))).
-		own(separator, spaces(inset)).
-		String()
-}
-
-// chatListPinnedRuleGlyph is the character the line between the pinned chats
-// and the rest is drawn with: a light horizontal, one thin stroke, and no
-// ends that turn a line into a frame.
-const chatListPinnedRuleGlyph = "─"
 
 // chatListBadgeGap is the air between the end of a preview and the badge
 // of the chat, and it is wider than the gap between a name and its time
@@ -566,43 +507,38 @@ const chatListBadgeGap = 2
 // chatListPinText is what marks a pinned chat in its row, and nothing at all
 // for a chat that is not pinned.
 //
-// It is the pin of Telegram where the reader already knows that shape, and
-// the word that says it where the terminal cannot be asked: an emoji that
-// the font has not got is drawn as an empty square, and an empty square
-// beside a name says nothing at all about why that name is at the top of the
-// list. So the mark is the glyph only when the user has said the terminal is
-// drawn with a Nerd Font — the setting that already decides whether this
-// program may draw a glyph it cannot check for — and the word everywhere
-// else.
+// It is the pin of Telegram and it does not depend on any setting: it is a
+// standard emoji, not a glyph out of a Nerd Font, so every terminal draws it
+// out of whatever emoji font it has. `[tui] nerd_font` is about the
+// characters a terminal might not have — the rounded ends of a block and the
+// pill of a count — and an emoji is drawn wherever one is drawn at all (the
+// owner, 03.10, on the account that showed the word `pin` instead).
+//
+// Its width is the width of every other emoji in this program: two columns
+// in both rules of internal/tui/termwidth, and not a measurement of the
+// terminal behind it (#51). So the column of the mark is the column of every
+// other mark in the list, and a row with one is not a row a column wider.
 func (m Model) chatListPinText(chat Chat) string {
 	if !chat.Pinned {
 		return ""
 	}
 
-	if m.nerdFont {
-		return chatPinGlyph
-	}
-
-	return chatPinWord
+	return chatPinGlyph
 }
 
-// The two marks of a pinned chat, and the gap between a mark and the time
-// beside it.
-const (
-	// chatPinGlyph is the pin of Telegram, U+1F4CC.
-	chatPinGlyph = "\U0001F4CC"
+// chatPinGlyph is the mark of a pinned chat: U+1F4CC, the pin.
+//
+// It is named here rather than typed into a view because the mark is a fact
+// about the list and not about one row of it, and because its width is a
+// question this package answers for every emoji the same way.
+const chatPinGlyph = "\U0001F4CC"
 
-	// chatPinWord is what a terminal without the glyph gets.
-	chatPinWord = "pin"
-
-	// pinGapColumns is the air between the pin and the time of the row.
-	//
-	// It is the same air as between a name and its time, because it is
-	// between two things at the same end of the row and not between two
-	// kinds of thing: a pin one column from the digits of a time reads as
-	// one run.
-	pinGapColumns = 1
-)
+// pinGapColumns is the air between the pin and the time beside it.
+//
+// It is the same air as between a name and its time, because it is between
+// two things at the same end of the row and not between two kinds of thing:
+// a pin one column from the digits of a time reads as one run.
+const pinGapColumns = 1
 
 // chatListHeadMarks returns what stands at the right end of the head row of
 // a chat: the pin, the time, both, or neither, and nothing that does not

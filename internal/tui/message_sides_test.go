@@ -1119,7 +1119,7 @@ func TestTheUnreadBadgeIsInTheSameColumnAsTheTime(t *testing.T) {
 				}
 
 				lines := m.chatListRowLines(
-					m.chatListEntries()[index], chosen, false, layout, width,
+					m.chatListEntries()[index], chosen, layout, width,
 				)
 				if len(lines) < 2 {
 					t.Fatalf("preview %q: a chat takes %d rows, want two of words and a gap",
@@ -1184,7 +1184,7 @@ func TestTheSelectedChatIsSelectedRightAcrossItsRow(t *testing.T) {
 		badge := m.chatListUnreadBadge(m.chats[0], m.tokens().Selected)
 		pill := backgroundParameters(badge.pill.Render("x"))
 
-		lines := m.chatListRowLines(m.chatListEntries()[0], true, false, layout, width)
+		lines := m.chatListRowLines(m.chatListEntries()[0], true, layout, width)
 		if len(lines) != 3 {
 			t.Fatalf("a chat takes %d rows, want two of words and a gap", len(lines))
 		}
@@ -1518,7 +1518,7 @@ func TestTheCountOfAChatIsAPillAndRoundsWithTheFont(t *testing.T) {
 			continue
 		}
 
-		lines := m.chatListRowLines(m.chatListEntries()[0], true, false, layout, width)
+		lines := m.chatListRowLines(m.chatListEntries()[0], true, layout, width)
 		detail := renderedCells(t, m, lines[1])
 		text := cellText(detail)
 		if !strings.Contains(text, termwidth.NerdHalfLeft) ||

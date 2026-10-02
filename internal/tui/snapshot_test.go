@@ -1005,10 +1005,12 @@ func pinnedSnapshotChats() []Chat {
 // snapshotPinnedChats is the chat list of an account that pins its chats,
 // drawn once with a Nerd Font and once without one.
 //
-// The two are goldens rather than one because the mark is a different thing
-// in each: a glyph the terminal has to have the font for, and the word that
-// says the same thing where it has not. A golden of one of them cannot show
-// what the other one draws.
+// The two are goldens rather than one because the mark of a pinned chat does
+// NOT depend on that setting: it is a standard emoji, so both files show
+// 📌, and a pair of goldens is what proves it — a change that made the mark
+// conditional again would move the words in one of the two files and no other
+// screen would notice. What does differ between them is the pill of an unread
+// count, which is the setting's own business (#46).
 //
 // The header is on the same screen on purpose: the pin says why a chat is at
 // the top of the list, and the number beside the title says how much of the
@@ -1725,10 +1727,9 @@ func TestSnapshotChatListRowsRounded(t *testing.T) {
 }
 
 // The same list on an account that pins its chats, drawn twice: the mark of
-// a pinned chat is a glyph with a Nerd Font and the word without one, and
-// the two goldens are the proof that the mark is there in both — and that
-// the number in the header leaves the silenced chat out while the pins and
-// the line under them are on the same screen (#46).
+// a pinned chat is the same 📌 with the font and without it, and the two
+// goldens are the proof — the number in the header leaves the silenced chat
+// out, and the pins are on the same screen (#46).
 func TestSnapshotPinnedChatsPlain(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotPinnedChatsPlain"))
 }
@@ -2393,21 +2394,10 @@ func snapshotLine(lines []string, index int, view snapshotView) string {
 // of nothing but frame characters, which is what a border is and is not
 // what a message is, so the check cannot be fooled by a message that
 // happens to contain a dash.
-//
-// The thin line that ends the pinned chats of a list is the one thing on
-// the screen drawn with a glyph from this list, and it is a separator
-// rather than a frame: it is one line, in one place, with no ends and no
-// sides, and it stands where the list is in two parts (#46). It is
-// exempted by the row it is on rather than by its glyph, so any other
-// frame drawn with the same character is still a failure.
 func assertNoFrame(t *testing.T, test string, lines []string) {
 	t.Helper()
 
 	for index, line := range lines {
-		if index > 0 && strings.Contains(line, chatListPinnedRuleGlyph) {
-			continue
-		}
-
 		for _, glyph := range boxDrawing {
 			if strings.ContainsRune(line, glyph) {
 				t.Errorf("%s: line %d draws the box glyph %q", test, index+1, glyph)

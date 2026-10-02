@@ -59,6 +59,23 @@ func TestTheWidthOfTheStringsTheOwnerSendsUs(t *testing.T) {
 			grapheme: 2,
 		},
 		{
+			// The mark of a pinned chat in the list (#46): a standard
+			// emoji, drawn out of the same emoji font as the rest of them
+			// and counted by the same rule, so it needs no width of its
+			// own and none of the two rules can be a column wrong about
+			// it.
+			name:     "the pin of a pinned chat",
+			value:    "📌",
+			grapheme: 2,
+		},
+		{
+			// The mark with what stands beside it in a chat row: two
+			// columns, a gap and five digits.
+			name:     "the pin of a pinned chat in a row of words",
+			value:    "📌 09:02",
+			grapheme: 8,
+		},
+		{
 			name:     "a heart in open hands",
 			value:    "🫶",
 			grapheme: 2,

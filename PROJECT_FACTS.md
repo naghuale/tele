@@ -321,6 +321,16 @@
     history page and that page closes the gap
   - a message the store cannot parse is reported as an error and leaves
     the window untouched, as a malformed order does for the chat list
+  - in the whole store a change IS a signalled change: every path that
+    returns changed = true posts the signal and every path that changes
+    nothing posts none, so `changed` on a `store.update` line of the
+    diagnostic answers the wake-up question by itself
+  - the store has no idea which chat is open, and nothing in it may depend
+    on that: updateNewMessage, updateChatLastMessage, updateChatPosition
+    and updateChatReadInbox are recorded and applied for every chat in the
+    main list. The one update that cannot move anything is one about a chat
+    the store never heard of — only updateNewChat may create a record, and a
+    store that loadChats never filled applies nothing about any chat (#47)
 - Live chat list in the interface: internal/tui/live_source.go,
   internal/tui/live_chats.go, internal/application/live_chat_source.go
   (ADR-0003 step 3)
@@ -373,6 +383,16 @@
     only while the newest message is not on the screen
   - a resync reloads the first page of that chat and merges it, the same
     way opening a conversation reads it
+  - the diagnostic of the whole path is one file, named by
+    TELECLI_DEBUG_LIVE and off without it: internal/livewatch, imported by
+    telegram, tui and application and by nothing else. Every step of a
+    change is a line — the update the store was given, the signal it posted,
+    the wait that returned, the message the interface was given, where the
+    window of the chat list was before and after, and whether the frame
+    changed — because a defect between the layers is proved by none of their
+    tests, which is what a real account reported (#47). A line carries no
+    text, no names and no identifiers beyond a short hash of a chat id, and
+    the file is 0600. docs/help/debugging.md says what each step means
   - a program with a source and no live state — or one whose live state
     says it cannot be read — says so in one line of the status block,
     `list does not update itself · R to reload`, and R still reloads.

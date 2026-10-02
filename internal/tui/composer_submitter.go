@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"telecli/internal/livewatch"
 	"telecli/internal/tui/termwidth"
 	"telecli/internal/tui/theme"
 )
@@ -231,6 +232,9 @@ func NewModelWithDependencies(
 	model.presenceOpener = deps.PresenceOpener
 	model.messageViewer = deps.MessageViewer
 	model.live = deps.LiveUpdates
+	livewatch.Log(livewatch.StepProgram, livewatch.Bool(
+		"live", model.live != nil && model.live.Available(),
+	))
 	// The first wait for a change is armed here rather than in Init,
 	// which returns commands and cannot carry a flag back to the model
 	// that asked for them. Everything after it is armed by the change

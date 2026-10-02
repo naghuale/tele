@@ -5,6 +5,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"telecli/internal/livewatch"
 )
 
 // This file applies the live Telegram state to the screen: the chat list
@@ -36,6 +38,7 @@ func (m *Model) armLiveWait() tea.Cmd {
 	}
 
 	m.liveWaitArmed = true
+	livewatch.Log(livewatch.StepWaitArmed)
 
 	return waitLiveCmd(m.live, m.ctx)
 }
@@ -50,6 +53,10 @@ func (m *Model) armLiveWait() tea.Cmd {
 // moves ten times a second rather than a program that paints a hundred
 // frames nobody can read.
 func (m Model) updateLiveChanged(liveChangedMsg) (tea.Model, tea.Cmd) {
+	livewatch.Log(livewatch.StepLiveChanged, livewatch.Text(
+		"screen", m.screen.String(),
+	))
+
 	// The wait that delivered this message is over, and the next one is
 	// armed here: one wait at a time, and never none.
 	m.liveWaitArmed = false
@@ -77,6 +84,8 @@ func (m Model) updateLiveChanged(liveChangedMsg) (tea.Model, tea.Cmd) {
 // updateLiveRepaintDue draws the screen with the changes that were folded
 // into the redraw.
 func (m Model) updateLiveRepaintDue(liveRepaintDueMsg) (tea.Model, tea.Cmd) {
+	livewatch.Log(livewatch.StepRepaintDue)
+
 	if m.live == nil {
 		return m, nil
 	}
@@ -110,11 +119,36 @@ func (m Model) liveRepaintDelay() time.Duration {
 // badge of a row above a chat that is not there any more — see repaint.go,
 // which is about the same promise.
 func (m Model) drawLive(wait tea.Cmd) (tea.Model, tea.Cmd) {
+	// What the screen showed before the state was read, and where the
+	// window of the list was, go to the diagnostic of the live list when one
+	// is named: the two are what a change that did not reach the screen is
+	// seen in. The screen is rendered once more only then — two renders of
+	// the whole screen per live change is a price no program pays for a
+	// file nobody asked for.
+	watching := livewatch.Enabled()
+	frameBefore := ""
+	if watching {
+		frameBefore = m.View()
+		livewatch.LogChatList("before", m.chatListOffset, m.selectedChat, m.selectedListRow())
+	}
+
 	m.livePaintedAt = m.clock()()
 	m.liveRepaintDue = false
 
-	m = m.applyLiveChats(m.live.Chats())
+	chats := m.live.Chats()
+	m = m.applyLiveChats(chats)
 	m, reload := m.applyLiveMessageEvents()
+
+	if watching {
+		livewatch.Log(livewatch.StepRepaintDrawn, livewatch.Int("chats", len(chats)))
+		livewatch.Log(livewatch.StepFrameChanged, livewatch.Bool(
+			"changed", m.View() != frameBefore,
+		))
+		livewatch.LogChatList("after", m.chatListOffset, m.selectedChat, m.selectedListRow())
+		livewatch.Log(livewatch.StepRepaint, livewatch.Bool(
+			"scheduled", repaintCmd(m) != nil,
+		))
+	}
 
 	return m, withRepaint(m, tea.Batch(wait, reload))
 }

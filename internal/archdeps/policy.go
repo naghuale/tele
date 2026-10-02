@@ -23,7 +23,7 @@ var standardLibraryOnly = map[string]bool{
 // Layering, bottom to top:
 //
 //	recorder, tdjson, buildinfo, config, authstore, secretinput,
-//	outbox, tui/theme, tui/termwidth    leaf packages
+//	outbox, livewatch, tui/theme, tui/termwidth    leaf packages
 //	tui                             interface components
 //	telegram                          TDLib binding and session
 //	application                       composition root
@@ -37,6 +37,7 @@ var allowedInternalImports = map[string][]string{
 		"internal/authstore",
 		"internal/buildinfo",
 		"internal/config",
+		"internal/livewatch",
 		"internal/outbox",
 		"internal/secretinput",
 		"internal/telegram",
@@ -45,16 +46,25 @@ var allowedInternalImports = map[string][]string{
 		"internal/tui/termwidth",
 		"internal/tui/theme",
 	},
-	"internal/archdeps":           {},
-	"internal/authstore":          {},
-	"internal/buildinfo":          {},
-	"internal/config":             {},
-	"internal/outbox":             {},
-	"internal/secretinput":        {},
-	"internal/telegram":           {"internal/telegram/tdjson", "internal/telemetry/recorder"},
+	"internal/archdeps":    {},
+	"internal/authstore":   {},
+	"internal/buildinfo":   {},
+	"internal/config":      {},
+	"internal/livewatch":   {},
+	"internal/outbox":      {},
+	"internal/secretinput": {},
+	"internal/telegram": {
+		"internal/livewatch",
+		"internal/telegram/tdjson",
+		"internal/telemetry/recorder",
+	},
 	"internal/telegram/tdjson":    {},
 	"internal/telemetry/recorder": {},
-	"internal/tui":                {"internal/tui/termwidth", "internal/tui/theme"},
-	"internal/tui/termwidth":      {},
-	"internal/tui/theme":          {},
+	"internal/tui": {
+		"internal/livewatch",
+		"internal/tui/termwidth",
+		"internal/tui/theme",
+	},
+	"internal/tui/termwidth": {},
+	"internal/tui/theme":     {},
 }

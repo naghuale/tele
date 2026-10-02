@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"telecli/internal/livewatch"
 	"telecli/internal/telegram"
 	"telecli/internal/tui"
 )
@@ -162,6 +163,10 @@ func (u *TelegramLiveUpdates) Available() bool {
 // and nothing else: the read of the state happens in the interface's own
 // goroutine when the loop delivers the message, so the pump that writes the
 // store is never waited on here.
+//
+// What woke it is written to the diagnostic of the live list when one is
+// named, because a wait that never returns is the first step a report of a
+// list that does not move has to rule out (#47).
 func (u *TelegramLiveUpdates) WaitForChange(ctx context.Context) {
 	if !u.Available() {
 		return
@@ -172,7 +177,9 @@ func (u *TelegramLiveUpdates) WaitForChange(ctx context.Context) {
 
 	select {
 	case <-u.store.Changed():
+		livewatch.WaitReturned("change")
 	case <-ctx.Done():
+		livewatch.WaitReturned("context")
 	}
 }
 

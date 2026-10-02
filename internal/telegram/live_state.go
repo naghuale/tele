@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"telecli/internal/livewatch"
 )
 
 // ErrLiveStateOrder is returned when a TDLib chat position carries an
@@ -231,7 +233,13 @@ func (l *LiveState) ChatList() []LiveChat {
 
 // signalChanged posts a change signal without blocking. The caller must
 // hold the write lock.
+//
+// The line it writes carries no chat, and that is on purpose: a signal is a
+// signal, and the update line above it already says which chat the change
+// was about.
 func (l *LiveState) signalChanged() {
+	livewatch.StoreSignal()
+
 	select {
 	case l.changed <- struct{}{}:
 	default:
@@ -252,65 +260,115 @@ func (l *LiveState) signalChanged() {
 // must not change under a message-event step, and one small unmarshal is
 // cheaper than a decoder both paths would have to agree on.
 func (l *LiveState) apply(raw RawMessage) (bool, error) {
+	outcome, err := l.route(raw)
+	if livewatch.Enabled() {
+		livewatch.StoreUpdate(
+			outcome.kind, int64(outcome.chatID), outcome.changed, err,
+		)
+	}
+
+	return outcome.changed, err
+}
+
+// liveOutcome is what happened to one raw update: what it was, which chat
+// it was about, and whether the store changed.
+//
+// It is what the diagnostic of the live list is written from. The question
+// it answers is the one a real account asked and no test could (#47: the
+// chat list did not move), so it has to be the answer of the store about an
+// update it actually received — not a reconstruction of it afterwards.
+type liveOutcome struct {
+	kind    string
+	chatID  ChatID
+	changed bool
+}
+
+// route applies one raw TDLib update to the store and says what it did.
+//
+// It is the whole of apply without the diagnostic, because the diagnostic
+// has to see the outcome rather than be told about it.
+func (l *LiveState) route(raw RawMessage) (liveOutcome, error) {
+	outcome := liveOutcome{}
 	if l == nil {
-		return false, nil
+		return outcome, nil
 	}
 
 	var envelope updateEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return false, fmt.Errorf("decode live update: %w", err)
+		outcome.kind = livewatch.UpdateUnreadable
+
+		return outcome, fmt.Errorf("decode live update: %w", err)
 	}
+	outcome.kind = livewatch.UpdateType(envelope.Type)
 
 	// The connection state and the presence updates are the ones that are
 	// not about a chat list row. They are routed before the chat-list
 	// decoders, which have no place for them.
 	switch envelope.Type {
 	case updateConnectionStateType:
-		return l.applyConnectionState(raw)
+		outcome.changed, _ = l.applyConnectionState(raw)
+
+		return outcome, nil
 
 	case updateUserType:
-		return l.applyUser(raw)
+		outcome.changed, _ = l.applyUser(raw)
+
+		return outcome, nil
 
 	case updateUserStatusType:
-		return l.applyUserStatus(raw)
+		outcome.changed, _ = l.applyUserStatus(raw)
+
+		return outcome, nil
 
 	case updateChatOnlineMemberCountType:
-		return l.applyOnlineMemberCount(raw)
+		outcome.changed, _ = l.applyOnlineMemberCount(raw)
+
+		return outcome, nil
 
 	case updateChatPermissionsType:
-		return l.applyChatPermissions(raw)
+		outcome.changed, _ = l.applyChatPermissions(raw)
+
+		return outcome, nil
 
 	case updateSupergroupType:
-		return l.applySupergroup(raw)
+		outcome.changed, _ = l.applySupergroup(raw)
+
+		return outcome, nil
 	}
 
 	if _, isMessageUpdate := messageUpdateTypes[envelope.Type]; isMessageUpdate {
 		update, applies, err := decodeMessageUpdate(raw)
 		if err != nil {
-			return false, err
+			return outcome, err
 		}
 		if !applies {
-			return false, nil
+			return outcome, nil
 		}
+		outcome.chatID = update.chatID
 
 		l.mu.Lock()
 		defer l.mu.Unlock()
 
-		return l.recordMessageUpdate(update), nil
+		outcome.changed = l.recordMessageUpdate(update)
+
+		return outcome, nil
 	}
 
 	patch, applies, err := decodeLivePatch(raw)
 	if err != nil {
-		return false, err
+		return outcome, err
 	}
 	if !applies || patch.chatID == 0 {
-		return false, nil
+		return outcome, nil
 	}
+	outcome.chatID = patch.chatID
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return l.commit(patch), nil
+	outcome.changed = l.commit(patch)
+
+	return outcome, nil
 }
 
 // commit applies a decoded patch to a single entry.

@@ -250,15 +250,26 @@
   - messageText previews extracted; other content types use a
     placeholder such as [photo] or [unsupported message]; the
     message ID is always preserved
-  - still the snapshot path the TUI uses; the live store below is not
-    wired into the chat list yet (ADR-0003 step 3)
+  - still the path that fills the chat list at startup and that R loads
+    again; the live store below is what the list follows afterwards
+    (ADR-0003 step 3), and the two are merged by chat id rather than one
+    replacing the other
 - Live chat-list store: internal/telegram/live_state.go (ADR-0003 step 1)
   - LiveState is the pump's single-writer store; readers take copies
   - Changed() is a capacity-1 channel signalled non-blockingly after an
     update that changed state, so signals coalesce and cannot be lost
-  - ChatList() returns the main list ordered by (order, chat ID)
-    descending; a chat with no chatListMain position or order 0 is
-    excluded
+  - ChatList() returns the main list ordered the way Telegram orders it:
+    is_pinned first (in the order of those positions), then order
+    descending, then chat ID descending; a chat with no chatListMain
+    position or order 0 is excluded. is_pinned belongs to ONE position,
+    so a chat pinned in a folder is not pinned in the main list
+  - LiveChat carries is_pinned, whether the chat has more than one person
+    in it (Grouped) and the last message; the store keeps no name of a
+    person and no is_channel, so a channel arrives as a group until a
+    loaded list says otherwise
+  - a live message carries its sender_id (identifier and kind, never a
+    name); the interface asks TDLib for the name when it draws the row
+    (#41)
   - applied updates: updateNewChat, updateChatTitle, updateChatPosition,
     updateChatLastMessage, updateChatDraftMessage (positions only),
     updateChatReadInbox
@@ -305,6 +316,52 @@
     history page and that page closes the gap
   - a message the store cannot parse is reported as an error and leaves
     the window untouched, as a malformed order does for the chat list
+- Live chat list in the interface: internal/tui/live_source.go,
+  internal/tui/live_chats.go, internal/application/live_chat_source.go
+  (ADR-0003 step 3)
+  - `tui.ChatLiveSource` is the whole of the Telegram side of the
+    interface: Available, WaitForChange, Chats, MessageEvents. The TUI
+    imports nothing from internal/telegram (internal/archdeps), and a
+    TDLib type on a screen would put the schema of a wire format into the
+    half of the program that draws words
+  - a consumer is told THAT the state changed and reads the state itself
+    (ADR-0003 §2). The signal is coalesced by the store, so a channel
+    with a hundred messages a second is one wake-up and not a hundred
+    frames
+  - the list is redrawn at most ten times a second
+    (liveRepaintInterval = 100ms): the changes that arrive in between are
+    folded into one redraw, and the redraw reads the state, so the fold
+    costs the frame that would have been drawn anyway
+  - the selection follows the chat ID and the window offset is moved by
+    what the list did to the row under the cursor, so a chat that arrives
+    at the top does not move the chat the user is reading. The offset is
+    given up when the chat under the cursor is no longer one of the rows
+    it holds
+  - a live row keeps what the live state does not carry: the messages of
+    the conversation behind it, the aliases of the search, where Telegram
+    had been told the reader got to, and the kind of the chat (the store
+    cannot tell a channel from a group)
+  - the text of a live row and of a live message goes through the same
+    cleaner as the text of a page (internal/tui/screen_text.go, #53): the
+    preview of a chat and the body of a message are the two texts anybody
+    else in a chat can put on the screen
+  - an empty live list is not an empty chat list: the store is filled by
+    loadChats, and until the first update arrives it holds nothing
+  - the events of the chat that is open are applied to its conversation:
+    added at the end and de-duplicated by ID, replaced in place under the
+    final identifier, deleted by ID. A reader at the newest message
+    follows them; a reader who has scrolled up is left where they are and
+    the count is drawn as `↓ N new message` at the bottom of the feed —
+    only while the newest message is not on the screen
+  - a resync reloads the first page of that chat and merges it, the same
+    way opening a conversation reads it
+  - a program with a source and no live state — or one whose live state
+    says it cannot be read — says so in one line of the status block,
+    `list does not update itself · R to reload`, and R still reloads.
+    docs/help/chat-list.md is in step with the wording
+  - MessageFailed is not handed to the interface: a send that failed is a
+    record of the durable outbox, and the row under the message is drawn
+    from that record
 - TDLib numbers: internal/telegram/tdint.go
   - TDLib writes a 64-bit integer as a JSON string and a 53-bit one as
     a JSON number, and which one a field is depends on the field:

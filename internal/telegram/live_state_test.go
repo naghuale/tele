@@ -479,6 +479,56 @@ func TestChatListSortsByOrderThenIDDescending(t *testing.T) {
 	}
 }
 
+// Telegram draws a pinned chat above the rest of the list however old its
+// last message is (td_api.tl:3545), and the pinned chats keep the order of
+// their own positions among themselves.
+func TestChatListPutsPinnedChatsFirstInTheirOwnOrder(t *testing.T) {
+	state := NewLiveState()
+	mustApplyLiveChat(t, state, 1, "newest", 900)
+	mustApplyLiveChat(t, state, 2, "middle", 500)
+	mustApplyLiveChat(t, state, 3, "pinned, newer of the two", 400)
+	mustApplyLiveChat(t, state, 4, "oldest", 100)
+	mustApplyLiveChat(t, state, 5, "pinned, older of the two", 200)
+
+	mustPinLiveChat(t, state, 5, 200)
+	mustPinLiveChat(t, state, 3, 400)
+
+	got := liveIDs(state.ChatList())
+	want := []ChatID{3, 5, 1, 2, 4}
+	if len(got) != len(want) {
+		t.Fatalf("ChatList() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf(
+				"ChatList() = %v, want %v (pinned first, then by order)",
+				got, want,
+			)
+		}
+	}
+}
+
+// A chat that is pinned in a folder and not in the main list is not pinned
+// in the list the interface draws: is_pinned belongs to one position, and
+// that position names the list it is in.
+func TestChatListIgnoresPinnedOutsideTheMainList(t *testing.T) {
+	state := NewLiveState()
+	mustApplyLiveChat(t, state, 1, "newer", 900)
+	mustApplyLiveChatInList(t, state, 2, "in a folder", 100, `{"@type":"chatListFolder","chat_folder_id":2}`)
+
+	raw := `{"@type":"updateChatPosition","chat_id":2,"position":{"@type":"chatPosition",` +
+		`"list":{"@type":"chatListFolder","chat_folder_id":2},"order":"100",` +
+		`"is_pinned":true,"source":null}}`
+	if _, err := state.apply(RawMessage(raw)); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	got := liveIDs(state.ChatList())
+	if len(got) != 1 || got[0] != 1 {
+		t.Fatalf("ChatList() = %v, want [1]", got)
+	}
+}
+
 func TestChatListExcludesZeroOrderAndForeignLists(t *testing.T) {
 	state := NewLiveState()
 	mustApplyLiveChat(t, state, 1, "listed", 100)
@@ -999,6 +1049,20 @@ func mustApplyLiveChatInList(
 		strconv.FormatInt(order, 10) + `","is_pinned":false,"source":null}]}}`
 	if _, err := state.apply(RawMessage(raw)); err != nil {
 		t.Fatalf("seed apply: %v", err)
+	}
+}
+
+// mustPinLiveChat pins a chat in the main list at the given order, the way
+// TDLib says it with updateChatPosition: the flag and the order arrive
+// together in one position.
+func mustPinLiveChat(t *testing.T, state *LiveState, id ChatID, order int64) {
+	t.Helper()
+	raw := `{"@type":"updateChatPosition","chat_id":` + strconv.Itoa(int(id)) +
+		`,"position":{"@type":"chatPosition","list":{"@type":"chatListMain"},` +
+		`"order":"` + strconv.FormatInt(order, 10) +
+		`","is_pinned":true,"source":null}}`
+	if _, err := state.apply(RawMessage(raw)); err != nil {
+		t.Fatalf("pin apply: %v", err)
 	}
 }
 

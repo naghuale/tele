@@ -176,6 +176,41 @@ type Model struct {
 	selectedChat int
 	selectedMsg  int
 
+	// chatListOffset is the row of the chat list the window starts at,
+	// where -1 means the window is placed for the chat under the cursor
+	// alone, as it was before the list learned to move on its own.
+	//
+	// It is a field of the model and not of the view because the view
+	// cannot write it back: it is what keeps the row of the screen the
+	// user was reading on the chat they were reading when a chat above it
+	// received a message. See chatListWindow.
+	chatListOffset int
+
+	// live is the live Telegram state, and liveWaitArmed says a wait for
+	// its next change is on its way.
+	//
+	// livePaintedAt is when the screen was last drawn from a change, and
+	// liveRepaintDue says a redraw that a burst of changes is owed is
+	// already on its way. Together they are what keeps a channel with a
+	// hundred messages a second from painting a hundred frames a second:
+	// the changes are coalesced into one redraw (live_source.go).
+	//
+	// liveCursors is the message event cursor of every chat the interface
+	// has read the events of.
+	live           ChatLiveSource
+	liveWaitArmed  bool
+	livePaintedAt  time.Time
+	liveRepaintDue bool
+	liveCursors    map[int64]uint64
+
+	// newBelow counts the messages that arrived below the window of the
+	// open conversation while the reader was reading something older.
+	//
+	// It is a count and not a flag because the line at the bottom of the
+	// feed says how many there are, and a reader who has scrolled up to
+	// find something is owed the number before the words.
+	newBelow int
+
 	// chatSearch is the search of §9: the line above the list, the query
 	// in it, and the list it narrows. It is a value on the model rather
 	// than a screen, for the reason the action sheet is one: it is drawn
@@ -417,15 +452,17 @@ func (m Model) Theme() (theme.Theme, theme.Profile) {
 // Color on a terminal that cannot show it would be neither.
 func NewModel() Model {
 	return Model{
-		screen:       ScreenChats,
-		focus:        FocusChatList,
-		ctx:          context.Background(),
-		chats:        mockChats(),
-		chatsState:   loadStateLoaded,
-		historyState: loadStateIdle,
-		sendState:    sendStateIdle,
-		theme:        theme.DefaultTheme(),
-		colorProfile: theme.ProfileNoColor,
+		screen:         ScreenChats,
+		focus:          FocusChatList,
+		ctx:            context.Background(),
+		chats:          mockChats(),
+		chatsState:     loadStateLoaded,
+		historyState:   loadStateIdle,
+		sendState:      sendStateIdle,
+		theme:          theme.DefaultTheme(),
+		colorProfile:   theme.ProfileNoColor,
+		chatListOffset: liveOffsetUnset,
+		liveCursors:    map[int64]uint64{},
 		// A model built without a measurement counts by code points, which
 		// is what a terminal nobody could ask is drawn with.
 		widths: termwidth.Unmeasured(termwidth.ModeAuto),
@@ -447,17 +484,19 @@ func NewModel() Model {
 // chatsLoadedMsg arrives.
 func NewModelWithSource(source ChatSource) Model {
 	return Model{
-		screen:       ScreenChats,
-		focus:        FocusChatList,
-		source:       source,
-		ctx:          context.Background(),
-		chatsState:   loadStateLoading,
-		historyState: loadStateIdle,
-		sendState:    sendStateIdle,
-		colorProfile: theme.ProfileNoColor,
-		widths:       termwidth.Unmeasured(termwidth.ModeAuto),
-		now:          time.Now,
-		location:     time.Local,
+		screen:         ScreenChats,
+		focus:          FocusChatList,
+		source:         source,
+		ctx:            context.Background(),
+		chatsState:     loadStateLoading,
+		historyState:   loadStateIdle,
+		sendState:      sendStateIdle,
+		colorProfile:   theme.ProfileNoColor,
+		chatListOffset: liveOffsetUnset,
+		liveCursors:    map[int64]uint64{},
+		widths:         termwidth.Unmeasured(termwidth.ModeAuto),
+		now:            time.Now,
+		location:       time.Local,
 	}.withRenderer(theme.ProfileNoColor)
 }
 
@@ -478,6 +517,11 @@ func (m Model) withRenderer(profile theme.Profile) Model {
 // The delivery poll starts here rather than when a chat is opened: the
 // status line is in the chat list header on a narrow screen, where no chat
 // is open, and the queue it counts is the program's rather than a chat's.
+//
+// The wait for the first change of the live state starts here for the same
+// reason: the list it draws is on the screen from the first frame, and a
+// subscription that began when a chat was opened would have a chat list
+// that is quiet until somebody opens something.
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
 	if m.source != nil && m.chatsState == loadStateLoading {
@@ -487,6 +531,9 @@ func (m Model) Init() tea.Cmd {
 			listChatsCmd(m.source),
 			scheduleChatsLoadDeadline(m.chatsLoadOperation),
 		)
+	}
+	if m.live != nil && m.liveWaitArmed {
+		cmds = append(cmds, waitLiveCmd(m.live, m.ctx))
 	}
 	if cmd := m.pollDeliverySources(); cmd != nil {
 		cmds = append(cmds, cmd)
@@ -560,6 +607,12 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case chatsLoadDeadlineMsg:
 		return m.updateChatsLoadDeadline(msg)
+
+	case liveChangedMsg:
+		return m.updateLiveChanged(msg)
+
+	case liveRepaintDueMsg:
+		return m.updateLiveRepaintDue(msg)
 
 	case presenceExpiredMsg:
 		return m.handlePresenceExpired(msg)

@@ -125,10 +125,29 @@ func readContentLabel(content json.RawMessage) contentLabel {
 // of a chat list goes, and because a preview of "[sticker 😀]" has to be the
 // same sentence the feed draws.
 func (l contentLabel) line() string {
-	if l.service != "" {
-		return l.service
+	return Message{Media: l.word, MediaDetail: l.detail, Caption: l.caption,
+		Service: l.service}.PreviewLine()
+}
+
+// PreviewLine is the second line of a chat's row: what the last message of
+// a chat was, in the words of the interface.
+//
+// The words of a message are its own when it has any, and the label of what
+// it carries when it does not, composed exactly as the feed composes it. A
+// preview that said something else would be a chat list disagreeing with
+// the conversation beside it about the same message.
+//
+// It is on the message rather than on the label because a message arrives
+// from two directions — a page of history and a live update — and both have
+// to say the same thing about it.
+func (m Message) PreviewLine() string {
+	if m.Text != "" {
+		return m.Text
 	}
-	if l.word == "" {
+	if m.Service != "" {
+		return m.Service
+	}
+	if m.Media == "" {
 		// A message that carries nothing and says nothing is a message
 		// with no words to put in a row: an empty pair of brackets is a
 		// row of brackets, and the row before this one had the text of
@@ -136,12 +155,12 @@ func (l contentLabel) line() string {
 		return ""
 	}
 
-	line := "[" + l.word + l.detail + "]"
-	if l.caption == "" {
+	line := "[" + m.Media + m.MediaDetail + "]"
+	if m.Caption == "" {
 		return line
 	}
 
-	return line + " " + l.caption
+	return line + " " + m.Caption
 }
 
 // messageTexts are the @types of a message whose own words are the message.

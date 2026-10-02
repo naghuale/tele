@@ -392,8 +392,14 @@ func prepareDeliveryAuthResult(
 		)
 	}
 
+	// The chat list that moves on its own. It is asked of TDLib before the
+	// interface starts, because a store nobody has asked for a list in is
+	// empty and there is nothing live to read from it.
+	liveUpdates := liveChatUpdatesFor(ctx, session, settings.logger)
+
 	return AuthRunResult{
 		Source:           NewTelegramChatServiceFor(session, ownUserID),
+		LiveUpdates:      liveUpdates,
 		Submitter:        tuiSubmitter,
 		AccountKey:       accountKey,
 		MessageStatuses:  newTUIMessageStatusSourceAdapter(delivery.StatusSource()),
@@ -425,6 +431,77 @@ func prepareDeliveryAuthResult(
 	}, nil
 }
 
+// liveChatUpdatesFor builds the adapter over the live store of a session and
+// asks TDLib for the chat list that fills it.
+//
+// A store that cannot be built is not a failure of the program: the list is
+// loaded at startup, `R` loads it again, and the interface says in its
+// status line that the list is not moving by itself. That sentence is why a
+// nil here is allowed to reach the model rather than stopping the start.
+func liveChatUpdatesFor(
+	ctx context.Context,
+	session LiveChatSession,
+	logger *slog.Logger,
+) tui.ChatLiveSource {
+	if session == nil {
+		return nil
+	}
+
+	store := session.LiveState()
+	if store == nil {
+		return nil
+	}
+
+	// The two capabilities of a session that the chat list needs are asked
+	// for by what it can answer, the same way the chat service asks for the
+	// names it reads. A session that can answer neither still has a live
+	// list: it is one that never moves, and the status line says so.
+	adapter, err := NewTelegramLiveUpdates(store, senderNamesOf(session))
+	if err != nil {
+		return nil
+	}
+
+	loader, canLoad := session.(LiveChatLoader)
+	if !canLoad {
+		return adapter
+	}
+
+	// The refusal goes to the log and not to the screen: the cause can
+	// name a file and a path, and the status line says what a user can do
+	// about it (R reloads the list) rather than why it failed.
+	if err := adapter.Load(ctx, loader, nil); err != nil && logger != nil {
+		logger.Warn(
+			"telegram live chat list not loaded",
+			slog.String("error", outbox.SafeReason(err)),
+		)
+	}
+
+	return adapter
+}
+
+// LiveChatSession is the part of a session the live chat list is built from.
+//
+// It is one method rather than the whole deliverySession because the live
+// list needs three things of a session and none of the rest: the store, the
+// names of whoever sent a message, and the question that fills the store
+// with a chat list. The last two are asked of the session by what it can
+// answer, so a session that has neither still has a live list — one that
+// never moves, which the interface says in its status line.
+type LiveChatSession interface {
+	LiveState() *telegram.LiveState
+}
+
+// senderNamesOf returns the reader of names a session can answer with, or
+// nil where it cannot.
+func senderNamesOf(session LiveChatSession) TelegramSenderNames {
+	names, canName := session.(TelegramSenderNames)
+	if !canName {
+		return nil
+	}
+
+	return names
+}
+
 // sendingPausedAuthResult builds the result for a session whose durable
 // outbox could not be opened.
 //
@@ -440,6 +517,11 @@ func sendingPausedAuthResult(
 ) AuthRunResult {
 	reason := classifySendingPaused(openErr)
 	paused := &SendingPausedError{reason: reason, cause: openErr}
+
+	// Only sending is paused. The chat list is read from Telegram and the
+	// conversation is read from it, so a paused queue does not stop the
+	// list from moving either.
+	liveUpdates := liveChatUpdatesFor(context.Background(), session, nil)
 
 	accountKey := deliveryAccountKey(cfg)
 
@@ -459,6 +541,7 @@ func sendingPausedAuthResult(
 
 	return AuthRunResult{
 		Source:          NewTelegramChatServiceFor(session, ownUserID),
+		LiveUpdates:     liveUpdates,
 		Submitter:       tuiSubmitter,
 		AccountKey:      accountKey,
 		MessageStatuses: nil,

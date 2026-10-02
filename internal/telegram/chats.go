@@ -407,10 +407,15 @@ func parseLastMessage(raw json.RawMessage) (MessageID, string, time.Time) {
 
 	id := MessageID(msg.ID)
 	sent := instantOf(int64(msg.Date))
+	label := readContentLabel(msg.Content)
 
-	if text := extractMessageText(msg.Content); text != "" {
-		return id, text, sent
-	}
-
-	return id, readContentLabel(msg.Content).line(), sent
+	return id, Message{
+		ID:          id,
+		Timestamp:   sent,
+		Text:        extractMessageText(msg.Content),
+		Media:       label.word,
+		MediaDetail: label.detail,
+		Caption:     label.caption,
+		Service:     label.service,
+	}.PreviewLine(), sent
 }

@@ -43,15 +43,77 @@ func (m Model) chatListLines(layout Layout, width, height int) []string {
 		return append(lines, m.chatListEmptyLines(layout, width)...)
 	}
 
-	budget := height - layout.hintLines() - len(lines)
+	budget := height - layout.hintLines() - chatListHeaderHeight
 
-	start, end := visibleRange(len(rows), selected, budget/m.chatListRowHeight(layout))
+	start, end := m.chatListWindow(
+		len(rows), selected, budget/m.chatListRowHeight(layout),
+	)
 
 	for index := start; index < end; index++ {
 		lines = append(lines, rows[index]...)
 	}
 
 	return lines
+}
+
+// chatListHeaderHeight is how many rows of the pane the header takes: the
+// title with the unread count, the row of the search and the rule that says
+// which pane has the keys.
+//
+// It is a constant and not the length of the slice the header is built
+// into, because the model asks the same question when it has to know how
+// many chats are on the screen — which is how the window keeps the chat
+// under the cursor on its row while the list is reordered underneath it.
+const chatListHeaderHeight = 3
+
+// chatListWindow returns which rows of the chat list the screen draws.
+//
+// It is the window of §10.5 asked of the list: the chat under the cursor is
+// on the screen, and the window is filled around it. The offset is what
+// makes that true while the list moves under the cursor: a chat that
+// arrives at the top of the list pushes every row below it down, and a
+// window that was placed for the old order would show a different chat at
+// the row the user was reading.
+//
+// The offset is kept rather than recomputed, and it is given up in two
+// cases: when the chat under the cursor is no longer one of the rows it
+// holds — the cursor has to be somewhere the user can see — and when the
+// window has never been placed at all, which is the zero value a model
+// starts with. Both answer the question of §10.5 as it was answered
+// before, which is the point: the offset only ever keeps a row where it was.
+func (m Model) chatListWindow(total, selected, available int) (int, int) {
+	start, end := visibleRange(total, selected, available)
+	if available <= 0 || m.chatListOffset < 0 {
+		return start, end
+	}
+
+	offset := minInt(maxInt(m.chatListOffset, 0), maxInt(total-available, 0))
+	if selected < offset || selected >= offset+available {
+		return start, end
+	}
+
+	return offset, minInt(offset+available, total)
+}
+
+// chatListVisibleRows returns how many chats the screen shows at the size
+// the model has.
+//
+// It is asked of the same budget the rows are drawn into, so the window and
+// the drawing cannot disagree about how many rows there are.
+func (m Model) chatListVisibleRows(layout Layout) int {
+	height := m.chatListHeight(layout)
+	budget := height - layout.hintLines() - chatListHeaderHeight
+
+	return maxInt(budget/m.chatListRowHeight(layout), 0)
+}
+
+// chatListHeight returns how many rows the chat list pane takes.
+func (m Model) chatListHeight(layout Layout) int {
+	if layout.TwoPane() {
+		return layout.Height
+	}
+
+	return layout.Height - len(m.hintLines(layout, layout.FullContentWidth()))
 }
 
 // chatListHeadingLine is the first line of the header: the title of the

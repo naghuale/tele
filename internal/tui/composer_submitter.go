@@ -115,6 +115,16 @@ type Dependencies struct {
 	// a program that has no Telegram to ask.
 	MessageViewer MessageViewer
 
+	// LiveUpdates is optional, and it is what makes the chat list a list
+	// that moves.
+	//
+	// It is told nothing and asked for everything: the interface waits for
+	// the change signal, reads the state and draws it. A nil source is a
+	// program whose list was loaded once at startup and is loaded again
+	// with `R`, and the status line says that the list does not update
+	// itself.
+	LiveUpdates ChatLiveSource
+
 	// Diagnostics, when non-nil, receives the causes the screen must not
 	// show: why a message could not be queued, why the chat list could not
 	// be read.
@@ -209,6 +219,13 @@ func NewModelWithDependencies(
 	}
 	model.presenceOpener = deps.PresenceOpener
 	model.messageViewer = deps.MessageViewer
+	model.live = deps.LiveUpdates
+	// The first wait for a change is armed here rather than in Init,
+	// which returns commands and cannot carry a flag back to the model
+	// that asked for them. Everything after it is armed by the change
+	// itself, so there is one wait at a time for as long as the program
+	// runs.
+	model.liveWaitArmed = deps.LiveUpdates != nil && deps.LiveUpdates.Available()
 	model.diagnostics = deps.Diagnostics
 	model.theme = deps.Theme
 	model.colorProfile = deps.ColorProfile

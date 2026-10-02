@@ -59,6 +59,7 @@ func (m Model) timelinePageSize() int {
 func (m Model) timelineRows(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
 	rows -= m.olderPageLineCount()
+	rows -= m.newMessagesLineCount(layout, width)
 
 	return maxInt(rows, 0)
 }
@@ -83,6 +84,20 @@ const conversationHeaderRows = 2
 // right: a window measured against one budget and drawn into another is a
 // window with empty rows above it or a message cut in half at the top.
 func (m Model) historyFeedRows(layout Layout, width int) int {
+	rows := m.historyFeedRowsBase(layout, width)
+	rows -= m.newMessagesLineCount(layout, width)
+
+	return maxInt(rows, 0)
+}
+
+// historyFeedRowsBase is the budget of the feed before the line of new
+// messages is taken out of it.
+//
+// The two are apart because the line is only drawn when there is something
+// below the window, and deciding that asks how many rows the window ends
+// with — which is this number. One question cannot be asked through the
+// other without asking itself.
+func (m Model) historyFeedRowsBase(layout Layout, width int) int {
 	rows := m.conversationRegionHeight(layout, width) - conversationHeaderRows
 	rows -= len(m.statusBlockLines(layout, width))
 	rows -= m.olderPageLineCount()
@@ -333,11 +348,17 @@ func (m Model) scrollToNewest() Model {
 	if total == 0 {
 		m.selectedMsg = 0
 		m.timelineTop, m.timelineCut = 0, 0
+		m.newBelow = 0
 
 		return m
 	}
 
 	m.selectedMsg = total - 1
+	// The reader is at the newest message, so there is nothing below the
+	// window to be told about: the line at the bottom of the feed is a
+	// claim about a position in the conversation, and this is the key that
+	// ends it (`G`, End, opening the chat, sending a message).
+	m.newBelow = 0
 
 	return m.anchorAtNewest()
 }
@@ -369,6 +390,12 @@ func (m Model) moveTimelineCursor(delta int) Model {
 	}
 
 	m.selectedMsg = minInt(maxInt(m.selectedMsg+delta, 0), total-1)
+	if m.timelineFollowsNewest() {
+		// Walking down to the newest message is the same thing `G` does:
+		// there is nothing left below the window, and a line that says
+		// there is would be claiming otherwise.
+		m.newBelow = 0
+	}
 
 	return m.scrollCursorIntoView()
 }

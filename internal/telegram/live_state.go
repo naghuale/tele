@@ -53,6 +53,22 @@ type LiveChat struct {
 	Order       int64
 	UnreadCount int
 	LastMessage *Message
+
+	// Pinned is the is_pinned of the chat's chatListMain position, and it
+	// is what puts a chat above the rest however old its last message is.
+	// The flag is on the position rather than on the chat in TDLib's
+	// schema, so a chat that is pinned in a folder and not in the main
+	// list is not pinned here.
+	Pinned bool
+
+	// Grouped says that the chat has more than one person in it, which is
+	// what a row and a presence both need to know about it.
+	//
+	// It is one word and not the type of the chat: the store reads the
+	// type to know what the presence of the other side is read from, and
+	// is_channel is not part of that question. A chat it has not been told
+	// the type of is not grouped.
+	Grouped bool
 }
 
 // liveChatEntry is the store's own mutable record for one chat.
@@ -65,6 +81,7 @@ type liveChatEntry struct {
 	Title       string
 	Order       int64
 	inMain      bool
+	Pinned      bool
 	UnreadCount int
 	lastMessage *Message
 
@@ -155,9 +172,15 @@ func (l *LiveState) Changed() <-chan struct{} {
 	return l.changed
 }
 
-// ChatList returns a copy of the main chat list, ordered by position
-// order descending and then by chat ID descending, which is the order
-// TDLib documents for chatPosition.
+// ChatList returns a copy of the main chat list, ordered the way Telegram
+// orders it: pinned chats first in the order of their positions, then the
+// rest by position order descending, with ties broken by chat ID
+// descending.
+//
+// The order of a chat is the order of its chatPosition and its is_pinned
+// together, which is what TDLib documents for chatPosition (td_api.tl:3545)
+// and what the interface has to draw: a chat a person pinned stays where
+// they put it, and everything else moves by the time of its last message.
 //
 // Chats without a chatListMain position, or whose order is 0, are
 // excluded. The returned slice and the messages in it are copies and are
@@ -177,6 +200,9 @@ func (l *LiveState) ChatList() []LiveChat {
 	l.mu.RUnlock()
 
 	sort.Slice(chats, func(i, j int) bool {
+		if chats[i].Pinned != chats[j].Pinned {
+			return chats[i].Pinned
+		}
 		if chats[i].Order != chats[j].Order {
 			return chats[i].Order > chats[j].Order
 		}
@@ -314,6 +340,7 @@ type livePatch struct {
 	setMain bool
 	inMain  bool
 	order   int64
+	pinned  bool
 
 	// setChatType carries the type of a chat and the user on the other
 	// side of it, which is what its presence is read from.
@@ -343,6 +370,7 @@ func (p livePatch) applyTo(base *liveChatEntry) *liveChatEntry {
 	if p.setMain {
 		after.inMain = p.inMain
 		after.Order = p.order
+		after.Pinned = p.pinned
 	}
 	if p.setChatType {
 		after.chatKind = p.chatKind
@@ -356,8 +384,9 @@ func (e *liveChatEntry) equal(other *liveChatEntry) bool {
 	if e.Title != other.Title ||
 		e.Order != other.Order ||
 		e.inMain != other.inMain ||
-		e.UnreadCount != other.UnreadCount ||
+		e.Pinned != other.Pinned ||
 		e.chatKind != other.chatKind ||
+		e.UnreadCount != other.UnreadCount ||
 		e.peerUserID != other.peerUserID ||
 		e.onlineMemberCount != other.onlineMemberCount {
 		return false
@@ -380,6 +409,8 @@ func (e *liveChatEntry) clone() LiveChat {
 		Title:       e.Title,
 		Order:       e.Order,
 		UnreadCount: e.UnreadCount,
+		Pinned:      e.Pinned,
+		Grouped:     e.chatKind == chatKindGroup,
 	}
 	if e.lastMessage != nil {
 		message := *e.lastMessage
@@ -608,6 +639,7 @@ func decodeChatPositionPatch(raw RawMessage) (livePatch, bool, error) {
 		setMain: true,
 		inMain:  true,
 		order:   order,
+		pinned:  position.IsPinned,
 	}, true, nil
 }
 
@@ -667,6 +699,7 @@ func (p *livePatch) applyPositions(raw json.RawMessage) error {
 		p.setMain = true
 		p.inMain = true
 		p.order = order
+		p.pinned = position.IsPinned
 		return nil
 	}
 
@@ -709,6 +742,12 @@ type liveMessageRaw struct {
 	IsOutgoing bool            `json:"is_outgoing"`
 	Date       tdInt           `json:"date"`
 	Content    json.RawMessage `json:"content"`
+
+	// SenderID is who sent the message, as TDLib reports it: an identifier
+	// and a kind, and never the name of a person (#41). The interface
+	// needs it to sign a message in a group, and the name is read from
+	// TDLib when the message is about to be drawn.
+	SenderID json.RawMessage `json:"sender_id"`
 }
 
 // decodeLiveMessage turns a raw last_message into a Message, or nil when
@@ -763,6 +802,7 @@ func parseLiveMessage(raw json.RawMessage) (Message, error) {
 		Outgoing:    message.IsOutgoing,
 		Timestamp:   instantOf(int64(message.Date)),
 		Text:        extractMessageText(message.Content),
+		Sender:      parseMessageSender(message.SenderID),
 		Media:       label.word,
 		MediaDetail: label.detail,
 		Caption:     label.caption,

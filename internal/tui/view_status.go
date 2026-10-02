@@ -229,17 +229,46 @@ func (m Model) statusParts() []statusPart {
 		parts = append(parts, statusPart{text: connection, style: style})
 	}
 
-	queue := m.summary.Queue
-	if !queue.Known {
+	queue := m.queueStatusParts()
+	if len(queue) == 0 && !m.liveListUnavailable() {
 		return parts
 	}
 
-	// The counts of a queue nothing can be queued into would be a lie about
-	// that queue, so they go while sending is paused (decision 3). The
-	// presence and the connection stay: they are not counts.
-	if m.pausedErr != nil {
-		return parts
+	parts = append(parts, queue...)
+
+	// The live list is said last, because it is the only part of the line
+	// a user cannot do anything about but press a key for. Everything above
+	// it is about the state of the program, and a line that spends its
+	// room on "the list does not move by itself" while the connection is
+	// down is a line about the wrong thing.
+	if m.liveListUnavailable() {
+		parts = append(parts, statusPart{
+			text:  liveListUnavailableText,
+			style: styles.text(m.tokens().StatusWarning),
+		})
 	}
+
+	return parts
+}
+
+// queueStatusParts returns the counts of the durable queue, and nothing at
+// all for a queue that could not be read or one nothing can be queued into.
+//
+// A queue that could not be read is not a queue with nothing in it, and a
+// line that says "0 queued" for a store it failed to open tells a user
+// their messages are gone. The counts go while sending is paused as well
+// (decision 3), because they are counts of a queue nobody can write to; the
+// presence and the connection stay, because they are not counts.
+func (m Model) queueStatusParts() []statusPart {
+	queue := m.summary.Queue
+	if !queue.Known || m.pausedErr != nil {
+		return nil
+	}
+
+	styles := m.styles()
+	quiet := styles.dimmed(m.tokens().SecondaryText)
+
+	var parts []statusPart
 
 	if queue.Recovering {
 		parts = append(parts, statusPart{
@@ -261,6 +290,22 @@ func (m Model) statusParts() []statusPart {
 	}
 
 	return parts
+}
+
+// liveListUnavailable reports whether the chat list is not following
+// Telegram.
+//
+// It is asked rather than remembered, because a list that has not changed
+// and a list that cannot change look the same from here and only one of
+// them is worth a line on the screen. A program with no live state is not
+// one of them: a mock screen has no Telegram to follow, and a line saying
+// so on it would be about a program nobody runs.
+func (m Model) liveListUnavailable() bool {
+	if m.source == nil {
+		return false
+	}
+
+	return m.live == nil || !m.live.Available()
 }
 
 // connectionStatusText is what the interface calls a connection state.
@@ -298,6 +343,18 @@ const (
 	// says that something is happening instead of leaving an empty queue
 	// unexplained.
 	recoveringMessagesText = "Recovering interrupted messages…"
+
+	// liveListUnavailableText is said when the chat list cannot follow
+	// Telegram on its own.
+	//
+	// It names what is missing and the key that does something about it,
+	// like every other sentence of §18: the list was loaded at startup and
+	// `R` loads it again, so a user who does not like what they see has
+	// something to press. A status line that said "no live updates" would
+	// be about the program; this one is about the list and about the key.
+	//
+	// The wording is in step with docs/help/chat-list.md.
+	liveListUnavailableText = "list does not update itself · R to reload"
 )
 
 // statusStyle is the style of the whole block.

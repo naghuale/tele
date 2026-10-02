@@ -48,6 +48,13 @@ type AuthRunResult struct {
 	Source    tui.ChatSource
 	Submitter tui.ComposerSubmitter
 
+	// LiveUpdates is the live Telegram state the chat list is drawn from,
+	// and it is nil in a program that has no session to read it from: the
+	// list is then loaded once at startup and `R` loads it again, and the
+	// interface says in its status line that the list is not moving by
+	// itself.
+	LiveUpdates tui.ChatLiveSource
+
 	// AccountKey is the stable account identifier used for delivery status
 	// reads.
 	AccountKey string
@@ -466,6 +473,7 @@ func (a *App) RunTUI(ctx context.Context) error {
 					tui.Dependencies{
 						Source:           authResult.Source,
 						MessageSubmitter: authResult.Submitter,
+						LiveUpdates:      authResult.LiveUpdates,
 						AccountKey:       authResult.AccountKey,
 						MessageStatuses:  authResult.MessageStatuses,
 						PendingMessages:  authResult.PendingMessages,

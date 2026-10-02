@@ -69,6 +69,7 @@ func conversationWithPending(
 		MessageSubmitter: &recordingSubmitter{},
 		PendingMessages:  source,
 		AccountKey:       "account-1",
+		LiveUpdates:      newFakeLiveSource(),
 		Theme:            theme.DefaultTheme().ForProfile(profile),
 		ColorProfile:     profile,
 	})

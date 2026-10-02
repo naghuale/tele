@@ -256,6 +256,13 @@ func snapshotModel(
 	if deps.Source == nil {
 		deps.Source = &fakeChatSource{}
 	}
+	// Every golden is a program with Telegram behind it, and a program
+	// with Telegram has a live chat list: the status line says when it
+	// has not got one, and a golden without a live source would carry
+	// that sentence on every screen (fakeLiveSource).
+	if deps.LiveUpdates == nil {
+		deps.LiveUpdates = newFakeLiveSource()
+	}
 
 	built := theme.DefaultTheme()
 	if f.theme != "" {
@@ -629,7 +636,164 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotThreeDaysTwelveHour", func(t *testing.T) Model {
 			return snapshotThreeDaysTwelveHour(t, wide(theme.ProfileTrueColor))
 		}},
+		{"TestSnapshotLiveChatListBeforeAMessage", func(t *testing.T) Model {
+			return snapshotLiveChatList(t, wide(theme.ProfileTrueColor), false)
+		}},
+		{"TestSnapshotLiveChatListAfterAMessage", func(t *testing.T) Model {
+			return snapshotLiveChatList(t, wide(theme.ProfileTrueColor), true)
+		}},
+		{"TestSnapshotLiveNewMessagesBelow", func(t *testing.T) Model {
+			return snapshotLiveNewMessagesBelow(t, conversation(theme.ProfileTrueColor))
+		}},
 	}
+}
+
+// liveSnapshotChats is the list the two screens of the live update are
+// drawn over. The order is the order Telegram keeps: the newest message of a
+// chat at the top, and the pinned chat above that.
+func liveSnapshotChats() []Chat {
+	return []Chat{
+		{ID: 1, Title: "Anna Example", Unread: 2, At: snapshotClock.Add(-2 * time.Minute),
+			Preview: "the build is green again"},
+		{ID: 2, Title: "Release Room", At: snapshotClock.Add(-5 * time.Minute),
+			Preview: "the tag is pushed", Kind: ChatKindGroup},
+		{ID: 3, Title: "Xiaomi News", Unread: 12, At: snapshotClock.Add(-40 * time.Minute),
+			Preview: "the firmware is out", Kind: ChatKindChannel},
+	}
+}
+
+// snapshotLiveChatList is the chat list before a message arrives and after
+// it has: the same screen, one update apart.
+//
+// The two are goldens rather than one because the whole of this change is
+// the difference between them, and a golden of one of them cannot show it.
+// The chat that receives the message is in the middle of the list and goes
+// to the top of it, so the diff is the row that moved and nothing else.
+func snapshotLiveChatList(t *testing.T, f snapshotFixture, after bool) Model {
+	t.Helper()
+
+	f.chats = liveSnapshotChats()
+	m := snapshotChatList(t, f)
+	// The cursor stands on a chat in the middle of the list, which is
+	// where a reader is when the list moves under them.
+	m.selectedChat = 1
+
+	if !after {
+		return m
+	}
+
+	live := newFakeLiveSource()
+	m.live = live
+	live.setChats([]LiveChat{
+		{
+			ID: 2, Title: "Release Room", Unread: 1,
+			Preview: "Marta: the notes are in the channel",
+			At:      snapshotClock, Kind: ChatKindGroup,
+		},
+		{
+			ID: 1, Title: "Anna Example", Unread: 2,
+			Preview: "the build is green again",
+			At:      snapshotClock.Add(-2 * time.Minute),
+		},
+		{
+			ID: 3, Title: "Xiaomi News", Unread: 12,
+			Preview: "the firmware is out",
+			At:      snapshotClock.Add(-40 * time.Minute), Kind: ChatKindChannel,
+		},
+	})
+
+	return drawLive(t, m)
+}
+
+// liveSnapshotMessages is one page of the conversation of the group, newest
+// first, the way TDLib answers it.
+//
+// It is longer than the feed so that a reader can scroll up out of the
+// newest message: a window that still ends with the newest one has nothing
+// below it, and the line at the bottom of the feed would have nothing to
+// point at.
+func liveSnapshotMessages() []Message {
+	texts := []string{
+		"the build is green again",
+		"I will take the release notes",
+		"the notes are in the channel",
+		"the tag is pushed",
+		"who is on the review this week?",
+		"Anna and I are",
+		"the changelog is open",
+		"thank you both",
+		"the release is at 14:00",
+		"the notes are in the channel",
+		"good, thank you",
+		"I will take the release notes",
+	}
+
+	page := make([]Message, 0, len(texts))
+	for index, text := range texts {
+		message := Message{
+			ID:     int64(index + 1),
+			Text:   text,
+			At:     snapshotClock.Add(-time.Duration(len(texts)-index) * time.Minute),
+			Author: "Marta", AuthorID: 21,
+		}
+		if index == 7 {
+			message.Outgoing = true
+			message.Author = ""
+		}
+		page = append(page, message)
+	}
+
+	return page
+}
+
+// snapshotLiveNewMessagesBelow is a conversation a reader has scrolled up
+// in, with a message that arrived underneath them while they were there.
+//
+// The line at the bottom of the feed is the whole of this screen: the feed
+// stays where the reader left it, and the line says what they are missing
+// and which key takes them there.
+func snapshotLiveNewMessagesBelow(t *testing.T, f snapshotFixture) Model {
+	t.Helper()
+
+	f.chats = liveSnapshotChats()
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+
+	// The conversation of the group, which is where a message names its
+	// sender and where a reader scrolls up to read what was said before.
+	group := liveSnapshotChats()[1]
+	m.selectedChat = 1
+
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    group.ID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: liveSnapshotMessages()},
+	})
+	m = m.scrollToNewest()
+
+	// The reader walks up into the history, and a message arrives below
+	// them while they are there. The conversation is longer than the feed,
+	// because a window that ends with the newest message has nothing below
+	// it to point at.
+	m, _ = updateModel(t, m, press(tea.KeyEsc))
+	for range 12 {
+		m, _ = updateModel(t, m, pressRunes("k"))
+	}
+
+	live := newFakeLiveSource()
+	m.live = live
+	live.setEvents(group.ID, LiveMessageEvents{
+		Cursor: 1,
+		Events: []LiveMessageEvent{{
+			Kind: LiveMessageAdded,
+			Message: Message{
+				ID: 13, Text: "the review is open until Friday",
+				At: snapshotClock.Add(-time.Minute), Author: "Marta", AuthorID: 21,
+			},
+		}},
+	})
+
+	return drawLive(t, m)
 }
 
 // snapshotGroup is a conversation with several people in it: every message
@@ -1546,6 +1710,24 @@ func TestSnapshotThreeDaysWithUnread(t *testing.T) {
 // east of Greenwich read 8:06 AM where telecli used to say 20:06.
 func TestSnapshotThreeDaysTwelveHour(t *testing.T) {
 	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotThreeDaysTwelveHour"))
+}
+
+// The chat list before a message arrives and after it has. The chat that
+// received it goes to the top of the list, its row carries the words of the
+// message and the moment of it, and the cursor is still on the chat the
+// reader was on.
+func TestSnapshotLiveChatListBeforeAMessage(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLiveChatListBeforeAMessage"))
+}
+
+func TestSnapshotLiveChatListAfterAMessage(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLiveChatListAfterAMessage"))
+}
+
+// A message that arrived under a reader who has scrolled up: the feed is
+// where they left it and the line at the bottom says what is below it.
+func TestSnapshotLiveNewMessagesBelow(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLiveNewMessagesBelow"))
 }
 
 // No golden draws a half block, and neither does the program: a half block

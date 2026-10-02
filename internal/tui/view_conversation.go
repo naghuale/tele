@@ -111,13 +111,20 @@ func (m Model) conversationRegion(
 	// message.
 	header = append(header, m.olderPageLines(layout, width)...)
 
-	rows := maxInt(height-len(header), 0)
+	// The line of new messages is at the bottom of the feed, above the
+	// composer: it is about what is below the window, so it is drawn where
+	// the window ends rather than where the conversation begins. The rows
+	// it takes are taken out of the feed the same way the line an older
+	// page occupies is (olderPageLineCount), so the window is placed
+	// against the rows that are really there.
+	newBelow := m.newMessagesLines(layout, width)
+	rows := maxInt(height-len(header)-len(newBelow), 0)
 	body := anchorTimelineToBottom(m.timelineBody(layout, width, rows), rows)
 
 	return m.renderRegion(
 		styles.conversation,
 		width,
-		append(header, body...),
+		append(append(header, body...), newBelow...),
 		height,
 	)
 }

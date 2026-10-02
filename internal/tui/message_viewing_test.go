@@ -100,6 +100,7 @@ func viewingModelWithLog(
 		Source:           source,
 		MessageSubmitter: &recordingSubmitter{},
 		PresenceOpener:   &recordingOpener{},
+		LiveUpdates:      newFakeLiveSource(),
 		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
 		ColorProfile:     theme.ProfileNoColor,
 	}

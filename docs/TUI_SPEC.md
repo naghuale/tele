@@ -265,11 +265,12 @@ type Tokens struct {
     StatusUncertain Color
     StatusCanceled  Color
 
-    IncomingMessage Color
-    OutgoingMessage Color
-    CodeBackground  Color
-    Cursor          Color
-    Selection       Color
+    IncomingMessage    Color
+    OutgoingMessage    Color
+    CodeBackground     Color
+    SeparatorBackground Color
+    Cursor             Color
+    Selection          Color
 }
 ```
 
@@ -726,18 +727,41 @@ help/message-labels.md](help/message-labels.md).
 над ней: они входят в высоту записи, по которой размещается окно (§10.5,
 `anchoredAt`).
 
-**Разделитель дня** — по центру ленты, `MutedText`, одна строка, перед
-первым сообщением каждого календарного дня **в зоне читателя**:
+**Разделитель дня** — **пилюля** по центру ленты, перед первым сообщением
+каждого календарного дня **в зоне читателя**:
 
 ```text
-                     Yesterday
+пустая строка фона ленты
+                      [ Yesterday ]
                        Anna Example  09:12
                        the notes are in the release
+пустая строка фона ленты
 
-                         Today
+                          [ Today ]
                        Anna Example  08:15
                        the build is green again
+пустая строка фона ленты
 ```
+
+`[ Yesterday ]` — это пилюля: своя фоновая полоса шириной в слова плюс
+колонка воздуха с каждой стороны, слова в ней `PrimaryText`, и всё это по
+центру ленты.
+
+Рамок у пилюли нет (§3.3) — есть своя фоновая полоса. И не во всю ширину
+ленты: полоса во всю строку говорит, что строка целиком принадлежит одному
+делу, а день не принадлежит ни одному сообщению в ней.
+
+`SeparatorBackground` — ступень выше фона блока на той же лестнице
+поверхностей: своя у ленты (1.83–2.06:1), своя у блока сообщения
+(1.31–1.38:1), а слова на ней проходят ту же планку WCAG AA, что и весь
+остальной текст (`TestTheSeparatorPillIsAPillOfItsOwn`).
+
+Так было не всегда (замечание владельца 02.10 на реальном аккаунте): строка
+приглушённых слов у левого края на фоне ленты — это ровно форма строки
+переписки, и на экране ничто не говорит, что это не сообщение. Проверяются
+все четыре свойства вместе, а не только цвет: слово по центру на фоне ленты —
+это всё ещё слова внутри ленты, а пилюля цвета блоков — сообщение с пустотой
+внутри.
 
 Название дня — лестница, а не календарь:
 
@@ -746,8 +770,12 @@ help/message-labels.md](help/message-labels.md).
 | сегодня | `Today` |
 | вчера | `Yesterday` |
 | 2–6 дней | день недели: `Monday` |
-| этот год | `Jan 2` |
-| раньше | `Jan 2, 2006` |
+| этот год | `September 20` |
+| раньше | `September 20, 2025` |
+
+Месяц пишется целиком (`September 20`, а не `Sep 20`) — его читают, а не
+считают; год добавляется ровно тогда, когда он несёт сведения, которых у
+читателя ещё нет (02.10). Та же лестница стоит в списке чатов.
 
 Границы — календарные, а не «24 часа назад»: полночь в зоне читателя и
 нигде больше. Разделитель стоит и перед самым верхним сообщением окна,
@@ -755,7 +783,7 @@ help/message-labels.md](help/message-labels.md).
 разговора, должен видеть, какой день он смотрит. Слова английские, как весь
 интерфейс.
 
-**Разделитель непрочитанных** — та же строка, `Unread messages`, над первым
+**Разделитель непрочитанных** — та же пилюля, `Unread messages`, над первым
 **входящим** сообщением с ID больше `last_read_inbox_message_id` чата на
 момент открытия чата (`chat.last_read_inbox_message_id`, td_api.tl:3610;
 `telegram.ChatSummary.LastReadInboxMessageID` → `tui.Chat.LastReadInboxMessageID`
@@ -782,7 +810,7 @@ help/message-labels.md](help/message-labels.md).
 `TestTheUnreadLineStaysWhileTheChatIsOpen`,
 `TestThePointerIsReadWhenTheChatIsOpened`,
 `TestTheWindowIsFilledWithTheSeparatorsInIt`,
-`TestASeparatorIsCentredAndMuted`,
+`TestASeparatorIsAPillInTheMiddleOfTheFeed`, `TestAPillHasARowOfAirAboveAndBelowIt`,
 `TestSnapshotThreeDaysWithUnread`,
 `TestSnapshotThreeDaysTwelveHour`.
 

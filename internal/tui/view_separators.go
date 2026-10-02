@@ -3,6 +3,8 @@ package tui
 import (
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"telecli/internal/tui/theme"
 )
 
@@ -167,19 +169,35 @@ func dayOf(at time.Time, zone *time.Location) calendarDay {
 	}
 }
 
-// separatorRows returns the rows that stand above an entry: the name of the
-// day, and the line the unread messages start at.
+// separatorRows returns the rows that stand above an entry: the pill that
+// names the day, and the pill that says where the unread messages begin.
 //
-// It is centred in the feed and in the muted step of the text ramp, because
-// a separator belongs to neither side: it says something about the whole
-// column rather than about one person's message in it, and a line drawn at
-// the left edge above an incoming message reads as the start of that
-// message's block.
+// A separator is a PILL: a short run of columns with a background of its own,
+// centred in the feed, with the words of the day in PrimaryText — the bright
+// end of the text ramp, because a date is read and not counted.
 //
-// One row each and no more. A separator is a word in the middle of a
-// conversation, and the blank row above the entry is already the air between
-// one entry and the next: a separator of two rows would be a band where a
-// word is meant.
+// It was a row of dim words at the left of the feed on the background of the
+// feed, and the owner read it as a message line (02.10, real account): at
+// the left edge, in the muted step and on no surface of its own, it has the
+// shape of a row of the conversation and nothing on the screen says
+// otherwise. Three things are what makes it a pill instead:
+//
+//   - the surface, which is a step above the background of the feed, so the
+//     row is a thing on the feed rather than words in it;
+//   - the middle of the feed, where neither side of the conversation can
+//     claim it, and where a reader looking for the day looks;
+//   - the bright end of the text ramp, so the words are read at a glance.
+//
+// A band across the width of the feed is what it must not become: a band says
+// the whole row belongs to one thing, and a day belongs to no message in it.
+// So the pill is as wide as its words and two columns of air, and the rest of
+// the row is the feed's own background.
+//
+// One row of air above and below the pill, and both of them are the pill's
+// own: a pill flush against a message is a line of that message, which is the
+// reading this is here to undo. So the air is not the gap row every entry
+// already has, and entryLines spends its gap on a message with no pill above
+// it rather than on two rows of air for one boundary.
 func (m Model) separatorRows(
 	separator entrySeparator,
 	layout Layout,
@@ -198,25 +216,75 @@ func (m Model) separatorRows(
 		words = append(words, unreadSeparatorText)
 	}
 
-	origin := conversationOrigin(LayoutFor(m.width, m.height))
+	origin := conversationOrigin(layout)
 	feed := styles.on(m.tokens().ChatBackground, styles.unstyled())
-	muted := styles.dimmed(m.tokens().MutedText)
+	pill := styles.on(m.tokens().SeparatorBackground, styles.text(m.tokens().PrimaryText))
 
-	rows := make([]string, 0, len(words))
-	for _, word := range words {
-		text := m.widths.Fit(word, maxInt(width-2*layout.FeedMargin(), 1), ellipsis)
-		columns := m.widths.StringWidth(text)
-		air := maxInt(width-columns, 0)
+	// The lane the pill is centred in is the feed, less the margin the feed
+	// keeps on each side: a pill that reached the edge of the pane would be
+	// a row of the pane rather than a thing in the middle of the feed.
+	lane := maxInt(width-2*layout.FeedMargin(), 1)
 
-		rows = append(rows, m.painterIn(origin, theme.Color{}).
-			own(feed, spaces(air/2)).
-			own(muted, text).
-			own(feed, spaces(air-air/2)).
-			String())
+	rows := make([]string, 0, 2*len(words)+2)
+	rows = append(rows, m.feedRow(feed, origin, width))
+	for index, word := range words {
+		if index > 0 {
+			// Air between two pills and not one row shared by both: the
+			// name of a day and the line of the unread are two facts, and a
+			// reader who cannot tell where one ends and the other begins is
+			// reading a sentence.
+			rows = append(rows, m.feedRow(feed, origin, width))
+		}
+
+		rows = append(rows, m.pillRow(word, lane, width, origin, feed, pill))
 	}
 
-	return rows
+	return append(rows, m.feedRow(feed, origin, width))
 }
+
+// feedRow returns one row of the feed with nothing on it but the background
+// of the feed.
+func (m Model) feedRow(feed lipgloss.Style, origin, width int) string {
+	return m.painterIn(origin, theme.Color{}).
+		own(feed, spaces(width)).
+		String()
+}
+
+// pillRow returns one row with the pill of a word centred in the lane, and
+// the background of the feed everywhere else.
+//
+// The word carries one column of air on each side inside the pill: a pill is
+// the shape of the words and the air around them, and words flush against the
+// edge of their own surface read as a band rather than a pill.
+func (m Model) pillRow(
+	word string,
+	lane, width, origin int,
+	feed, pill lipgloss.Style,
+) string {
+	// The words are cut to what the lane holds and are not padded to it: a
+	// word run out to the width of the lane is a band, and the whole of what
+	// makes this a pill is that it stops where the words stop.
+	room := maxInt(lane-2*separatorPillAirColumns, 1)
+	inner := m.widths.TruncateMarked(word, room, ellipsis)
+	columns := m.widths.StringWidth(inner) + 2*separatorPillAirColumns
+
+	air := maxInt(lane-columns, 0)
+
+	return m.painterIn(origin, theme.Color{}).
+		own(feed, spaces(air/2)).
+		own(pill, spaces(separatorPillAirColumns)).
+		own(pill, inner).
+		own(pill, spaces(separatorPillAirColumns)).
+		own(feed, spaces(lane-columns-air/2)).
+		own(feed, spaces(width-lane)).
+		String()
+}
+
+// separatorPillAirColumns is the air inside a pill, on each side of its
+// words, and it is the same air the badge of an unread count has (the inner
+// run of chatBadge): a pill with nothing between its surface and its words is
+// a band of colour with a word in it.
+const separatorPillAirColumns = 1
 
 // withSeparators returns the entries with what stands above each of them
 // worked out: the name of the day the entry opens and the line the unread

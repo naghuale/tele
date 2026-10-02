@@ -24,8 +24,8 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
+                                                                        Today                                           
                                                                                                                         
-                                       Today                                                                            
                                          Anna Example  12:02                                                            
                                          The build is green again                                                       
                                                                                                                         
@@ -56,8 +56,8 @@
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G                                                                                      "
+"\x1b[1G                                  \x1b[35G                                      Today                                           "
 "\x1b[1G                                  \x1b[35G                                                                                      "
-"\x1b[1G                                  \x1b[35G     Today                                                                            "
 "\x1b[1G                                  \x1b[35G       Anna Example  12:02                                                            "
 "\x1b[1G                                  \x1b[35G       The build is green again                                                       "
 "\x1b[1G                                  \x1b[35G                                                                                      "

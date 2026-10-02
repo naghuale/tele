@@ -282,9 +282,10 @@ func TestAConversationShorterThanTheFeedSitsAboveTheComposer(t *testing.T) {
 		)
 	}
 
-	// The first message of the conversation is the first row that holds
-	// something, and every row above it is empty. That row is the air
-	// above the block now, the way the last one is the air below it.
+	// The first row that holds something is the pill of the day the oldest
+	// message is on, and every row above it is empty. The message itself is
+	// the row of air under that pill, the name of whoever sent it and the
+	// text under the name — four rows on, not three.
 	first := -1
 	for index, row := range rows {
 		if strings.TrimSpace(plain(row)) != "" {
@@ -299,18 +300,21 @@ func TestAConversationShorterThanTheFeedSitsAboveTheComposer(t *testing.T) {
 			first+1, strings.Join(viewLines(m.View()), "\n"),
 		)
 	}
-	// The oldest message is the first thing in the feed, and it takes up to
-	// three rows to say so: the air that opens its block, the name of
-	// whoever sent it, and the text under the name. Whether the air is a
-	// row of half blocks or a row of spaces depends on the profile the
-	// test is drawn with, so the name and the text are looked for in the
-	// three rows the message can start in rather than on one of them.
-	if !rowHolds(rows, first, first+3, messages[0].Text) {
+	// The oldest message is under the pill of its day, and it takes up to
+	// four rows to say so: the air the pill stands on, the air that opens
+	// its block, the name of whoever sent it, and the text under the name.
+	// Whether the air is a row of half blocks or a row of spaces depends on
+	// the profile the test is drawn with, so the name and the text are
+	// looked for in the four rows the message can start in rather than on
+	// one of them.
+	if !rowHolds(rows, first, first+4, messages[0].Text) {
 		t.Fatalf(
-			"the first three rows of the conversation hold %q, %q and %q, want the oldest message",
+			"the first four rows of the conversation hold %q, %q, %q and %q, "+
+				"want the oldest message",
 			plain(rows[first]),
 			plain(rows[first+1]),
 			plain(rows[first+2]),
+			plain(rows[first+3]),
 		)
 	}
 }
@@ -432,19 +436,20 @@ func TestAnOlderPageDoesNotMoveTheWindowOfAReader(t *testing.T) {
 
 	// Every row of the reader's window stays where it was, with one
 	// exception and the exception is the day. The older page is of the same
-	// day as the messages it went on top of, so the name of the day moved up
+	// day as the messages it went on top of, so the pill of the day moved up
 	// with them: it belongs to the first message of the day, and the first
-	// message of the day is now above the window. What follows it is the
-	// window the reader had, row for row.
+	// message of the day is now above the window. Two rows go with it — the
+	// pill and the air under it, which is the air it stands on. What follows
+	// them is the window the reader had, row for row.
 	after := feedOf(t, m)
-	if want := len(before) - 1; len(after) < want {
+	if want := len(before) - 2; len(after) < want {
 		t.Fatalf("the feed drew %d rows, want at least the %d it drew", len(after), want)
 	}
-	for index := 1; index < len(before); index++ {
-		if plain(before[index]) != plain(after[index-1]) {
+	for index := 2; index < len(before); index++ {
+		if plain(before[index]) != plain(after[index-2]) {
 			t.Fatalf(
 				"row %d moved when the older page arrived\n  before: %q\n  after:  %q",
-				index+1, plain(before[index]), plain(after[index-1]),
+				index+1, plain(before[index]), plain(after[index-2]),
 			)
 		}
 	}

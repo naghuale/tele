@@ -315,6 +315,68 @@ func TestTheWordsOfAMessageAreReadableOnItsOwnBlock(t *testing.T) {
 	}
 }
 
+// The pill that names the day a conversation is on, and the line that says
+// where the unread messages begin, are pills and not words on the feed.
+//
+// The owner read the row as a message line (02.10, real account): a day name
+// drawn as dim words at the left of the feed, on the background of the feed,
+// is the shape of a row of the conversation and nothing says otherwise. So it
+// is a surface of its own, and two things have to be true of it or the change
+// is a change of colour rather than a change of shape:
+//
+//   - it stands out from the background of the feed, or it is words on a
+//     background again;
+//   - it is a different surface from the block of a message, or the pill is
+//     read as a message with nothing in it.
+//
+// Both are numbers here, because "different" is not one. The three themes
+// hold the pill 1.83:1 to 2.06:1 away from the background of the feed and
+// 1.31:1 to 1.38:1 away from the surface of a block — the same bar the block
+// under the cursor is held to, which is what makes the two shapes of the feed
+// three rather than two. And the words on the pill are PrimaryText, held to
+// the same WCAG AA bar as every other body text: a date a reader has to lean
+// towards is a date nobody reads.
+func TestTheSeparatorPillIsAPillOfItsOwn(t *testing.T) {
+	const minimumDifference = 1.25
+
+	for _, name := range ThemeNames() {
+		roles := colorRoles(t, mustTheme(t, name).Tokens)
+
+		pill := roles["SeparatorBackground"]
+		if !pill.IsSet() {
+			t.Errorf("theme %s: the pill of a day has no surface of its own", name)
+
+			continue
+		}
+
+		if difference := pill.ContrastRatio(roles["ChatBackground"]); difference < minimumDifference {
+			t.Errorf(
+				"theme %s: the pill and the background of the feed are %.3f:1 "+
+					"apart, want at least %.2f:1",
+				name, difference, minimumDifference,
+			)
+		}
+
+		if difference := pill.ContrastRatio(roles["ComposerBackground"]); difference < minimumDifference {
+			t.Errorf(
+				"theme %s: the pill and the block of a message are %.3f:1 apart, "+
+					"want at least %.2f:1",
+				name, difference, minimumDifference,
+			)
+		}
+
+		// The words on the pill are body text and are held to the bar body
+		// text is held to.
+		if ratio := roles["PrimaryText"].ContrastRatio(pill); ratio < MinimumTextContrast {
+			t.Errorf(
+				"theme %s: the words of the pill are %.2f:1 on it, want at "+
+					"least %.1f:1",
+				name, ratio, MinimumTextContrast,
+			)
+		}
+	}
+}
+
 // The two sides are drawn on ONE surface, and the block under the cursor is
 // a different one.
 //

@@ -24,8 +24,8 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
+                                                                        Today                                           
                                                                                                                         
-                                       Today                                                                            
                                          Anna Example  12:02                                                            
                                          The build is green again                                                       
                                                                                                                         
@@ -55,9 +55,9 @@
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;232m \x1b[0m\x1b[38;5;146mсозвон в 15:00\x1b[0m             \x1b[48;5;232m  \x1b[0m\x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                               \x1b[0m\x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"
-"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m   \x1b[0m\x1b[38;5;102mToday                                                                         \x1b[0m\x1b[48;5;232m   \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                                                                                    \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                                   \x1b[0m\x1b[38;5;189;48;5;59m \x1b[0m\x1b[38;5;189;48;5;59mToday\x1b[0m\x1b[38;5;189;48;5;59m \x1b[0m\x1b[48;5;232m                                    \x1b[0m\x1b[48;5;232m      \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m                                                                                    \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[38;5;151;48;5;59mAnna Example\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[38;5;102;48;5;59m12:02\x1b[0m\x1b[48;5;59m     \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[48;5;232m                                                     \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m\x1b[48;5;232m  \x1b[0m\x1b[38;5;146;48;5;232m \x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[38;5;189;48;5;59mThe build is green again\x1b[0m\x1b[48;5;59m  \x1b[0m\x1b[48;5;232m                                                     \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                               \x1b[0m \x1b[35G \x1b[48;5;232m \x1b[0m\x1b[48;5;232m                                                                                    \x1b[0m"

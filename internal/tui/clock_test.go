@@ -243,22 +243,22 @@ func TestTheDayOfAMomentIsNamedForTheReader(t *testing.T) {
 			// other week, and a reader looking for Friday would find two.
 			name: "seven days ago",
 			year: thisYear, month: time.September, day: 25, hour: 12,
-			want: "Sep 25",
+			want: "September 25",
 		},
 		{
 			name: "earlier this year",
 			year: thisYear, month: time.January, day: 1, hour: 12,
-			want: "Jan 1",
+			want: "January 1",
 		},
 		{
 			name: "the turn of the year",
 			year: thisYear - 1, month: time.December, day: 31, hour: 12,
-			want: "Dec 31, 2025",
+			want: "December 31, 2025",
 		},
 		{
 			name: "last year",
 			year: thisYear - 1, month: thisOct, day: 2, hour: 12,
-			want: "Oct 2, 2025",
+			want: "October 2, 2025",
 		},
 	} {
 		for zone, location := range zones {
@@ -348,12 +348,12 @@ func TestTheRowOfAChatListNamesTheDayToo(t *testing.T) {
 		{
 			name: "a week ago, as a date",
 			at:   time.Date(2026, 9, 24, 12, 0, 0, 0, zone),
-			want: "Sep 24",
+			want: "September 24",
 		},
 		{
 			name: "a year ago, as a date with the year in it",
 			at:   time.Date(2025, 10, 1, 12, 0, 0, 0, zone),
-			want: "Oct 1, 2025",
+			want: "October 1, 2025",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {

@@ -572,7 +572,8 @@ func isCarriedBySomethingElse(role string) bool {
 		"CodeBackground",
 		"FooterBackground",
 		"ShadowBackground",
-		"Selection":
+		"Selection",
+		"SeparatorBackground":
 		return true
 	default:
 		return false

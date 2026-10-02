@@ -22,10 +22,11 @@ const (
 // The rows of the feed that belong to no message: the name of the day a
 // message is on, and the line where the unread messages of a chat begin.
 //
-// The two are the same kind of row and are drawn the same way — centred in
-// the feed, in the muted step of the text ramp, one row each — and they are
-// tested here together because they are the whole of "what happened when, and
-// what I have not read yet" that a conversation of messages alone cannot say.
+// The two are the same kind of row and are drawn the same way — a pill
+// centred in the feed, its words in the bright step of the text ramp, with a
+// row of air above and below it — and they are tested here together because
+// they are the whole of "what happened when, and what I have not read yet"
+// that a conversation of messages alone cannot say.
 
 // separatorZone and separatorNow are the zone and the moment every case of
 // this file is drawn at: noon on Friday 2 October 2026, ten hours east of
@@ -458,57 +459,174 @@ func TestTheWindowIsFilledWithTheSeparatorsInIt(t *testing.T) {
 	}
 }
 
-// The rows are centred in the feed and in the muted step of the text ramp: a
-// separator belongs to neither side of the conversation, and a line drawn at
-// the left edge above an incoming message reads as the head of that message.
-func TestASeparatorIsCentredAndMuted(t *testing.T) {
+// A separator is a PILL: a short run of columns with a background of its own,
+// centred in the feed, with the words of the day in the bright end of the
+// text ramp, and one row of air above and below it.
+//
+// It was a row of dim words at the left of the feed on the background of the
+// feed, and the owner read it as a message line (02.10, real account): at the
+// left edge, in the muted step and on no surface of its own, it has the shape
+// of a row of the conversation and nothing on the screen says otherwise. So
+// each of those four things is checked here rather than the colour alone,
+// because it is the four of them together that makes it a pill: a centred
+// word on the background of the feed is still words in the feed, and a pill
+// of the colour of the blocks is a message with nothing in it.
+func TestASeparatorIsAPillInTheMiddleOfTheFeed(t *testing.T) {
+	// The colour of the pill is what this case is about, and a screen drawn
+	// with no colour has none to be had.
+	m := focusedOn(separatorsModel(t, []Message{
+		{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna", AuthorID: 5},
+		{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna", AuthorID: 5},
+	}, 10), FocusHistory)
+	m.theme = theme.DefaultTheme().ForProfile(theme.ProfileTrueColor)
+	m = m.withRenderer(theme.ProfileTrueColor)
+
+	screen, index := screenRowOf(t, m, "Yesterday")
+
+	row := screen[index]
+
+	tokens := m.tokens()
+	pill := backgroundParameters(
+		m.styles().on(tokens.SeparatorBackground, m.styles().unstyled()).Render("x"),
+	)
+	feed := backgroundParameters(
+		m.styles().on(tokens.ChatBackground, m.styles().unstyled()).Render("x"),
+	)
+	bright := foregroundParameters(m.styles().text(tokens.PrimaryText).Render("x"))
+
+	if pill == feed {
+		t.Fatalf(
+			"the pill of the day has the background of the feed %q, want a "+
+				"surface of its own",
+			pill,
+		)
+	}
+
+	// The pill is the run of columns on the surface of its own, and it is
+	// the whole of that run that is measured: a row whose every column is on
+	// the surface is a band across the feed, which says the whole row belongs
+	// to one thing, and a day belongs to no message in it.
+	cells := renderedCells(t, m, row)
+
+	var (
+		columns   int
+		words     strings.Builder
+		dimmed    bool
+		firstCell = -1
+	)
+	for position, cell := range cells {
+		if cell.background != pill {
+			continue
+		}
+
+		if firstCell < 0 {
+			firstCell = position
+		}
+
+		columns++
+		words.WriteString(cell.text)
+
+		if cell.foreground != bright {
+			dimmed = true
+		}
+	}
+
+	if columns == 0 {
+		t.Fatalf(
+			"no column of the row is on the surface of the pill %q:\n%s",
+			pill, plain(row),
+		)
+	}
+
+	if columns == len(cells) {
+		t.Errorf(
+			"the pill of the day is %d columns wide, which is the whole row: "+
+				"want a pill, not a band across the feed",
+			columns,
+		)
+	}
+
+	// The words and one column of air on each side of them: a pill is the
+	// shape of the words and the air around them, and words flush against
+	// the edge of their own surface read as a band rather than a pill.
+	if got := words.String(); got != " Yesterday " {
+		t.Errorf(
+			"the pill of the day holds %q, want %q",
+			got, " Yesterday ",
+		)
+	}
+
+	// And it sits in the middle: the air on either side of the pill in the
+	// feed, not only somewhere to the right of the left edge.
+	if before := firstCell; before < 1 || before+columns >= len(cells)-1 {
+		t.Errorf(
+			"the pill starts at column %d and ends at column %d of a row of "+
+				"%d, want it in the middle of the feed",
+			before+1, before+columns, len(cells),
+		)
+	}
+
+	if dimmed {
+		t.Errorf(
+			"the words of the day are drawn in something other than the "+
+				"bright step %q",
+			bright,
+		)
+	}
+}
+
+// The pill of a day has air above and below it, and the air is the
+// background of the feed.
+//
+// A pill flush against a message is a line of that message, which is the
+// reading this is here to undo; and a pill with no air above it is stuck to
+// whatever is over it.
+func TestAPillHasARowOfAirAboveAndBelowIt(t *testing.T) {
 	m := focusedOn(separatorsModel(t, []Message{
 		{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna", AuthorID: 5},
 		{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna", AuthorID: 5},
 	}, 10), FocusHistory)
 
-	row, ok := rowWith(t, m, "Yesterday")
-	if !ok {
-		t.Fatalf("the day of the conversation is not on the screen:\n%s", plain(m.View()))
-	}
+	screen, index := screenRowOf(t, m, "Yesterday")
 
-	// The word is in the middle of the row, not against either edge.
-	before := strings.Index(plain(row), "Yesterday")
-	after := len(plain(row)) - before - len("Yesterday")
-	if before < 1 || after < 1 {
-		t.Errorf(
-			"the separator has %d columns before it and %d after, want it in "+
-				"the middle of the feed",
-			before, after,
-		)
-	}
-
-	muted := foregroundParameters(
-		m.styles().dimmed(m.tokens().MutedText).Render("x"),
-	)
-	for _, cell := range renderedCells(t, m, row) {
-		if cell.text != "Yesterday" {
-			continue
+	// The air below is the row the pill itself brings, and the air above is
+	// the gap row every entry of the feed has (entryLines), so the row above
+	// is not spent twice.
+	for _, offset := range []int{-1, 1} {
+		neighbour := index + offset
+		if neighbour < 0 || neighbour >= len(screen) {
+			t.Fatalf(
+				"the day has no row %+d: the pill is at the edge of the screen",
+				offset,
+			)
 		}
-		if cell.foreground != muted {
+
+		if got := strings.TrimSpace(plain(screen[neighbour])); got != "" {
 			t.Errorf(
-				"the separator is drawn in %q, want the dim step %q",
-				cell.foreground, muted,
+				"row %+d from the day holds %q, want the air of the background "+
+					"of the feed",
+				offset, got,
 			)
 		}
 	}
 }
 
-// rowWith returns the row of a screen of the conversation that holds a
-// substring, and whether there was one.
-func rowWith(t *testing.T, m Model, want string) (string, bool) {
+// screenRowOf returns the screen of a conversation and the row of it that
+// holds a word, failing the case when no row does.
+func screenRowOf(t *testing.T, m Model, word string) ([]string, int) {
 	t.Helper()
 
-	for _, line := range viewLines(m.View()) {
-		if strings.Contains(plain(line), want) {
-			return line, true
+	screen := viewLines(m.View())
+	for index, line := range screen {
+		if strings.Contains(plain(line), word) {
+			return screen, index
 		}
 	}
 
-	return "", false
+	t.Fatalf(
+		"%q is not on the screen:\n%s",
+		word, strings.Join(screen, "\n"),
+	)
+
+	return nil, -1
 }

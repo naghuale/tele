@@ -1703,11 +1703,12 @@ func TestTheRowsOfABlockDependOnHowManyRowsItsTextTakes(t *testing.T) {
 // the one below the gap.
 //
 // The topmost message of the feed has no message above it, so it has no gap
-// row either: it has the row of the day it is on, which is what stands
+// row either: it has the pill of the day it is on, which is what stands
 // between the header of the conversation and the first message of it. N
-// messages of one day take 3N rows — three a message, and the row of the day
-// where the gap row above the first one used to be — where they took 3N-1,
-// and the day row is the price of saying which day the conversation is on.
+// messages of one day take 3N+1 rows — three a message, and the pill where
+// the gap row above the first one used to be together with the row of air
+// under it (02.10): a pill flush against the message it stands over is a
+// line of that message, and that is the reading the pill is here to undo.
 //
 // The rows of air inside a block are not part of it while its text is one
 // row long (the owner, 30.09), which is why the number is three again where
@@ -1730,11 +1731,11 @@ func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
 				)
 			}
 
-			if want := 3 * count; len(rows) != want {
+			if want := 3*count + 1; len(rows) != want {
 				t.Fatalf(
 					"a feed of %d one-line messages took %d rows, want %d "+
-						"(a row for the day, two rows of a block and one "+
-						"blank between)",
+						"(the pill of the day and the air under it, two "+
+						"rows of a block and one blank between)",
 					count, len(rows), want,
 				)
 			}
@@ -1746,12 +1747,12 @@ func TestAFeedOfOneLineMessagesTakesThreeRowsAMessage(t *testing.T) {
 					last,
 				)
 			}
-			// And the gap is where it belongs: the row before every block
-			// but the first, which is the row the day took instead.
+			// And the gap is where it belongs: the row of air under the
+			// pill, and then the row before every block but the first.
 			for index, row := range rows[1:] {
 				index++
 				blank := strings.TrimSpace(plain(row)) == ""
-				if blank != (index%3 == 0) {
+				if blank != (index%3 == 1) {
 					t.Errorf(
 						"row %d is %q, want a blank gap row: %t",
 						index, plain(row), !blank,

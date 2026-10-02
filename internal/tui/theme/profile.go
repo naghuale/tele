@@ -469,6 +469,7 @@ func clearBackgroundRoles(tokens *Tokens) {
 	tokens.PopupBackground = Color{}
 	tokens.ShadowBackground = Color{}
 	tokens.CodeBackground = Color{}
+	tokens.SeparatorBackground = Color{}
 }
 
 // eachTokenColor applies fn to every colour of every role.
@@ -478,32 +479,33 @@ func clearBackgroundRoles(tokens *Tokens) {
 // repetition.
 func eachTokenColor(tokens *Tokens, fn func(Color) Color) {
 	*tokens = Tokens{
-		AppBackground:      fn(tokens.AppBackground),
-		SidebarBackground:  fn(tokens.SidebarBackground),
-		ChatBackground:     fn(tokens.ChatBackground),
-		ComposerBackground: fn(tokens.ComposerBackground),
-		PopupBackground:    fn(tokens.PopupBackground),
-		ShadowBackground:   fn(tokens.ShadowBackground),
-		FooterBackground:   fn(tokens.FooterBackground),
-		PrimaryText:        fn(tokens.PrimaryText),
-		SecondaryText:      fn(tokens.SecondaryText),
-		MutedText:          fn(tokens.MutedText),
-		DisabledText:       fn(tokens.DisabledText),
-		Focus:              fn(tokens.Focus),
-		FocusAlt:           fn(tokens.FocusAlt),
-		Selected:           fn(tokens.Selected),
-		Unread:             fn(tokens.Unread),
-		StatusInfo:         fn(tokens.StatusInfo),
-		StatusActive:       fn(tokens.StatusActive),
-		StatusSuccess:      fn(tokens.StatusSuccess),
-		StatusWarning:      fn(tokens.StatusWarning),
-		StatusError:        fn(tokens.StatusError),
-		StatusUncertain:    fn(tokens.StatusUncertain),
-		StatusCanceled:     fn(tokens.StatusCanceled),
-		IncomingMessage:    fn(tokens.IncomingMessage),
-		OutgoingMessage:    fn(tokens.OutgoingMessage),
-		CodeBackground:     fn(tokens.CodeBackground),
-		Cursor:             fn(tokens.Cursor),
-		Selection:          fn(tokens.Selection),
+		AppBackground:       fn(tokens.AppBackground),
+		SidebarBackground:   fn(tokens.SidebarBackground),
+		ChatBackground:      fn(tokens.ChatBackground),
+		ComposerBackground:  fn(tokens.ComposerBackground),
+		PopupBackground:     fn(tokens.PopupBackground),
+		ShadowBackground:    fn(tokens.ShadowBackground),
+		FooterBackground:    fn(tokens.FooterBackground),
+		PrimaryText:         fn(tokens.PrimaryText),
+		SecondaryText:       fn(tokens.SecondaryText),
+		MutedText:           fn(tokens.MutedText),
+		DisabledText:        fn(tokens.DisabledText),
+		Focus:               fn(tokens.Focus),
+		FocusAlt:            fn(tokens.FocusAlt),
+		Selected:            fn(tokens.Selected),
+		Unread:              fn(tokens.Unread),
+		StatusInfo:          fn(tokens.StatusInfo),
+		StatusActive:        fn(tokens.StatusActive),
+		StatusSuccess:       fn(tokens.StatusSuccess),
+		StatusWarning:       fn(tokens.StatusWarning),
+		StatusError:         fn(tokens.StatusError),
+		StatusUncertain:     fn(tokens.StatusUncertain),
+		StatusCanceled:      fn(tokens.StatusCanceled),
+		IncomingMessage:     fn(tokens.IncomingMessage),
+		OutgoingMessage:     fn(tokens.OutgoingMessage),
+		CodeBackground:      fn(tokens.CodeBackground),
+		SeparatorBackground: fn(tokens.SeparatorBackground),
+		Cursor:              fn(tokens.Cursor),
+		Selection:           fn(tokens.Selection),
 	}
 }

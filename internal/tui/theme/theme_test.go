@@ -297,7 +297,8 @@ func isBackgroundRole(role string) bool {
 		"FooterBackground",
 		"PopupBackground",
 		"ShadowBackground",
-		"CodeBackground":
+		"CodeBackground",
+		"SeparatorBackground":
 		return true
 	default:
 		return false

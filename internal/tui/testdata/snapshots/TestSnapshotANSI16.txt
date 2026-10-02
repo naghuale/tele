@@ -24,8 +24,8 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
+                                                                        Today                                           
                                                                                                                         
-                                       Today                                                                            
                                          Anna Example  12:02                                                            
                                          The build is green again                                                       
                                                                                                                         
@@ -56,8 +56,8 @@
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G                                                                                      "
+"\x1b[1G                                  \x1b[35G                                     \x1b[97m \x1b[0m\x1b[97mToday\x1b[0m\x1b[97m \x1b[0m                                          "
 "\x1b[1G                                  \x1b[35G                                                                                      "
-"\x1b[1G                                  \x1b[35G     \x1b[90mToday                                                                         \x1b[0m   "
 "\x1b[1G                                  \x1b[35G    \x1b[37m \x1b[0m  \x1b[32mAnna Example\x1b[0m  \x1b[90m12:02\x1b[0m                                                            "
 "\x1b[1G                                  \x1b[35G    \x1b[37m \x1b[0m  \x1b[97mThe build is green again\x1b[0m                                                       "
 "\x1b[1G                                  \x1b[35G                                                                                      "

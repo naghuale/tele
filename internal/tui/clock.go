@@ -299,15 +299,23 @@ func (m Model) clockFormat() ClockFormat {
 // has read these four shapes already: today, yesterday, a weekday, and a
 // date.
 
-// dayLabel names the day a moment was on, as the separator of a feed says
-// it: Today, Yesterday, the weekday for the days of this week before them,
-// and a date for everything older.
+// dayLabel names the day a moment was on, as the pill above the messages of
+// it says it: Today, Yesterday, the weekday for the days of this week before
+// them, and a date for everything older.
 //
 // The boundaries are the ones a reader of a conversation runs into rather
 // than the ones a calendar draws: midnight, because that is where "yesterday"
-// becomes "this week"; and the year, because "Sep 21" of last year is a
-// different day from "Sep 21" and a reader of a week-old message has to be
-// able to tell.
+// becomes "this week"; and the year, because "September 21" of last year is a
+// different day from "September 21" and a reader of a week-old message has to
+// be able to tell.
+//
+// A date is the whole name of its month, and the year is in it only when the
+// day is not of this year. That is the owner's reference (02.10): a pill that
+// says "Sep 20" is a pill a reader has to finish in their head, and one that
+// says "20 September 2025" for a day of this year is a pill wider than the
+// words of the message it stands over. So the month is spelled out — it is
+// read, not counted — and the year is added exactly when it carries
+// information the reader does not already have.
 func (m Model) dayLabel(at time.Time) string {
 	zone := m.timeZone()
 	then := at.In(zone)
@@ -327,10 +335,10 @@ func (m Model) dayLabel(at time.Time) string {
 		return then.Format("Monday")
 
 	case then.Year() == now.Year():
-		return then.Format("Jan 2")
+		return then.Format("January 2")
 
 	default:
-		return then.Format("Jan 2, 2006")
+		return then.Format("January 2, 2006")
 	}
 }
 

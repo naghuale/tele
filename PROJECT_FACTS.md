@@ -577,10 +577,23 @@
     §4.4.1). A separator as a message of its own would be a row the walk
     of anchoredAt did not know about, and the window would be placed a
     row too low for every day in the conversation: a feed of N one-line
-    messages of one day takes 3N rows where it took 3N-1, the row of the
-    day where the gap above the first message used to be. `entryLines`
-    returns the rows of the separator, the gap and the block, and the
-    same function measures and draws them
+    messages of one day takes 3N+1 rows where it took 3N-1, the pill of the
+    day and the row of air under it where the gap above the first message
+    used to be. `entryLines` returns the rows of the separator, the gap and
+    the block, and the same function measures and draws them
+  - a divider of a day and the unread line are PILLS: a short run of
+    columns on SeparatorBackground, centred in the feed, the words of it in
+    PrimaryText, one column of air inside the pill on each side of the
+    words, and one empty row of the feed above and below (02.10, real
+    account: a row of dim words at the left edge on the background of the
+    feed has the shape of a row of the conversation and nothing on the
+    screen says otherwise). A pill is not a band: it is as wide as its
+    words and its air, because a band across the row says the whole row
+    belongs to one thing. SeparatorBackground is a step above the block of
+    a message on the same surface ramp, and it is held both to a step away
+    from ChatBackground and to a step away from ComposerBackground, so the
+    feed has three shapes in it rather than two. The air above the pill is
+    the pill's own, so an entry that carries one has no gap row of its own
   - the divider stands above the first entry of a calendar day in the
     zone of the reader, including above the topmost entry of the window
     when the day it belongs to is off the screen above it
@@ -1170,9 +1183,10 @@
     - internal/tui/clock.go owns the vocabulary, the two resolved
       formats (ClockFormat12h and ClockFormat24h, 24h being the zero
       value) and the words of a day: Today, Yesterday, the weekday for
-      two to six days back, `Jan 2` for this year, `Jan 2, 2006` before
-      it. A row of the chat list is the same ladder with the time of
-      day in place of Today
+      two to six days back, `September 20` for this year and
+      `September 20, 2025` before it — the month spelled out and the year
+      only when it is not this year (02.10). A row of the chat list is
+      the same ladder with the time of day in place of Today
     - every moment on the screen is written by the model, from a
       time.Time the projection carried: m.clockText for the hour
       (03:04 PM or 15:04), m.dayLabel for the divider of a feed,

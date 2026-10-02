@@ -556,10 +556,13 @@ func (m Model) entryRowsFrom(
 			block = block[minInt(cutRows, maxInt(len(block)-1, 0)):]
 
 		case index == first && len(block) > 0 && strings.TrimSpace(block[0]) == "":
-			// The blank row at the top of a block is the gap between it
-			// and the message above it, and the topmost message of the feed
-			// has none: a blank row there is a bar of nothing under the
-			// header, on a feed the owner reads as empty space.
+			// The blank row at the top of a block is either the gap between
+			// it and the message above it or the air the pill of a day
+			// stands on, and the topmost message of the feed has neither:
+			// a blank row there is a bar of nothing under the header, on a
+			// feed the owner reads as empty space. The pill keeps its own
+			// row, so the day a reader has scrolled into the middle of is
+			// still named.
 			block = block[1:]
 		}
 
@@ -622,12 +625,17 @@ func (m Model) entryLines(
 		return append(separators, rows...)
 	}
 
-	// The gap comes first and the separator sits in it: the air between two
-	// messages is already this entry's, and a day name drawn between the
-	// gap and the message would be a second band of air for one boundary.
-	// The topmost entry has no message above it, so its gap goes and the
-	// separator is what stands under the header (entryRowsFrom).
-	return append([]string{""}, append(separators, rows...)...)
+	// The gap belongs to a message, and a message with a pill above it has
+	// the air of the pill to stand on: two rows of air for one boundary is
+	// one row more than the boundary needs and one row less of the
+	// conversation. The topmost entry has no message above it either, so its
+	// gap goes and the separator is what stands under the header
+	// (entryRowsFrom).
+	if len(separators) > 0 {
+		return append(separators, rows...)
+	}
+
+	return append([]string{""}, rows...)
 }
 
 // entryBodyLines renders the message of an entry, without the air above it

@@ -36,6 +36,23 @@ type Tokens struct {
 	ShadowBackground   Color
 	FooterBackground   Color
 
+	// SeparatorBackground is the surface of the pill that names the day a
+	// conversation is on, and of the line that says where the unread
+	// messages begin.
+	//
+	// It is a surface of its own rather than the background of the feed or
+	// of a block, because the owner read the row as a message line (02.10,
+	// real account): the name of a day drawn as dim words at the left of
+	// the feed is the shape of a row of the conversation, and a word on the
+	// background of the feed is a word nobody can find at a glance.
+	//
+	// It is one step up the same ramp the blocks of messages are on, so it
+	// belongs to them, and one step above the block surface so it is not
+	// mistaken for one. The three themes hold it 1.83:1 to 2.06:1 away from
+	// the background of the feed and 1.31:1 to 1.38:1 away from the surface
+	// of a block — see TestTheSeparatorPillIsAPillOfItsOwn.
+	SeparatorBackground Color
+
 	PrimaryText   Color
 	SecondaryText Color
 	MutedText     Color
@@ -250,6 +267,11 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 		PopupBackground:    palette.Surface1,
 		CodeBackground:     palette.Surface2,
 		ShadowBackground:   dim,
+
+		// The pill of a day and the line of the unread: the step above the
+		// blocks, which is the step the surface ramp has for a thing that
+		// sits on the feed and is not a message.
+		SeparatorBackground: palette.Surface1,
 
 		// Text: the text ramp for the two roles a user reads, and the
 		// palette's own readable dim step for the two below them.

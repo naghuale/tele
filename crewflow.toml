@@ -15,6 +15,19 @@ mode = "bot"
 app_id = 5107052
 installation_id = 165781718
 
+[orchestrator]
+# The orchestrator reviews and merges as its own subject, the bot of the GitHub App
+# crewflow-orchestrator, and not as the owner's login: crewflow doctor shows
+# owner == orchestrator: NO. The owner lifted the shared mode for telecli on 2026-10-02.
+mode = "separate"
+
+[orchestrator.github_app]
+# The App crewflow-orchestrator, the same one crewflow itself merges under. The owner added
+# naghuale/tele to the App on 2026-10-02; installation_id = 0 lets crewflow find the
+# installation of the App for this repository, as it does in crewflow.
+app_id = 5140522
+installation_id = 0
+
 [executor]
 command = ["opencode", "run", "--dir", "{worktree}", "--format", "json", "{prompt}"]
 timeout = "90m"
@@ -52,14 +65,24 @@ required = true
 timeout = "30m"
 
 [merge]
+# The orchestrator merges, ff-only. Its own bot is the reviewer whose approval crewflow
+# waits for, the owner is the login that may merge by hand, and the executor never merges:
+# crewflow names the role by the stable number of the subject before it presses the button.
 by = "orchestrator"
 strategy = "ff-only"
+reviewers = ["crewflow-orchestrator[bot]"]
+owners = ["naghuale"]
 
 [parallel]
 max_tasks = 1
 
 [tasks]
 owner_approval = "risky"
+
+[acceptance]
+# The label that goes with the owner's acceptance of a merge; acceptance itself is by SHA,
+# ACCEPTED <sha> (AGENTS.md §3).
+label = "owner-check"
 
 [requirements]
 tools = [

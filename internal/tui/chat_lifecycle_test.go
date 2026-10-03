@@ -223,17 +223,57 @@ func TestEnteringAChatOpensIt(t *testing.T) {
 	}
 }
 
-func TestFollowingTheSelectionClosesTheOldChatAndOpensTheNew(t *testing.T) {
+// Walking the cursor in the chat list opens nothing in Telegram. It used to
+// open the chat under the cursor, with the chat that was open closed before
+// it, and that was how a badge fell under a cursor that was only passing a
+// chat by: the open and, once its page was on the screen, the read of the
+// whole visible window (the owner's account on 03.10, real account, #75).
+//
+// What is asked of TDLib is asked by the keys that open a chat, and the test
+// below walks the list first and enters afterwards — which is also the order
+// a person walks it in.
+func TestWalkingTheListAsksTDLibForNothing(t *testing.T) {
+	opener := &recordingOpener{}
+	model := openerModel(t, opener)
+
+	model, cmd := updateModel(t, model, press(tea.KeyEnter))
+	runCommands(t, cmd)
+	open := len(opener.opened)
+
+	// The keys are on the chat list, which is where a user walks through
+	// chats, and a walk stops on every one of them.
+	model.focus = FocusChatList
+	for range 2 {
+		model, cmd = updateModel(t, model, press(tea.KeyDown))
+		runCommands(t, cmd)
+	}
+
+	if got := len(opener.opened); got != open {
+		t.Fatalf("opened = %v, want the one chat that was entered", opener.opened)
+	}
+	if len(opener.closed) != 0 {
+		t.Fatalf("closed = %v, want nothing: a walk closes no chat", opener.closed)
+	}
+	if model.openedChat != 7 {
+		t.Fatalf("openedChat = %d, want the chat that was entered 7", model.openedChat)
+	}
+}
+
+// Entering another chat closes the chat that was left and opens the one that
+// is, which is the whole of what an entry is to TDLib.
+func TestEnteringAnotherChatClosesTheOldOneAndOpensTheNew(t *testing.T) {
 	opener := &recordingOpener{}
 	model := openerModel(t, opener)
 
 	model, cmd := updateModel(t, model, press(tea.KeyEnter))
 	runCommands(t, cmd)
 
-	// The keys are on the chat list, which is where a user walks through
-	// chats; on a two-pane screen the conversation follows the selection.
+	// The keys are on the chat list, the cursor walks to the second chat, and
+	// Enter enters it.
 	model.focus = FocusChatList
 	model, cmd = updateModel(t, model, press(tea.KeyDown))
+	runCommands(t, cmd)
+	model, cmd = updateModel(t, model, press(tea.KeyEnter))
 	runCommands(t, cmd)
 
 	if len(opener.closed) != 1 || opener.closed[0] != 7 {
@@ -266,10 +306,11 @@ func TestTheNewChatIsOpenedAfterTheOldOneIsClosed(t *testing.T) {
 	model, cmd := updateModel(t, model, press(tea.KeyEnter))
 	runCommands(t, cmd)
 
-	// The keys are on the chat list, which is where a user walks through
-	// chats; the conversation follows the selection.
+	// The keys are on the chat list, the cursor walks to the second chat —
+	// which is a look and asks nothing — and Enter enters it.
 	model.focus = FocusChatList
-	_, cmd = updateModel(t, model, press(tea.KeyDown))
+	model, _ = updateModel(t, model, press(tea.KeyDown))
+	_, cmd = updateModel(t, model, press(tea.KeyEnter))
 	// Run the commands as the program runs them, because a runner that walks
 	// a batch one member at a time is the one thing that cannot see the two
 	// calls out of order.

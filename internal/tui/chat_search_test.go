@@ -277,42 +277,69 @@ func TestTabWalksTheSearchAndTheList(t *testing.T) {
 	}
 }
 
-// On a two-pane screen the conversation follows the selection, because it
-// is drawn from it — but not while a search is open. Following the cursor
-// through the results would open a chat for every one of them, and a
-// history request is not something a user asks for by reading a list.
-// Enter is the key that opens a chat.
-func TestTheConversationFollowsTheListUnlessASearchIsOpen(t *testing.T) {
+// A cursor in the chat list is a selection, on a two-pane screen as much as
+// on a narrow one: it puts a preview of the chat under it in the pane and
+// opens nothing. Enter and Tab are what open a chat, and until one of them
+// is pressed the conversation that was open stays open and stays read.
+//
+// A search is the case where even the preview is not armed: the results are
+// a filter over the list, the conversation beside them is the one the reader
+// opened, and a page of history for every result the cursor passes is a
+// request nobody asked for.
+func TestTheCursorInTheListSelectsAndDoesNotOpen(t *testing.T) {
 	m := focusedOn(openedModel(t, 120, 30), FocusChatList)
+	opened := m.openedChat
+	at := m.selectedMsg
+
 	m, _ = updateModel(t, m, pressRunes("j"))
 	if m.selectedChat != 1 {
 		t.Fatalf("selectedChat = %d, want 1", m.selectedChat)
 	}
-	if want := len(m.selected().Messages) - 1; m.selectedMsg != want {
+	if m.selectedMsg != at {
 		t.Fatalf(
-			"selectedMsg = %d, want %d: the conversation did not follow the list",
-			m.selectedMsg,
-			want,
+			"selectedMsg = %d, want the %d the chat that was open was left "+
+				"at: a cursor in the list moves the cursor in the list",
+			m.selectedMsg, at,
 		)
 	}
+	if m.openedChat != opened {
+		t.Fatalf(
+			"openedChat = %d, want the chat that was entered %d: a cursor "+
+				"in the list opens nothing",
+			m.openedChat, opened,
+		)
+	}
+	if !m.conversationPaneShown() {
+		t.Fatal("the conversation that was open is not on the screen")
+	}
 
+	// With a search open the cursor moves over the results and the
+	// conversation stays exactly where the reader left it.
 	searching := typing(t, focusedOn(openedModel(t, 120, 30), FocusChatList), "e")
-	opened := searching.selectedMsg
+	at = searching.selectedMsg
 	searching, _ = updateModel(t, searching, press(tea.KeyShiftTab))
 	searching, _ = updateModel(t, searching, pressRunes("j"))
 
 	if searching.selectedChat != 1 {
 		t.Fatalf("selectedChat = %d, want 1", searching.selectedChat)
 	}
-	if searching.selectedMsg != opened {
+	if searching.selectedMsg != at {
 		t.Fatalf(
-			"selectedMsg = %d, want the open chat's %d: a search opened a chat nobody asked for",
+			"selectedMsg = %d, want the open chat's %d: a search opened a "+
+				"chat nobody asked for",
 			searching.selectedMsg,
-			opened,
+			at,
 		)
 	}
 	if searching.screen != ScreenConversation {
 		t.Fatalf("screen = %v, want the chat that was open", searching.screen)
+	}
+	if searching.chatPreviewChat != 0 {
+		t.Fatalf(
+			"the pane is previewing chat %d: a search is a filter over the "+
+				"list, not a walk through conversations",
+			searching.chatPreviewChat,
+		)
 	}
 }
 

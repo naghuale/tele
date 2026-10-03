@@ -341,13 +341,15 @@ func TestAChatWithNothingUnreadSaysNothingAboutIt(t *testing.T) {
 	}
 }
 
-// The line stays where it was while the chat is open, even though this
-// program tells Telegram what is on the screen and the pointer moves as a
-// result. A line that went away as soon as the reader looked at the messages
-// it stands over would be a line that says nothing about what they had not
-// read — and the owner of this program asked for it in Telegram because
-// Telegram's own counter falls while he is looking.
-func TestTheUnreadLineStaysWhileTheChatIsOpen(t *testing.T) {
+// The line goes when Telegram has been told the messages under it were read.
+//
+// It used to stay: the pointer was frozen when the chat was opened, so a
+// chat a person opened and read on purpose kept the line over the very
+// messages they had just read, and the list and the feed disagreed about
+// one chat (owner, real account, 03.10, #75). What the line is for is the
+// moment before — it says where the unread messages of this chat begin —
+// and after that moment it has nothing to stand over.
+func TestTheUnreadLineGoesOnceTelegramHasReadTheWindow(t *testing.T) {
 	m := separatorsModel(t, []Message{
 		{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna"},
 		{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna"},
@@ -363,50 +365,80 @@ func TestTheUnreadLineStaysWhileTheChatIsOpen(t *testing.T) {
 	m.chats[m.selectedChat].LastReadInboxMessageID = 11
 	m, _ = updateModel(t, m, messagesViewedMsg{chatID: 7})
 
-	if view := plain(m.View()); !strings.Contains(view, unreadSeparatorText) {
+	if view := plain(m.View()); strings.Contains(view, unreadSeparatorText) {
 		t.Fatalf(
-			"the line went away after the read that was its own cause:\n%s",
+			"the line is still over a chat Telegram has been told was read:\n%s",
 			view,
 		)
 	}
 }
 
-// The pointer is read when the chat is opened and not before: it is the
-// state of the chat at the moment the reader walked into it, and reading it
-// again after this program has told Telegram what was on the screen would
-// move it past the very messages the line stands over.
-func TestThePointerIsReadWhenTheChatIsOpened(t *testing.T) {
-	page := HistoryPage{Messages: newestFirst([]Message{
-		{ID: 10, Text: "the one", At: at(1, time.October, 9, 0), Author: "Anna"},
-	})}
+// The line is drawn from the pointer the row of the chat carries, and the
+// row is what Telegram says: a chat list that comes back with the pointer
+// moved has a different line to draw, and a chat that has just received a
+// message has the same line under a newer run of unread messages.
+//
+// It is asked of a chat that was opened and of one that is only being
+// previewed, because the two are one question now: the preview asks the
+// source for pages and marks nothing read, so the pointer it has is the one
+// the chat came with, and the line over the unread run is the one hint the
+// pane has to give about it.
+func TestTheLineFollowsThePointerOfTheChat(t *testing.T) {
+	cases := map[string]func(t *testing.T) Model{
+		"an opened chat": func(t *testing.T) Model {
+			return separatorsModel(t, []Message{
+				{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna"},
+				{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna"},
+			}, 10)
+		},
+		"a chat in the pane beside the list": func(t *testing.T) Model {
+			model := &recordingChatSource{pages: []HistoryPage{
+				{Messages: newestFirst([]Message{
+					{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna"},
+					{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna"},
+				})},
+			}}
 
-	m := NewModelWithSource(&recordingChatSource{pages: []HistoryPage{page}})
-	m.chats = []Chat{{
-		ID: 7, Title: "Anna Example", LastReadInboxMessageID: 9,
-	}}
-	m.chatsState = loadStateLoaded
-	m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: separatorWidth, Height: separatorHeight})
-	m, _ = updateModel(t, m, press(tea.KeyEnter))
+			m := NewModelWithSource(model)
+			m.widths = termwidth.Unmeasured(termwidth.ModeAuto)
+			m.theme = theme.DefaultTheme().ForProfile(theme.ProfileNoColor)
+			m.colorProfile = theme.ProfileNoColor
+			m.rendererForProfile = newRenderer(theme.ProfileNoColor)
+			m.chats = []Chat{{ID: 7, Title: "Anna Example", Unread: 2, LastReadInboxMessageID: 10}}
+			m.chatsState = loadStateLoaded
+			m, _ = updateModel(t, m, tea.WindowSizeMsg{Width: separatorWidth, Height: separatorHeight})
+			m, cmd := updateModel(t, m, chatPreviewDueMsg{chatID: 7, selection: 0, newest: true})
+			m = feedAnswers(t, m, cmd)
+			if !m.chatPreviewShown() {
+				t.Fatal("the pane beside the list is not showing the chat")
+			}
 
-	if m.unreadBoundary != 9 {
-		t.Errorf(
-			"unreadBoundary = %d after opening the chat, want the 9 the row "+
-				"of the chat carried", m.unreadBoundary,
-		)
+			return withClock(m.normalizeTimeline().scrollToNewest(), separatorNow, separatorZone)
+		},
 	}
 
-	// And it is not read again: the chat list comes back from Telegram with
-	// the pointer at the newest message, because the read of the window
-	// moved it, and the line the reader came for is still there.
-	m, _ = updateModel(t, m, chatsLoadedMsg{chats: []Chat{{
-		ID: 7, Title: "Anna Example", LastReadInboxMessageID: 10,
-	}}})
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := build(t)
 
-	if m.unreadBoundary != 9 {
-		t.Errorf(
-			"unreadBoundary = %d after the list was read again, want the 9 "+
-				"the chat was opened with", m.unreadBoundary,
-		)
+			if view := plain(m.View()); !strings.Contains(view, unreadSeparatorText) {
+				t.Fatalf(
+					"the line is not over the message past the pointer:\n%s",
+					view,
+				)
+			}
+
+			// The pointer moves up to the newest message of the same chat,
+			// which is what the list answers with after the read of a window.
+			m.chats[m.selectedChat].LastReadInboxMessageID = 11
+
+			if view := plain(m.View()); strings.Contains(view, unreadSeparatorText) {
+				t.Fatalf(
+					"the line is still drawn past a pointer of 11:\n%s",
+					view,
+				)
+			}
+		})
 	}
 }
 

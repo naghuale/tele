@@ -566,8 +566,9 @@
     means the chat is not recognised, which costs the aliases and
     nothing else
   - chat rows carry LastReadInboxMessageID from
-    `chat.last_read_inbox_message_id`; the TUI reads it when the chat
-    is opened and draws the unread line of the feed from it
+    `chat.last_read_inbox_message_id`; the TUI draws the unread line of the
+    feed from the row as it stands, and the live list keeps a row's pointer
+    when it brings a newer name, a newer count and a newer last message
   - an empty FIRST page of a chat whose summary carries LastMessageID
     is not the end of the history (#27, owner 02.10: a channel that was
     in no local database read "No messages yet" until the program was
@@ -633,15 +634,26 @@
     its own while it is open (FocusSearch, §5/§9) and is stacked
     above the rows, so the list gives up the column rather than there
     being two of them. Styles: styles.go
-  - chat preview (§5.1): while no conversation is open, the pane beside the
-    chat list shows the conversation of the chat under the cursor, and it
-    does so after a 200 ms pause with the cursor still on that chat
-    (chatPreviewPause, chat_preview.go). Three things it is not, each a rule
-    with a test: it never marks messages read (viewMessages is called only
-    for a chat opened on purpose, and markVisibleMessagesViewed asks nothing
-    on the chat list screen anyway), it never opens a chat in TDLib
-    (no openChat, so presence is not counted), and it never moves the focus
-    or draws a composer. It is read the way an opened chat is read on its
+  - chat preview (§5.1): while the keys are in the chat list, the pane beside
+    it shows the conversation of the chat under the cursor, and it does so
+    after a 200 ms pause with the cursor still on that chat
+    (chatPreviewPause, chat_preview.go). "While the keys are in the list" is
+    the rule, not "while no conversation is open" (#75, owner on a real
+    account 2026-10-03): the pane is asked of the focus
+    (chatPreviewPossible -> focus == FocusChatList, two panes) and the
+    conversation is drawn when it is not a preview (conversationPaneShown),
+    which is the one answer the drawing, the focus circle and Tab in the list
+    all ask. Three things a preview is not, each a rule with a test: it never
+    marks messages read (viewMessages is asked only while the conversation is
+    on the screen, markVisibleMessagesViewed gates on conversationPaneShown),
+    it never opens a chat in TDLib (no openChat, so presence is not counted;
+    the chat that was open stays open until another is entered), and it never
+    moves the focus or draws a composer. A cursor in the chat list is a
+    selection on every screen (selectChatAt arms the preview and nothing
+    else): it used to call openSelectedChat on a two-pane screen, which sent
+    openChat for the chat under the cursor and then viewMessages for its whole
+    visible window, so the badge fell and the chat counted as read on every
+    device of the account while the user was walking the list. It is read the way an opened chat is read on its
     first screen (#58): fillChatPreview asks for the page above the oldest
     message on the screen until feedIsFull says the pane is covered, bounded
     by the same maxHistoryFillRequests and maxHistoryFillMessages, and each
@@ -673,11 +685,14 @@
     A region that is not on the screen is not in the circle: a chat this
     account cannot write in has no composer and a narrow screen has no
     chat list beside the conversation, so the circle there is the
-    composer and the timeline alone. In the chat list with no
-    conversation open, Tab opens the chat under the cursor and focuses
+    composer and the timeline alone. In the chat list while the pane
+    beside it is a preview, Tab opens the chat under the cursor and focuses
     the timeline (Enter opens the same chat and focuses the composer);
     with no chat in the list at all the focus stays put and the status
-    line says `Open a chat first`. A step of the circle
+    line says `Open a chat first`. The one case where Tab in the chat list
+    is an ordinary step of the circle is the pane that is the conversation
+    already open: the cursor is on that chat, so there is nothing to open
+    and nothing to look at (#75). A step of the circle
     changes nothing else: the draft, the cursor in it and the message
     under the timeline cursor are where they were
   - Esc hierarchy (§8.5): search to composer, composer to timeline,
@@ -692,8 +707,10 @@
     composer holds a non-blank draft (`Quit with a draft?`, opening on
     the answer that stays), because a draft is the one thing here a
     person cannot get back; a draft of spaces is not a draft
-  - Enter in the list opens the chat and focuses the composer, and the
-    conversation follows the selection while it is beside the list
+  - Enter in the list opens the chat under the cursor and focuses the
+    composer. Nothing about the selection itself opens a chat, beside a
+    conversation or on its own (#75): the cursor puts a preview in the pane
+    and tells Telegram nothing
   - hint bar (§4.6): every bar names where Tab goes from that focus,
     with the words read off the cycle rather than written per focus, and
     the last words of every bar are the way out or the way back
@@ -810,10 +827,18 @@
     zone of the reader, including above the topmost entry of the window
     when the day it belongs to is off the screen above it
   - the unread line stands above the first incoming entry past the read
-    pointer of the chat, which is read ONCE when the chat is opened
-    (Model.unreadBoundary) and never again while it is open: this
-    program tells Telegram what the window holds, and a pointer read
-    again would have moved past the messages the line stands over
+    pointer of the chat, and the pointer is the chat's own number read off
+    its row (Model.unreadBoundary() -> Chat.LastReadInboxMessageID) rather
+    than a value frozen when the chat was opened (#75, owner on a real
+    account 2026-10-03). It was frozen: this program tells Telegram what
+    the window holds, and the line stayed over messages that had just been
+    read, so the list and the feed disagreed about one chat. Now the read
+    moves the pointer, Telegram answers updateChatReadInbox, the list is
+    read again (updateMessagesViewed) and the line has nothing left to
+    stand over. In a preview of a chat nobody entered the line is where the
+    unread messages of that chat begin, which is the hint it is for. Zero is
+    a chat with nothing read in it and a chat the source cannot say anything
+    about, and neither draws a line
   - the messages that are still going out are ENTRIES of the feed, not a
     block drawn under it: `feedEntries` appends one entry per pending
     message after the entries of the history, and `entryLines` renders it

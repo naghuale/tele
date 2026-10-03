@@ -113,26 +113,58 @@ func (m Model) entrySeparators(entries []timelineEntry) []entrySeparator {
 // opensUnreadRun reports whether this entry is where the unread messages of
 // the chat begin.
 //
-// It is the first incoming message past the read pointer, and it is an
-// incoming message: a chat's unread count is a count of what the other side
-// said, and a line of one's own message would stand over a message nobody
-// has sent. An outgoing message above the pointer is one this account sent
-// after reading up to there, which is not unread at all.
+// It is the first incoming message past the read pointer of the chat, and it
+// is an incoming message: a chat's unread count is a count of what the other
+// side said, and a line of one's own message would stand over a message
+// nobody has sent. An outgoing message above the pointer is one this account
+// sent after reading up to there, which is not unread at all.
 //
-// The pointer is the chat's as it was when the chat was opened, and it is
-// remembered rather than read again because this program marks what is on the
-// screen as read (message_viewing.go): a pointer read again after that would
-// have moved past the very messages the line is about, and the line would go
-// as soon as the reader looked at it.
+// The pointer is the chat's own last_read_inbox_message_id — the last message
+// Telegram has been told was read — and it is read off the row of the chat
+// rather than frozen when the chat was opened. It was frozen (Model.
+// unreadBoundary) until the owner found the result of it on a real account on
+// 03.10: the line stayed over the messages it stood for long after Telegram
+// had been told they were read, so a chat read on purpose kept the mark of a
+// chat that had not been read, and the list and the feed disagreed about the
+// same chat. The line is a hint about what Telegram has not been told yet,
+// and a hint that outlives its truth is a lie with a pill on it. What
+// happens now is the order the two of them run in: the window on the screen
+// is marked read, Telegram moves its pointer past it and answers
+// updateChatReadInbox, the list is read again (updateMessagesViewed), and the
+// line has nothing left to stand over.
+//
+// The same rule is what draws the line in a preview of a chat that was not
+// entered: there the pointer is where Telegram left it, and the line says
+// where the unread messages of that chat begin.
 func (m Model) opensUnreadRun(entry timelineEntry) bool {
 	if entry.isPending() || entry.message.Outgoing {
 		return false
 	}
-	if entry.message.ID <= m.unreadBoundary {
+
+	boundary := m.unreadBoundary()
+	if entry.message.ID <= boundary {
 		return false
 	}
 
-	return m.unreadBoundary > 0
+	return boundary > 0
+}
+
+// unreadBoundary returns the last message of the chat on the screen that
+// Telegram has been told was read, or zero where there is nothing to draw a
+// line over.
+//
+// It is the chat's own number and not a number of this program: the row
+// carries it (telegram.ChatSummary.LastReadInboxMessageID → Chat.
+// LastReadInboxMessageID), the live list keeps the row's, and the list that
+// comes back after a read carries the pointer TDLib moved. Zero is a chat
+// with nothing read in it and a chat the source could not say anything about,
+// and both draw no line at all.
+func (m Model) unreadBoundary() int64 {
+	if m.selectedChat < 0 || m.selectedChat >= len(m.chats) {
+		return 0
+	}
+
+	return m.chats[m.selectedChat].LastReadInboxMessageID
 }
 
 // entryMoment returns the moment an entry is placed by: the moment Telegram

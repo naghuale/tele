@@ -67,9 +67,12 @@ func (m *Model) markVisibleMessagesViewed() tea.Cmd {
 	}
 
 	// The conversation being the screen is the whole of "the user is
-	// looking at it". On the chat list the messages are not on the screen
-	// at all, and on the authorization screen there is no chat.
-	if m.screen != ScreenConversation {
+	// looking at it". It is asked of the pane rather than of the screen,
+	// because a two-pane screen with the keys in the list draws a preview in
+	// that same place (chat_preview.go): the messages on it belong to a chat
+	// nobody entered, and a look is not a reading (#75). On the
+	// authorization screen there is no chat at all.
+	if !m.conversationPaneShown() {
 		return nil
 	}
 	if m.selectedChat < 0 || m.selectedChat >= len(m.chats) {

@@ -18,11 +18,12 @@ import (
 // detail:
 //
 //   - it is not a read. Telegram is told which messages are on the screen
-//     only for a chat that was opened on purpose (§8.2), so a preview
-//     leaves the read pointer of the chat where it was. Nothing in this
-//     file calls ViewMessages, and markVisibleMessagesViewed asks nothing
-//     on the chat list screen for the same reason — the preview is shown
-//     on that screen;
+//     only for a conversation that is on the screen, and the pane beside
+//     the list is a preview for as long as the keys are in the list (§8.2),
+//     so a preview leaves the read pointer of the chat where it was.
+//     Nothing in this file calls ViewMessages, and
+//     markVisibleMessagesViewed asks nothing while this pane is what the
+//     right of the screen shows;
 //   - it is not an opening. The chat is not opened in TDLib, so presence is
 //     not counted and the composer of the open conversation does not move;
 //     the keys stay in the list, which is what makes Tab and Enter the
@@ -151,14 +152,36 @@ func (m *Model) armChatPreview() tea.Cmd {
 // chatPreviewPossible reports whether there is a pane beside the list to
 // preview a chat in.
 //
+// The pane is a preview while the keys are in the list, wherever that is: on
+// the chat list screen nothing is open, and beside a conversation the keys
+// went back to the list to walk it. Both are one state — a person is choosing
+// a chat — and a cursor that moves there is looking at chats either way. It
+// used to be asked of the screen rather than of the focus, so a conversation
+// open beside the list kept showing itself while the cursor walked off it,
+// and the highlight and the words on the right were about two different
+// chats (#75).
+//
 // A chat list on its own has nowhere to show it: the preview is drawn in the
 // conversation pane, and a narrow screen has no conversation pane while the
 // list is on the screen.
 func (m Model) chatPreviewPossible() bool {
-	return m.screen == ScreenChats &&
+	return m.screen != ScreenAuth &&
+		m.focus == FocusChatList &&
 		m.selectedChat >= 0 &&
 		m.selectedChat < len(m.chats) &&
 		LayoutFor(m.width, m.height).TwoPane()
+}
+
+// conversationPaneShown reports whether the pane beside the list is the
+// conversation that was opened rather than a preview of the chat under the
+// cursor.
+//
+// The keys are what decides it: they are in a conversation when they are in
+// one of its regions, and in the list when they are in the list. The focus
+// circle, Tab in the list and the drawing of the pane are all asked of this
+// one answer, so they cannot disagree about what the right of the screen is.
+func (m Model) conversationPaneShown() bool {
+	return m.screen == ScreenConversation && !m.chatPreviewShown()
 }
 
 // chatPreviewShown reports whether the pane beside the list is showing the

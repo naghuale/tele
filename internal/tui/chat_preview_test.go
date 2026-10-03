@@ -335,6 +335,278 @@ func TestThePreviewNeverMarksMessagesRead(t *testing.T) {
 // The keys are what open the chat, and opening is what marks it read: the
 // preview is a look at a chat, and both keys are the ways to stop looking
 // and start reading.
+//
+// It is Enter and Tab from the LIST that open a chat. Moving the cursor in
+// the list is not one of them, and the reason is not politeness to Telegram:
+// a badge that falls while the reader is still walking the list is a badge
+// that says a chat was read when nobody read it, on every device the account
+// is signed in on.
+//
+// The defect the owner found on a real account on 03.10 (build review-tele71,
+// c935e9f) is this state with one key too few: with a conversation open
+// beside the list, walking the cursor to another chat was read as entering it.
+// What marked it read was not the pane and not the preview — nothing in
+// chat_preview.go sends anything to Telegram — but the selection opening the
+// chat (selectChatAt → openSelectedChat): an openChat for the chat under the
+// cursor, and, once its page was on the screen, viewMessages for the whole
+// visible window. Telegram answered with its own unread count of zero and
+// the badge went, while the feed still carried the line over the unread
+// messages, because that line is drawn from the chat's read pointer and the
+// pointer had not been read again.
+func TestAMoveInTheListIsALookAndNotAnEntry(t *testing.T) {
+	model, source, viewer, opener := lookingModel(t)
+
+	marked := viewer.count()
+	if marked == 0 {
+		t.Fatal("the chat that was opened was not marked read")
+	}
+
+	// The cursor walks to the next chat, and everything the key started runs
+	// the way the Bubble Tea loop runs it: the pause, and then the pages it
+	// asked for.
+	model, cmd := updateModel(t, model, press(tea.KeyDown))
+	model = settlePreview(t, model, cmd)
+
+	if viewer.count() != marked {
+		t.Fatalf(
+			"walking the cursor marked %d more windows read: %v",
+			viewer.count()-marked, viewer.windows[marked:],
+		)
+	}
+	if len(opener.opened) != 1 {
+		t.Fatalf(
+			"walking the cursor told Telegram about the chats %v, want only "+
+				"the one that was opened",
+			opener.opened,
+		)
+	}
+	if got := model.chats[model.selectedChat].Unread; got != 4 {
+		t.Fatalf(
+			"the badge of the chat under the cursor is %d, want the 4 the "+
+				"row carried: nothing was read, so nothing changed it",
+			got,
+		)
+	}
+
+	// And the pane is a preview of that chat, not the conversation that was
+	// open: the highlight in the list and the words on the right have to be
+	// about the same chat.
+	if !model.chatPreviewShown() {
+		t.Fatal("the pane is not showing the chat under the cursor")
+	}
+	view := plain(model.View())
+	if !strings.Contains(view, "Beta line 06") {
+		t.Fatalf("the pane is not showing the chat under the cursor:\n%s", view)
+	}
+	if !strings.Contains(view, previewHint) {
+		t.Fatalf("the pane does not say it is a preview:\n%s", view)
+	}
+	if source.historyChats[len(source.historyChats)-1] != 2 {
+		t.Fatalf(
+			"the last page asked for was of chat %d, want the chat under "+
+				"the cursor 2",
+			source.historyChats[len(source.historyChats)-1],
+		)
+	}
+}
+
+// Entering the previewed chat is what marks it read: the window that is on
+// the screen goes to Telegram, Telegram answers with a count of zero, the
+// badge goes, the line over the unread messages goes with it, and the keys
+// are in the feed on the newest message.
+//
+// It is the check the owner wrote for this task by hand — «курсор по чату с
+// кружком «2» — кружок остаётся; Tab в ленту — кружок исчезает, фокус на
+// последнем сообщении, разделителя нет» — and each of its three answers is
+// one of the assertions below.
+func TestEnteringThePreviewedChatMarksTheWindowRead(t *testing.T) {
+	model, source, viewer, opener := lookingModel(t)
+
+	marked := viewer.count()
+	model, cmd := updateModel(t, model, press(tea.KeyDown))
+	model = settlePreview(t, model, cmd)
+
+	// Tab in the list: the chat under the cursor is opened and the keys go
+	// into its feed, which is what the foot of the preview promises.
+	model, cmd = updateModel(t, model, press(tea.KeyTab))
+	model = deliverOpen(t, model, cmd)
+
+	if model.focus != FocusHistory {
+		t.Fatalf("focus = %v, want the feed of the chat that was entered", model.focus)
+	}
+	if model.selectedChatID() != 2 {
+		t.Fatalf("the chat that was entered is %d, want 2", model.selectedChatID())
+	}
+	if len(opener.opened) != 2 || opener.opened[1] != 2 {
+		t.Fatalf("TDLib was told to open %v, want the entered chat 2", opener.opened)
+	}
+	if viewer.count() == marked {
+		t.Fatal("nothing was marked read in the chat that was entered")
+	}
+
+	// The page of the entered chat arrives, and the read of the window that
+	// is on the screen goes out with the answer of the open.
+	model, readCmd := updateModel(t, model, historyLoadedMsg{
+		chatID:    2,
+		operation: model.historyOperation,
+		page:      previewPage(2, "Beta"),
+	})
+	runCommands(t, readCmd)
+
+	window := viewer.last()
+	if len(window) == 0 {
+		t.Fatal("nothing was marked read in the chat that was entered")
+	}
+	if viewer.chatID != 2 {
+		t.Fatalf("marked read chat %d, want the entered one 2", viewer.chatID)
+	}
+	if window[len(window)-1] != 206 {
+		t.Fatalf("the window read = %v, want the newest message of the chat in it", window)
+	}
+
+	// Telegram took the read and answered with its own numbers: the count is
+	// zero and the read pointer stands on the newest message, which is what
+	// the list answers with a moment later.
+	source.chats = []Chat{
+		previewChat(1, "Alpha"),
+		{
+			ID: 2, Title: "Beta", Kind: ChatKindPrivate,
+			LastReadInboxMessageID: 206,
+		},
+	}
+	model, cmd = updateModel(t, model, messagesViewedMsg{chatID: 2})
+	if len(collectMsgs(cmd)) == 0 {
+		t.Fatal("the list was not read again after the chat was read")
+	}
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: source.chats})
+
+	view := plain(model.View())
+	if strings.Contains(view, previewHint) {
+		t.Fatalf("the pane is still a preview after the chat was entered:\n%s", view)
+	}
+	if strings.Contains(view, unreadSeparatorText) {
+		t.Fatalf(
+			"the line over the unread messages is still on the screen of a "+
+				"chat Telegram has been told was read:\n%s", view,
+		)
+	}
+	if got := model.chats[model.selectedChat].Unread; got != 0 {
+		t.Fatalf("the badge of the entered chat is %d, want the 0 Telegram answered with", got)
+	}
+
+	// The keys are in the feed, and the feed is at the end of the
+	// conversation: a chat opens where the newest thing in it is (§8.3).
+	if !model.timelineFollowsNewest() {
+		t.Fatal("the cursor is not on the newest message of the chat")
+	}
+	if !strings.Contains(view, "Beta line 06") {
+		t.Fatalf("the newest message is not on the screen:\n%s", view)
+	}
+}
+
+// The preview of the chat that is already open is a preview as well. It is
+// the one case where the messages in the pane belong to a chat Telegram
+// holds open and has been told about, so the guards that keep a read back
+// (the chat is not the open one) would let it through; what stops it is the
+// pane: while the keys are in the list, the conversation is not on the
+// screen, whatever the chat of the pane is.
+//
+// The reader scrolls first, because a window that has not moved is a read
+// that is not sent anyway — the two guards are asked in the other order.
+func TestAPreviewOfTheChatThatIsOpenMarksNothingRead(t *testing.T) {
+	model, source, viewer, _ := lookingModel(t)
+
+	// The keys go into the chat that is open, and a page up moves the
+	// window: a window that moves is a read.
+	model, cmd := updateModel(t, model, press(tea.KeyTab))
+	runCommands(t, cmd)
+	model, cmd = updateModel(t, model, press(tea.KeyEsc))
+	runCommands(t, cmd)
+	model, cmd = updateModel(t, model, press(tea.KeyPgUp))
+	runCommands(t, cmd)
+
+	marked := viewer.count()
+	if marked == 0 {
+		t.Fatal("nothing was marked read in a chat that was opened and scrolled")
+	}
+
+	// The keys are back in the list, and the pane shows the chat under the
+	// cursor — the same chat — as a preview.
+	model, cmd = updateModel(t, model, press(tea.KeyEsc))
+	runCommands(t, cmd)
+	if model.focus != FocusChatList {
+		t.Fatalf("focus = %v, want the keys back in the list", model.focus)
+	}
+
+	model, cmd = previewDue(t, model, model.selectedChatID(), model.selectedChat)
+	model = settlePreview(t, model, cmd)
+
+	if !model.chatPreviewShown() {
+		t.Fatal("the pane is not showing a preview of the chat under the cursor")
+	}
+	if viewer.count() != marked {
+		t.Fatalf(
+			"a preview of the chat that is open marked %d more windows "+
+				"read: %v",
+			viewer.count()-marked, viewer.windows[marked:],
+		)
+	}
+	if len(source.historyChats) == 0 {
+		t.Fatal("the preview asked TDLib for nothing at all")
+	}
+}
+
+// lookingModel is the state the owner was in on 03.10 when the badge fell
+// under the cursor: the list beside a conversation that was opened, and the
+// keys handed back to the list. The chat under the cursor is the one that
+// was opened, and every chat of the list has a page of its own to show in
+// the pane.
+func lookingModel(t *testing.T) (Model, *fakeChatSource, *recordingViewer, *recordingOpener) {
+	t.Helper()
+
+	viewer := &recordingViewer{}
+	opener := &recordingOpener{}
+	model, source := previewModel(t, viewer, opener)
+
+	chats := previewChats()
+	source.chats = chats
+	// Every chat of the list has a newest page, and nothing above its oldest
+	// message: the fill of the pane ends there.
+	source.pagesByChat = map[int64]map[int64]HistoryPage{
+		1: {0: previewPage(1, "Alpha"), 101: HistoryPage{}},
+		2: {0: previewPage(2, "Beta"), 201: HistoryPage{}},
+		3: {0: previewPage(3, "Gamma"), 301: HistoryPage{}},
+		4: {0: previewPage(4, "Delta"), 401: HistoryPage{}},
+	}
+
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: chats})
+
+	// The first chat is previewed, and then opened, which is what a user who
+	// looked at a chat and went into it has done.
+	model, cmd := previewDue(t, model, 1, 0)
+	model = settlePreview(t, model, cmd)
+
+	model, cmd = updateModel(t, model, press(tea.KeyEnter))
+	model = deliverOpen(t, model, cmd)
+	model, readCmd := updateModel(t, model, historyLoadedMsg{
+		chatID:    1,
+		operation: model.historyOperation,
+		page:      previewPage(1, "Alpha"),
+	})
+	runCommands(t, readCmd)
+
+	// Esc leaves the field for the feed, and the second one hands the keys
+	// back to the list beside the conversation.
+	model, cmd = updateModel(t, model, press(tea.KeyEsc))
+	runCommands(t, cmd)
+	model, cmd = updateModel(t, model, press(tea.KeyEsc))
+	runCommands(t, cmd)
+
+	if model.focus != FocusChatList {
+		t.Fatalf("focus = %v, want the keys back in the list", model.focus)
+	}
+	return model, source, viewer, opener
+}
 func TestEnterAndTabOpenThePreviewedChatAndMarkItRead(t *testing.T) {
 	cases := map[string]struct {
 		key   tea.KeyMsg

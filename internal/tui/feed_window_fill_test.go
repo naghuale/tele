@@ -74,8 +74,10 @@ func TestTheFeedWindowFillsItselfWithOlderMessages(t *testing.T) {
 	t.Run("after switching away and back", func(t *testing.T) {
 		model := chatOfForty(t, width, height, messages, base)
 
-		// Away: the list is re-read with both chats in it, and the other
-		// one is opened.
+		// Away: the list is re-read with both chats in it, the cursor walks
+		// to the other chat and the other chat is entered. A cursor on its
+		// own is a look (selectChatAt), so switching is what a user does with
+		// two keys.
 		model, _ = updateModel(t, model, chatsLoadedMsg{chats: []Chat{
 			{ID: 7, Title: "Anna Example", Messages: messages},
 			{ID: 8, Title: "Boris Example", Messages: []Message{{
@@ -83,19 +85,22 @@ func TestTheFeedWindowFillsItselfWithOlderMessages(t *testing.T) {
 				At: base.Add(-time.Hour), Author: "Boris Example",
 			}}},
 		}})
-		opened, _ := model.selectChatAt(1)
-		model = opened.(Model)
+		moved, _ := model.selectChatAt(1)
+		model = moved.(Model)
 		if model.selectedChat != 1 {
 			t.Fatalf("selectedChat = %d, want the other chat", model.selectedChat)
 		}
-		model = model.scrollToNewest()
+		opened, _ := model.openSelectedChat(FocusHistory)
+		model = opened.(Model).scrollToNewest()
 
 		// And back.
-		back, _ := model.selectChatAt(0)
-		model = back.(Model)
+		moved, _ = model.selectChatAt(0)
+		model = moved.(Model)
 		if model.selectedChat != 0 {
 			t.Fatalf("selectedChat = %d, want the first chat back", model.selectedChat)
 		}
+		opened, _ = model.openSelectedChat(FocusHistory)
+		model = opened.(Model)
 
 		assertTheFeedIsFull(t, model, "after coming back to the chat")
 	})

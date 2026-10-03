@@ -47,15 +47,19 @@ func focusStep(msg tea.KeyMsg) int {
 // the screen the program opens on. Enter opens the same chat and leaves
 // the keys in the composer, which is the difference between the two.
 //
-// With a conversation open beside the list, Tab is an ordinary step of the
-// cycle, and a search line above the list is a region of the list (§5), so
-// Tab walks into the query and back out of it.
+// The same is true beside a conversation that is already open: the pane
+// there is a preview of the chat under the cursor while the keys are in the
+// list, and Tab enters it the way it enters a preview of a chat nothing is
+// open about. What it walks instead is the circle — from the list to the
+// composer of the chat that is open — is the one case where the pane is not
+// a preview: the chat under the cursor is the open one, so there is nothing
+// to open and nothing to look at (#75).
 //
 // A list with no chat in it has nothing to open: the focus stays where it
 // is and the status line says what is missing, because a key that silently
 // does nothing is a key the user has to try twice to learn.
 func (m Model) tabFromChatList(delta int) (tea.Model, tea.Cmd) {
-	if m.chatSearch.open || m.screen == ScreenConversation {
+	if m.chatSearch.open || m.conversationPaneShown() {
 		return m.cycleFocus(delta), nil
 	}
 
@@ -137,7 +141,11 @@ func (m Model) normalizeFocus() Model {
 
 // visibleFocusRegions returns the regions Tab visits, in order.
 func (m Model) visibleFocusRegions() []Focus {
-	if m.screen != ScreenConversation {
+	// Nothing of a conversation is on the screen while the pane beside the
+	// list is a preview: the preview draws no composer and is not a region of
+	// the focus circle, and a circle that visits a region which is not drawn
+	// hands the keys to a place with nothing in it.
+	if !m.conversationPaneShown() {
 		return m.chatListFocusRegions()
 	}
 

@@ -442,21 +442,6 @@ type Model struct {
 	now      func() time.Time
 	location *time.Location
 
-	// unreadBoundary is the last message of the open chat Telegram had been
-	// told was read when the chat was opened, and it is what the unread line
-	// of the feed is drawn from.
-	//
-	// It is remembered rather than read again because this program marks
-	// what is on the screen as read (message_viewing.go). A pointer read
-	// again after the first read of a window would have moved past the very
-	// messages the line stands over, and the line would go as soon as the
-	// reader looked at the conversation — which is exactly the moment it is
-	// for. Telegram is told the window; the screen keeps the line.
-	//
-	// It is zero for a chat with nothing read in it and for a chat the
-	// source could not say anything about, and both draw no line at all.
-	unreadBoundary int64
-
 	// hourFormat is the format the hour is written in: 20:06 or 08:06 PM.
 	//
 	// It is a field for the reason now and location are. A message of
@@ -1662,12 +1647,10 @@ func (m Model) updateChatsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // and clamped to them: a cursor on a chat the query left out is a cursor
 // on nothing the user can see.
 //
-// On a two-pane screen the conversation follows the selection, because it
-// is drawn from it — but not while a search is open, where following it
-// would open a chat for every result the user arrows past, and a history
-// request is not something a user asks for by looking at a list. Enter is
-// the key that opens a chat. On a single-pane screen nothing is opened at
-// all, so the selection is all that moves.
+// The movement is a selection and nothing else: it never opens a chat and
+// never marks one read (see selectChatAt). On a single-pane screen that is
+// all a cursor is; on a two-pane one it is a cursor with the preview of the
+// chat it is on beside it.
 func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
 	if m.chatSearch.open {
 		return m.moveChatSearchSelection(delta), nil
@@ -1686,11 +1669,21 @@ func (m Model) moveChatSelection(delta int) (tea.Model, tea.Cmd) {
 
 // selectChatAt makes chatIndex the selected chat.
 //
-// An open conversation follows the selection without the focus moving to
-// the composer: the user is still walking the list, and Tab or Enter says
-// where they want the keys to go. A search is the one case where the
-// conversation stays where it is: the list is a filter here, not a
-// selection of what to read.
+// The cursor in the list is a selection, and the pane beside it follows the
+// selection as a preview: a person walking a list of chats is looking at
+// them, not reading them, and looking at a chat has never been reading it.
+// Enter and Tab are what put a chat on the screen for reading (see
+// tabFromChatList and openSelectedChat), and they are the keys the foot of
+// the preview names.
+//
+// Nothing is opened here, on any screen, and that is the whole of the change
+// of 03.10 (owner, real account, task #75): with a conversation open beside
+// the list, walking the cursor to another chat used to open it in TDLib and,
+// once its page was on the screen, to tell Telegram that the whole visible
+// window of a chat nobody had entered had been read. Telegram answered with
+// its own unread count of zero, the badge went, and the same chat was read on
+// every other device of the account. An open is a claim about what a person
+// is doing, and a cursor moving over a list is not it.
 //
 // A selection that moved is drawn over the whole screen and not over the
 // rows that changed: see repaint.go.
@@ -1706,31 +1699,20 @@ func (m Model) selectChatAt(chatIndex int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The conversation is only drawn from the selection where the list and
-	// the conversation share the screen. Everywhere else the selection is
-	// only a selection, and nothing is opened behind the user's back.
-	if !m.chatSearch.open &&
-		m.screen == ScreenConversation &&
-		LayoutFor(m.width, m.height).TwoPane() {
-		return m.openSelectedChat(m.focus)
-	}
-
-	// On the list screen the conversation is a preview of the chat under the
-	// cursor, and the preview waits for the cursor to be still
-	// (chat_preview.go): a person walking a list presses ↓ faster than a
-	// page of history comes back, and one page for the chat they stopped
-	// on is what they wanted.
+	// The pane beside the list is a preview of the chat under the cursor, and
+	// the preview waits for the cursor to be still (chat_preview.go): a person
+	// walking a list presses ↓ faster than a page of history comes back, and
+	// one page for the chat they stopped on is what they wanted.
 	return m, tea.Batch(repaintCmd(m), m.armChatPreview())
 }
 
 // openSelectedChat opens the selected chat in the conversation pane.
 //
 // focus says where the keys go afterwards. The callers differ in nothing
-// else: opening a chat from the list, following the selection into another
-// chat and walking into a chat with Tab are the same operation, and the
-// focus is the only difference between them — the composer, where the next
-// message is written, the messages, where a chat opened to be read begins,
-// or the list the keys came from (§5).
+// else: opening a chat from the list with Enter, with Tab and out of a
+// search result are the same operation, and the focus is the only difference
+// between them — the composer, where the next message is written, or the
+// messages, where a chat opened to be read begins (§5).
 func (m Model) openSelectedChat(focus Focus) (tea.Model, tea.Cmd) {
 	if len(m.chats) == 0 {
 		return m, nil
@@ -1763,16 +1745,6 @@ func (m Model) openSelectedChat(focus Focus) (tea.Model, tea.Cmd) {
 	m.historyMoreErr = nil
 	m.historyFillRequests = 0
 	m.historyFillMessages = 0
-
-	// Where the unread messages of this chat begin, read once, as the chat
-	// was when it was opened.
-	//
-	// It is read here and never again while the chat is open, because this
-	// program tells Telegram what is on the screen (message_viewing.go) and
-	// Telegram's own pointer would move past the very messages the line
-	// stands over. A line that went away as soon as the reader looked at it
-	// is a line that says nothing about what they had not read.
-	m.unreadBoundary = m.chats[m.selectedChat].LastReadInboxMessageID
 
 	statusCmd := m.setMessageStatusTarget(
 		m.accountKey,
@@ -1856,12 +1828,16 @@ func (m Model) updateConversationKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case msg.Type == tea.KeyEsc:
 		return m.leaveConversationRegion()
 
-	case focusStep(msg) != 0:
+	case m.focus == FocusChatList && focusStep(msg) != 0:
 		// §8.1: Tab and Shift+Tab walk the regions of the screen and come
 		// back around. The chat list in a conversation is the list's own
-		// screen with a chat open beside it, so its keys are the list's —
-		// including Tab, which opens nothing here because the chat under
-		// the cursor is the one already on the screen.
+		// screen with the chat under the cursor shown beside it, and Tab in
+		// the list is the key that enters that chat — the same key it is on
+		// the list screen. Only where the pane is the conversation that was
+		// opened is Tab an ordinary step of the circle (focus_cycle.go).
+		return m.tabFromChatList(focusStep(msg))
+
+	case focusStep(msg) != 0:
 		return m.cycleFocus(focusStep(msg)), nil
 	}
 

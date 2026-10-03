@@ -27,6 +27,12 @@ type fakeChatSource struct {
 	// source with nothing staged in it does.
 	pages map[int64]HistoryPage
 
+	// pagesByChat answers a history load by the chat and the boundary it was
+	// asked with, for a test in which two chats each have a newest page of
+	// their own: the newest page of every chat is asked for with the
+	// boundary zero, so one table cannot hold the newest pages of two.
+	pagesByChat map[int64]map[int64]HistoryPage
+
 	// historyChats is every chat a history load was asked for, in order.
 	// The last call is the one historyCall holds, and this is how many there
 	// were: a screen that asks for a page per key press is the question the
@@ -68,6 +74,12 @@ func (f *fakeChatSource) LoadHistory(
 	if page, staged := f.pages[fromMessageID]; staged {
 		return page, nil
 	}
+	if byBoundary, known := f.pagesByChat[chatID]; known {
+		if page, staged := byBoundary[fromMessageID]; staged {
+			return page, nil
+		}
+	}
+
 	return f.history, nil
 }
 

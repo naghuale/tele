@@ -262,13 +262,13 @@ func (h *screenHarness) send(t *testing.T, msg tea.Msg) string {
 
 // repaint asks the program for the whole screen to be drawn again at the
 // size the window already is, which is the message a change of chat asks
-// for (repaint.go), and waits until the terminal has been written the
-// frame it produced.
+// for (repaint.go), and waits until the terminal has been written the frame
+// it produced over every cell of the window.
 //
 // It is a wait for a write rather than for a frame, because the frame is
-// the one the terminal is already holding: a repaint of a screen that did
-// not change is the same bytes again, and the only thing that tells it
-// apart from the silence is that the cells were written once more.
+// the one the terminal is already holding: a repaint of a screen that did not
+// change is the same bytes again, and the only thing that tells it apart
+// from the silence is that the cells were written once more.
 func (h *screenHarness) repaint(t *testing.T, label string) string {
 	t.Helper()
 
@@ -318,14 +318,26 @@ func (h *screenHarness) awaitTheFrame(t *testing.T, label string, after int) str
 	}
 }
 
-// awaitTheWrittenFrame waits until the terminal has been written the frame
-// the program drew after the update it was reading the number of, and
-// returns it.
+// awaitTheWrittenFrame waits until the terminal has been written a frame over
+// every cell of the window, drawn from an update later than after, and returns
+// the frame.
 //
-// It is awaitTheFrame plus the write: the frame has to have reached the
-// terminal, not only to have been produced. A test that counts the cells a
-// repaint wrote needs that difference, because a frame the renderer skips
-// is a frame that costs the terminal nothing.
+// It is awaitTheFrame plus the write, and the write has to be a whole one: a
+// repaint is one write over every cell of the window, and anything less than
+// that is a patch of the rows that changed. A frame the renderer skips is a
+// frame that costs the terminal nothing, so a repaint of a screen that did
+// not change is only visible as a write.
+//
+// The whole write is what makes this a wait for the repaint and not for the
+// next thing the program happened to write. The renderer draws on a clock of
+// its own, so a frame asked for by a key is often still in its buffer when
+// the next message arrives, and the write that follows is a patch: the rows
+// whose bytes changed, which for a cursor moving over the list of chats is
+// four or five of thirty. A wait that settled on that patch would hand the
+// test the cells of the patch, and a test that measured them would say a
+// repaint painted a fraction of the screen — which is what CI did on 03.10
+// (run 37096106782, macos-latest: 960 cells of 3600, on a machine whose clock
+// is slow enough for the patch to be written first).
 func (h *screenHarness) awaitTheWrittenFrame(
 	t *testing.T,
 	label string,
@@ -333,23 +345,56 @@ func (h *screenHarness) awaitTheWrittenFrame(
 ) string {
 	t.Helper()
 
+	whole := h.wholeScreen()
 	deadline := wallClock().Add(frameDeadline)
 	for {
 		view, drawn := h.log.drawnFrom(after)
 		switch {
 		case drawn &&
 			h.emulator.writes() > written &&
+			h.emulator.cellsOfTheLastWrite() >= whole &&
 			len(rowsThatDisagree(h.emulator.rows(), view)) == 0:
 			h.held = view
 
 			return view
 
 		case wallClock().After(deadline):
-			h.failOnTheRowsThatDisagree(t, label, after)
+			h.failOnTheWrittenFrame(t, label, after, written)
 		}
 
 		h.emulator.waitForAChange(time.Until(deadline), framePoll)
 	}
+}
+
+// failOnTheWrittenFrame says what the last write of the program painted when
+// the window did not arrive whole in time.
+//
+// The rows are compared first, because a terminal that is not holding the
+// frame at all is a worse failure than one holding a patch of it, and the
+// rows are what says which of the two it is.
+func (h *screenHarness) failOnTheWrittenFrame(
+	t *testing.T,
+	label string,
+	after, written int,
+) {
+	t.Helper()
+
+	view, drawn := h.log.drawnFrom(after)
+	if !drawn {
+		t.Fatalf("%s: the program drew no frame in %s", label, frameDeadline)
+	}
+	if rowsThatDisagree(h.emulator.rows(), view) != nil {
+		h.failOnTheRowsThatDisagree(t, label, after)
+	}
+
+	t.Fatalf(
+		"%s: the terminal was given %d cells in %s, want a write over every "+
+			"cell of the window (%d), and %d writes went by since the frame "+
+			"was asked for: the rows the program left alone are the ones a "+
+			"terminal and a program can disagree about",
+		label, h.emulator.cellsOfTheLastWrite(), frameDeadline, h.wholeScreen(),
+		h.emulator.writes()-written,
+	)
 }
 
 // awaitAScreenPainted waits until the terminal has been given a whole

@@ -193,6 +193,14 @@ func sizedScreen(t *testing.T, width, height int) *screenHarness {
 // It is a test of its own so that a failure of the one above says which
 // half is at fault: the program asked and the terminal was not given
 // anything, or the program never asked.
+//
+// The claim is in the wait and nowhere else: the terminal has to be given
+// one write over every cell of the window, and the test fails there with
+// the number of cells when it is not (screen_repaint_test.go,
+// awaitTheWrittenFrame). The cells used to be counted by the test at the
+// moment the screen settled, and that moment is not the repaint's on a slow
+// machine: it is the first write after the ask, and that write is sometimes
+// a patch of somebody else's frame (CI, 03.10: 960 cells of 3600).
 func TestARepaintIsWrittenOverEveryCellOfTheWindow(t *testing.T) {
 	harness := sizedScreen(t, repaintWidth, repaintHeight)
 
@@ -201,16 +209,5 @@ func TestARepaintIsWrittenOverEveryCellOfTheWindow(t *testing.T) {
 	// writing anything, and the one case that says nothing about a chat
 	// changing.
 	harness.key(t, "down", keyDown)
-
-	before := harness.emulator.paintedCells()
 	harness.repaint(t, "the repaint after ↓")
-	whole := harness.wholeScreen()
-	if painted := harness.emulator.paintedCells() - before; painted < whole {
-		t.Fatalf(
-			"the repaint painted %d cells, want a whole screen (%d): the "+
-				"rows the program left alone are the ones a terminal and a "+
-				"program can disagree about",
-			painted, whole,
-		)
-	}
 }

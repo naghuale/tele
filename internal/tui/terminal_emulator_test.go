@@ -102,6 +102,11 @@ type screenEmulator struct {
 	// difference between the two is the whole of repaint.go.
 	painted int
 
+	// lastWrite is how many cells the write the program made last gave the
+	// terminal, which is a whole window for a repaint and the rows that
+	// changed for a patch.
+	lastWrite int
+
 	savedRow, savedCol int
 
 	state   emulatorState
@@ -158,7 +163,9 @@ func (e *screenEmulator) Write(p []byte) (int, error) {
 		_, _ = e.tap.Write(p)
 	}
 
+	painted := e.painted
 	e.feed(string(p))
+	e.lastWrite = e.painted - painted
 	e.paintedFrames++
 
 	// Whoever is waiting for the screen to catch up with the program is
@@ -231,6 +238,22 @@ func (e *screenEmulator) paintedCells() int {
 	defer e.mu.Unlock()
 
 	return e.painted
+}
+
+// cellsOfTheLastWrite reports how many cells the write the program made last
+// gave the terminal.
+//
+// It is paintedCells for one write and not for the terminal, and the two are
+// not the same question. A repaint is one write over every cell of the window
+// and a patch is one write over the rows that changed, so the write is what
+// tells them apart: the cells of several writes added together are a whole
+// screen of nothing in particular, and a test that adds them up cannot say
+// which of them were the repaint.
+func (e *screenEmulator) cellsOfTheLastWrite() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	return e.lastWrite
 }
 
 // rowText is one row of the screen, with the right-hand cell of a wide

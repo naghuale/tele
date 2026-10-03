@@ -919,6 +919,17 @@
     nothing draws and the renderer does not write. There is no sleep
     standing in for a write, and a wait that is over says which rows
     did not agree
+  - a repaint is measured by the write that carried it, and one write
+    over every cell of the window is what says so. The renderer keeps a
+    frame in its buffer until its own tick, so the write that follows a
+    repaint is sometimes the patch of an earlier frame that was still
+    waiting to be drawn; a wait that settled on any write after the ask
+    read the cells of that patch and said a repaint painted a fraction of
+    the screen (CI, 03.10: 960 cells of 3600). The terminal in memory
+    counts the cells of every write for this (cellsOfTheLastWrite), and
+    a repaint of a screen that did not change is still a write: the
+    renderer drops what it remembers of the last frame on a window size
+    message and writes every line of the frame again
   - the feed is bottom-anchored: fewer messages than the feed has rows
     for means the empty rows are above them, so the newest message sits
     on the row directly above the composer

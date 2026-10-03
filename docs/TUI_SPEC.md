@@ -887,6 +887,69 @@ help/message-labels.md](help/message-labels.md).
 
 Header sticky — да. Разделители дней и непрочитанных — §4.4.1.
 
+### 4.4.3 Дорожка прокрутки и маркер положения
+
+Справа у ленты, в **последней колонке панели разговора**, на всю высоту ленты —
+дорожка: **бесцветный полупрозрачный фон**, без знака в ней (владелец, 03.10,
+канал, настоящий аккаунт: «нужно на всю длину бесцветным полупрозрачным
+фоном, и справа по всей длине на конце фона — красный квадрат»).
+
+- **дорожка** — `ScrollTrack`: своя поверхность, **не та** поверхность, что у
+  блока сообщения, и не фон терминала. Тёмная тема: `Surface2` — одна ступень
+  выше пилюли дня, которая на ступень выше блока; светняя — тот же `Surface2`
+  своей палитры, и «выше фона» на светлом фоне — это другой цвет, а не тот же.
+  Три темы держат дорожку в **2.0:1 … 2.9:1** от фона ленты (`ScrollTrack` vs
+  `ChatBackground`) и в **1.5:1 … 1.9:1** от блока (`ScrollTrack` vs
+  `ComposerBackground`) — `TestTheTrackOfTheFeedIsQuietAndTheMarkerIsNot`;
+- **маркер положения** — **красный квадрат**: `█` (`U+2588`), одна колонка и
+  одна строка, то есть квадрат, а не растянутая полоса. Цвет — `ScrollMarker`:
+  красный палитры, а не акцент — §5 разрешает один акцент на экране, а квадрат
+  стоит на каждой строке ленты, а не на одной строке; в палитре без красного
+  берётся ближайший тёплый цвет самой палитры (`Error` → `Warning` → `Code` →
+  `Accent`), это `TestTheSquareTakesTheNearestWarmHueOfAPaletteWithoutRed`;
+- квадрат рисуется **на фоне ленты**, а не на дорожке: три темы держат красный
+  в **4.8:1 … 8.1:1** от `ChatBackground` и в **1.9:1 … 3.4:1** от дорожки, и
+  квадрат цвета дорожки был бы тёмно-красным на серой полосе в той теме, где
+  красный самый тёмный из трёх;
+- **знак не зависит от Nerd Font**: `█` есть в любом шрифте, и настройка
+  `[tui] nerd_font` (§4.4.2) тут ничего не меняет.
+
+**Где стоит маркер.** Место считается из того же окна ленты, из которого
+рисуются её строки, и обе величины приходят одним обходом записей
+(`timelineFeed`, `internal/tui/feed_scroll.go`): выше окна — строки записей над
+ним плюс срез `timelineCut`, всего в разговоре — сумма `entryRows` всех
+записей. Считать это второй раз нельзя: строки рисуются из одного окна, а
+маркер по другому числу — это маркер, который врёт, и никакой тест на экране
+этого не увидит.
+
+- открыт самый низ разговора (`G`, открытие чата, отправленное сообщение) —
+  маркер на **последней** строке дорожки;
+- открыто начало загруженной переписки — маркер на **первой** строке;
+- читатель в середине — между ними, по пройденному расстоянию прокрутки:
+  `above * (rows-1) / (total - visible)`, деление вниз, а не в ближайшую
+  строку, — иначе квадрат доезжает до низа дорожки за строку до того, как
+  низ разговора открыт;
+- пустой чат (нет ни одного сообщения) — дорожки нет: позиции в
+  непрочитанном разговоре сообщать нечем.
+
+**Дорожка не ест ширину сообщений.** Колонка дорожки — последняя колонка
+панели, а блок сообщения по §4.4 кончается на полях ленты (3 колонки, в Narrow
+одна) и до неё не доходит ни при какой ширине и ни при каком тексте
+(`TestNoBlockOfAMessageReachesTheColumnOfTheTrack`). Поле сообщения под курсором
+рисуется на клетках блока и дорожки не касается; строка ленты меняется ровно в
+одной колонке — в своей (`TestTheTrackTakesTheLastColumnAndNothingElse`).
+
+В профилях без фонов (§2.7, `ANSI16` и `No Color`) дорожки нет — поверхность
+это фон терминала, — а **квадрат остаётся**: он рисуется знаком
+(`TestTheSquareSurvivesTheProfileThatHasNoBackgroundForTheTrack`). На коротком
+экране (§3.4) дорожка есть: это область ленты, а не блок сообщения.
+
+Экраны: `TestSnapshotChannelFeedAtTheNewest`, `…ReadUp`, `…ReadToTheTop` —
+тёмная тема, начало, середина и конец ленты; `TestSnapshotLightChannelFeed*` —
+то же в светлой теме фикстур (`fixture-light`), которой в программе нет (§2.6).
+Ни один из них не рисуется со шрифтом Nerd Font.
+
+
 ### 4.5 Composer
 
 ```text
@@ -1941,6 +2004,35 @@ TestAChatWhoseHistoryArrivesInPagesEndsWithTheFeedFull
 TestAnOlderPageDoesNotMoveTheWindowOfAReader
 TestAResizeFillsTheWindowOfAConversationThatIsBeingFollowed
 TestSnapshotFullFeedFromTheNewest
+```
+
+### Дорожка ленты (#71)
+
+Положение маркера — из того же окна, из которого рисуются строки: 40
+сообщений разных видов в 120×40, открытый на новейшем, ставит квадрат на
+последней строке дорожки; на самом старом загруженном сообщении — на первой;
+в середине разговора — между ними, и страница ключей двигает квадрат в ту же
+сторону, в которую двигается окно. Отдельная проверка на экране: квадрат стоит
+на строке новейшего сообщения. Дорожка занимает последнюю колонку и ровно её:
+строка ленты без своей колонки совпадает с нарисованной до неё, а блок
+сообщения до дорожки не достаёт ни на широком, ни на узком экране. В пустом
+чате дорожки нет; в профилях без фонов дорожки нет, а квадрат есть.
+
+```text
+TestTheSquareIsAtTheBottomOfTheTrackAtTheNewestMessage
+TestTheSquareIsAtTheTopOfTheTrackAtTheOldestLoadedMessage
+TestTheSquareIsBetweenTheTwoEndsAndFollowsTheWindow
+TestTheSquareIsFoundOnTheRowOfTheNewestMessage
+TestTheTrackTakesTheLastColumnAndNothingElse
+TestNoBlockOfAMessageReachesTheColumnOfTheTrack
+TestTheTrackIsNotDrawnWithoutMessages
+TestTheSquareSurvivesTheProfileThatHasNoBackgroundForTheTrack
+TestTheTrackOfTheFeedIsQuietAndTheMarkerIsNot
+TestTheSquareTakesTheNearestWarmHueOfAPaletteWithoutRed
+TestSnapshotChannelFeedReadToTheTop
+TestSnapshotLightChannelFeedAtTheNewest
+TestSnapshotLightChannelFeedReadUp
+TestSnapshotLightChannelFeedReadToTheTop
 ```
 
 ### Перерисовка экрана (#57)

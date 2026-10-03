@@ -119,8 +119,17 @@ func (m Model) conversationRegion(
 	// against the rows that are really there.
 	newBelow := m.newMessagesLines(layout, width)
 	rows := maxInt(height-len(header)-len(newBelow), 0)
+
+	// The feed is drawn and measured in one place, and the square of the
+	// track is placed by what came out of it: the same anchor, the same cut
+	// and the same heights the rows below were drawn with (feed_scroll.go).
+	// A square placed by a second walk over the conversation is a square
+	// that can stand at the top of the track while the newest message is on
+	// the last row of the feed.
+	feed := m.timelineFeed(layout, width, rows)
 	body := anchorTimeline(
-		m.timelineBody(layout, width, rows), rows,
+		m.withScrollTrack(feed.rows, feed.window.trackOn(rows), width),
+		rows,
 		m.feedFillsFromTheTop(layout, width),
 	)
 

@@ -53,6 +53,41 @@ type Tokens struct {
 	// of a block — see TestTheSeparatorPillIsAPillOfItsOwn.
 	SeparatorBackground Color
 
+	// ScrollTrack is the quiet column along the right of the feed that says
+	// where the window stands in the conversation.
+	//
+	// A terminal has no alpha, so "half transparent over the background"
+	// is a colour and not a blend, and this is the step of the surface ramp
+	// that says it: one above the pill of a day, which is one above the
+	// block of a message. It is deliberately not the block's own surface —
+	// a stripe in the colour of the blocks, two columns from the right
+	// edge of every one of them, is a column of narrow blocks — and it is
+	// not the terminal's own: the three themes hold it 2.0:1 to 2.9:1 away
+	// from the background of the feed, which is quiet enough to sit beside
+	// a conversation for the whole height of it and present enough that it
+	// is a track and not a rumour of one.
+	//
+	// It is a surface and not a mark: the track has no glyph in it at all,
+	// and the one thing that says where the reader is is ScrollMarker.
+	// See TestTheTrackOfTheFeedIsQuietAndTheMarkerIsNot.
+	ScrollTrack Color
+
+	// ScrollMarker is the colour of the square on the track of the feed.
+	//
+	// It is the red of the palette rather than its accent: a position in a
+	// conversation is not a thing to be selected, and a square in the
+	// accent is a second accent on the screen, where §5 allows one. Red is
+	// the hue of "look here" in every one of the three presets, and a
+	// palette that names no red at all takes the nearest warm hue of its
+	// own (scrollMarkerOf).
+	//
+	// The square is drawn on the background of the feed and not on the
+	// track: the three themes hold the red 4.8:1 to 8.1:1 away from the
+	// background of the feed and 1.9:1 to 3.4:1 away from the track, so a
+	// square in the colour of the track would be a dark red on a grey
+	// stripe in the theme whose red is the darkest of the three.
+	ScrollMarker Color
+
 	PrimaryText   Color
 	SecondaryText Color
 	MutedText     Color
@@ -199,6 +234,31 @@ func themeFor(name string) Theme {
 	panic("tui theme: unknown preset " + name)
 }
 
+// scrollMarkerOf returns the colour the square of the scroll track is drawn
+// in: the red of the palette, and the nearest warm hue of its own where the
+// palette names no red.
+//
+// The three built-in palettes all name a red, and it is the hue of "look
+// here" in all of them. A palette written without one — a user palette
+// (PR-10C) — still has to be able to say where the reader is, and the
+// nearest thing to red in a palette is the warm status hue or the accent,
+// in that order: a square of grey would be a square of the track with
+// nothing in it.
+//
+// The accent is the last resort and not the first on purpose. §5 allows one
+// accent on the screen, and the focus rule under the header of a
+// conversation is it: the square of the track is on every row of the feed
+// rather than on one line, so it takes the hue that is not the accent's.
+func scrollMarkerOf(palette Palette) Color {
+	for _, candidate := range []Color{palette.Error, palette.Warning, palette.Code} {
+		if candidate.IsSet() {
+			return candidate
+		}
+	}
+
+	return palette.Accent
+}
+
 // TokensFor computes the semantic roles of a palette.
 //
 // This is the only place a palette becomes tokens, and it is a function
@@ -272,6 +332,12 @@ func TokensFor(palette Palette, mode ThemeMode) Tokens {
 		// blocks, which is the step the surface ramp has for a thing that
 		// sits on the feed and is not a message.
 		SeparatorBackground: palette.Surface1,
+
+		// The track of the feed and the square on it: a step above the
+		// background of the feed for the first, the palette's own red for
+		// the second.
+		ScrollTrack:  palette.Surface2,
+		ScrollMarker: scrollMarkerOf(palette),
 
 		// Text: the text ramp for the two roles a user reads, and the
 		// palette's own readable dim step for the two below them.

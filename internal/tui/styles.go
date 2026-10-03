@@ -377,6 +377,43 @@ func (s viewStyles) blockEdge(block, behind theme.Color) lipgloss.Style {
 		Background(lipgloss.Color(behind.Print()))
 }
 
+// scrollTrack is the style of one row of the track along the right of the
+// feed, where there is no square: the surface of the track and nothing in
+// it.
+//
+// It is a style and not a glyph because that is what the track is: a quiet
+// column of the theme's own background a step up, with no word and no symbol
+// in it. A terminal has no alpha, so "half transparent" is a colour and not
+// a blend, and this is the step of the ramp that says it — one above the pill
+// of a day, which is one above the block of a message (theme.go,
+// ScrollTrack). It is not the surface of the block: a stripe in the colour
+// of the blocks, two columns from the right edge of every one of them, is a
+// column of narrow blocks.
+//
+// Under a profile that has no background to give, the style is the terminal's
+// own: the track is gone and the square on it is all that is left, which is
+// the same degradation every other surface of the screen has.
+func (s viewStyles) scrollTrack() lipgloss.Style {
+	return s.on(s.theme.Tokens.ScrollTrack, s.unstyled())
+}
+
+// scrollMarker is the style of the square that stands on the track: a full
+// block in the marker colour, on the background of the feed.
+//
+// It is the background of the feed and not the track, which is what makes
+// the square a hole punched through the stripe rather than a mark painted on
+// it: the marker colour is 4.8:1 to 8.1:1 away from the background of the
+// feed in the three themes and 1.9:1 to 3.4:1 away from the track, so a
+// square drawn on the track is a dark red on a grey stripe in the theme
+// whose red is the darkest of the three.
+//
+// It also means the square survives a profile that has no colour for a
+// surface at all: there is no track then and no background under the square,
+// and the block that is drawn is the whole of what is left of it.
+func (s viewStyles) scrollMarker() lipgloss.Style {
+	return s.on(s.theme.Tokens.ChatBackground, s.text(s.theme.Tokens.ScrollMarker))
+}
+
 // pill is the badge of an unread count: a count on a background of its
 // own, in the colour the surface is behind it.
 //

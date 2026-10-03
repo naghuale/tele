@@ -481,3 +481,146 @@ func TestTheTwoSidesShareOneSurfaceAndTheSelectedBlockIsItsOwn(t *testing.T) {
 		}
 	}
 }
+
+// The track along the right of the feed and the square that stands on it are
+// two numbers, and they are the two ends of one decision: the track has to be
+// quiet enough to sit beside a conversation for the whole height of the
+// screen without becoming the second thing on it, and it has to be a colour
+// of its own, and the square has to be findable on the screen at a glance —
+// which is the whole of what it is for (the owner, 03.10: «красный квадрат,
+// чтобы видеть лучше»).
+//
+// Three things are checked and each of them is a thing that could be true of
+// a palette and should not be:
+//
+//   - the track is a shade of the background of the feed rather than the
+//     terminal's own: the three themes hold it 2.0:1 to 2.9:1 away from it,
+//     which is quiet and is also a track rather than a rumour of one;
+//   - the track is not the surface of a block of a message. A stripe in the
+//     colour of the blocks, two columns from the right edge of every one of
+//     them, is a column of narrow blocks — and it is 1.5:1 to 1.9:1 away
+//     from it, the same bar the pill of a day is held to;
+//   - the square is not the colour of the track, and it is 4.8:1 to 8.1:1
+//     away from the background of the feed it is drawn on. The last number
+//     is where the square is looked for: the track is a stripe and the square
+//     is on it, and the colour under the square is the background of the
+//     feed and not the stripe (styles.go, scrollMarker).
+func TestTheTrackOfTheFeedIsQuietAndTheMarkerIsNot(t *testing.T) {
+	const (
+		quietestTrack = 3.0
+		faintestTrack = 1.5
+
+		// The same bar the pill of a day is held to against the surface of
+		// a block, because the question is the same one: is this a colour
+		// of the feed or is it a message.
+		quietestFromBlock = 1.25
+
+		faintestMarker = 3.0
+	)
+
+	for _, name := range ThemeNames() {
+		roles := colorRoles(t, mustTheme(t, name).Tokens)
+
+		track := roles["ScrollTrack"]
+		if !track.IsSet() {
+			t.Errorf("theme %s: the track of the feed has no surface of its own", name)
+
+			continue
+		}
+
+		feed := track.ContrastRatio(roles["ChatBackground"])
+		switch {
+		case feed < faintestTrack:
+			t.Errorf(
+				"theme %s: the track and the background of the feed are %.3f:1 apart, "+
+					"want at least %.2f:1 — a track nobody can see is not a track",
+				name, feed, faintestTrack,
+			)
+		case feed > quietestTrack:
+			t.Errorf(
+				"theme %s: the track and the background of the feed are %.3f:1 apart, "+
+					"want at most %.2f:1 — a line down the side of a conversation is a "+
+					"frame, and §1 does not allow one",
+				name, feed, quietestTrack,
+			)
+		}
+
+		block := track.ContrastRatio(roles["ComposerBackground"])
+		if block < quietestFromBlock {
+			t.Errorf(
+				"theme %s: the track and the block of a message are %.3f:1 apart, want "+
+					"at least %.2f:1 — a stripe in the colour of the blocks is a column "+
+					"of narrow blocks",
+				name, block, quietestFromBlock,
+			)
+		}
+
+		marker := roles["ScrollMarker"]
+		if marker == track {
+			t.Errorf(
+				"theme %s: the square on the track is the colour of the track (%v), so "+
+					"the one thing that says where the reader is cannot be found",
+				name, marker,
+			)
+
+			continue
+		}
+
+		if ratio := marker.ContrastRatio(roles["ChatBackground"]); ratio < faintestMarker {
+			t.Errorf(
+				"theme %s: the square on the track is %.2f:1 against the background of "+
+					"the feed it is drawn on, want at least %.1f:1",
+				name, ratio, faintestMarker,
+			)
+		}
+	}
+}
+
+// The square is the red of the palette and not its accent: §5 allows one
+// accent on the screen, and the square is on every row of the feed rather
+// than on one line of it.
+//
+// A palette that names no red at all still has to be able to say where the
+// reader is, and the nearest thing to red in a palette is the warm status
+// hue or the accent, in that order. The first two of those are what a
+// palette with a red but no error colour gets, and they are checked here
+// because the three built-in presets never take that branch — a branch no
+// test walks is a branch nobody has run.
+func TestTheSquareTakesTheNearestWarmHueOfAPaletteWithoutRed(t *testing.T) {
+	built := mustTheme(t, ThemeCatppuccinMocha)
+	palette := built.Palette
+
+	if got := scrollMarkerOf(palette); got != palette.Error {
+		t.Errorf("a palette with a red got %v, want its error red %v", got, palette.Error)
+	}
+
+	withoutError := palette
+	withoutError.Error = Color{}
+
+	if got := scrollMarkerOf(withoutError); got != palette.Warning {
+		t.Errorf(
+			"a palette without a red got %v, want its warm status hue %v",
+			got, palette.Warning,
+		)
+	}
+
+	withoutWarm := withoutError
+	withoutWarm.Warning = Color{}
+
+	if got := scrollMarkerOf(withoutWarm); got != palette.Code {
+		t.Errorf(
+			"a palette with neither got %v, want its own warm hue %v",
+			got, palette.Code,
+		)
+	}
+
+	grey := withoutWarm
+	grey.Code = Color{}
+
+	if got := scrollMarkerOf(grey); got != palette.Accent {
+		t.Errorf(
+			"a palette with no warm hue at all got %v, want its accent %v",
+			got, palette.Accent,
+		)
+	}
+}

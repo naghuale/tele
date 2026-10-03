@@ -470,6 +470,14 @@ func clearBackgroundRoles(tokens *Tokens) {
 	tokens.ShadowBackground = Color{}
 	tokens.CodeBackground = Color{}
 	tokens.SeparatorBackground = Color{}
+	// The track of the feed goes with the other surfaces: it is a shade of
+	// the background and not a mark, and a shade the terminal chose itself
+	// is a shade the user can see.
+	//
+	// The square on it stays, because that is the one thing on the screen
+	// that says where in the conversation the reader is, and a terminal
+	// with sixteen colours still has the accent to say it in.
+	tokens.ScrollTrack = Color{}
 }
 
 // eachTokenColor applies fn to every colour of every role.
@@ -505,6 +513,8 @@ func eachTokenColor(tokens *Tokens, fn func(Color) Color) {
 		OutgoingMessage:     fn(tokens.OutgoingMessage),
 		CodeBackground:      fn(tokens.CodeBackground),
 		SeparatorBackground: fn(tokens.SeparatorBackground),
+		ScrollTrack:         fn(tokens.ScrollTrack),
+		ScrollMarker:        fn(tokens.ScrollMarker),
 		Cursor:              fn(tokens.Cursor),
 		Selection:           fn(tokens.Selection),
 	}

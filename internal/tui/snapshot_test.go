@@ -187,6 +187,12 @@ type snapshotFixture struct {
 	theme   string
 	profile theme.Profile
 
+	// built is a theme that has no name in theme.ThemeFor, which is how the
+	// light screen of §2.6 is drawn: no light preset ships in this step, and
+	// a light screen that is drawn with a dark palette is a dark screen with
+	// the accents of the other mode (see lightFixtureTheme).
+	built theme.Theme
+
 	// widthMode is the rule the screen is drawn in. It is the zero value
 	// on every screen that is not about widths, which is the rule a
 	// terminal nobody could ask is drawn with.
@@ -265,7 +271,12 @@ func snapshotModel(
 	}
 
 	built := theme.DefaultTheme()
-	if f.theme != "" {
+	switch {
+	case f.built.Name != "":
+		// A theme of the fixture's own: the light screen of §2.6, whose
+		// palette is written below and names no theme that ships.
+		built = f.built
+	case f.theme != "":
 		var err error
 
 		built, err = theme.ThemeFor(f.theme)
@@ -780,6 +791,20 @@ func snapshotScreens() []snapshotScreen {
 		}},
 		{"TestSnapshotChannelFeedReadUp", func(t *testing.T) Model {
 			return snapshotChannelFeed(t, 18)
+		}},
+		{"TestSnapshotChannelFeedReadToTheTop", func(t *testing.T) Model {
+			return snapshotChannelFeed(t, channelFeedWalkTop)
+		}},
+		{"TestSnapshotLightChannelFeedAtTheNewest", func(t *testing.T) Model {
+			return snapshotChannelFeedAt(t, lightChannelFeed(theme.ProfileTrueColor), 0)
+		}},
+		{"TestSnapshotLightChannelFeedReadUp", func(t *testing.T) Model {
+			return snapshotChannelFeedAt(t, lightChannelFeed(theme.ProfileTrueColor), 18)
+		}},
+		{"TestSnapshotLightChannelFeedReadToTheTop", func(t *testing.T) Model {
+			return snapshotChannelFeedAt(
+				t, lightChannelFeed(theme.ProfileTrueColor), channelFeedWalkTop,
+			)
 		}},
 		{"TestSnapshotUntrustedNames", func(t *testing.T) Model {
 			f := wide(theme.ProfileTrueColor)
@@ -1815,21 +1840,35 @@ func snapshotLongConversation() []Message {
 //
 // It is the screen the owner reported on 03.10 — a long channel of
 // photographs and emoji, the name of the channel arriving after the messages
-// were already on the screen — and it is kept twice: with the cursor on the
-// newest message, which is where a chat opens and what a reader walks back to
-// with G, and with it eighteen messages up, which is a window a reader has and
-// is the case the empty rows were drawn on the wrong side of.
+// were already on the screen — and it is kept three times, at the three
+// places a reader can be in a conversation of thirty messages: at the newest,
+// which is where a chat opens and what a reader walks back to with G;
+// eighteen messages up, which is a window a reader has and is the case the
+// empty rows were drawn on the wrong side of; and at the oldest loaded
+// message, which is the other end of the track of the feed (#71).
+//
+// The same conversation is drawn in the light theme of the fixtures, because
+// a track that is quiet on a dark background can be a line down the side of a
+// conversation on a light one, and nothing in the code can tell the two apart
+// — the tokens are the same roles either way and only their values differ.
 //
 // walk is how many times ↑ is pressed before the frame is taken.
 func snapshotChannelFeed(t *testing.T, walk int) Model {
 	t.Helper()
 
-	f := snapshotFixture{
+	return snapshotChannelFeedAt(t, snapshotFixture{
 		width:   120,
 		height:  40,
 		profile: theme.ProfileTrueColor,
 		chats:   snapshotWidthChats(),
-	}
+	}, walk)
+}
+
+// snapshotChannelFeedAt is the same channel in the fixture it is given, which
+// is how one conversation is drawn in the dark theme that ships and in the
+// light theme of the fixtures.
+func snapshotChannelFeedAt(t *testing.T, f snapshotFixture, walk int) Model {
+	t.Helper()
 
 	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
 	m, _ = updateModel(t, m, press(tea.KeyEnter))
@@ -1900,6 +1939,38 @@ func snapshotChannelFeedMessages() []Message {
 	}
 
 	return messages
+}
+
+// The same channel with the cursor on the oldest loaded message: the window
+// a reader reaches by walking up, and the other end of the track of the feed
+// (#71). The square stands on its first row here and on its last one in the
+// screen of the newest message, and the two goldens are what make that a pair
+// of claims rather than one.
+func TestSnapshotChannelFeedReadToTheTop(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChannelFeedReadToTheTop"))
+}
+
+// The same conversation of thirty messages in the light theme of the fixtures,
+// at the three places a reader can be in it.
+//
+// The track is a step up the surface ramp from the background of the feed
+// either way round (§2.1), and "up" is a different colour on a light theme
+// than on a dark one: the three themes that ship hold the track 1.34:1 to
+// 1.49:1 from the background of the feed, and a fixture whose track is a line
+// down the side of a conversation would not have shown it.
+func TestSnapshotLightChannelFeedAtTheNewest(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLightChannelFeedAtTheNewest"))
+}
+
+// The same light screen with the cursor eighteen messages up.
+func TestSnapshotLightChannelFeedReadUp(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLightChannelFeedReadUp"))
+}
+
+// And with the cursor on the oldest loaded message: the square at the top of
+// the track in the light theme as well as in the dark one.
+func TestSnapshotLightChannelFeedReadToTheTop(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotLightChannelFeedReadToTheTop"))
 }
 
 // The feed of a channel filled to the top of the area, with the name of the
@@ -2863,3 +2934,88 @@ func assertLinesFit(
 		}
 	}
 }
+
+// ---- the light screen of the fixtures ----
+
+// lightFixtureThemeName is the name of the theme of the light screens, and it
+// is a fixture rather than a preset on purpose: §2.6 ships three dark themes
+// and says that the first light one is a separate gate. Nothing in the
+// program can ask for this theme by name — theme.ThemeFor does not know it —
+// and nothing in the goldens it produces says anything about a theme that
+// ships.
+const lightFixtureThemeName = "fixture-light"
+
+// lightFixtureTheme is a light theme for the fixtures.
+//
+// Its values are written here and nowhere else, and they are not the values
+// of any theme that exists: what the light screens are for is the question
+// §2.1 asks of a role — is it a step of the same ramp in the other mode, is
+// the marker still findable on it — and that question is asked of the tokens
+// a palette produces, not of any particular palette.
+//
+// It is built the way a preset is built: TokensFor over the palette in the
+// light mode, so the light screen goes through the same mapping a light theme
+// of the program would go through. That is the whole point of the fixture: a
+// screen drawn with a dark palette in light mode would be a dark screen with
+// the accents of the other mode, which is what the mapping in TokensFor says
+// a dark palette cannot be used for.
+func lightFixtureTheme() theme.Theme {
+	palette := theme.Palette{
+		Base:     theme.RGB("#eff1f5"),
+		Mantle:   theme.RGB("#e6e9ef"),
+		Crust:    theme.RGB("#ffffff"),
+		Surface0: theme.RGB("#ccd2dc"),
+		Surface1: theme.RGB("#b8bfc9"),
+		Surface2: theme.RGB("#aab1bd"),
+		Overlay0: theme.RGB("#8c94a4"),
+		Overlay1: theme.RGB("#6e7686"),
+		Overlay2: theme.RGB("#5b6373"),
+
+		Text:     theme.RGB("#3f4757"),
+		Subtext0: theme.RGB("#5b6373"),
+		Subtext1: theme.RGB("#8c94a4"),
+		Muted:    theme.RGB("#5b6373"),
+
+		Accent:    theme.RGB("#6b3fbf"),
+		AccentAlt: theme.RGB("#1a4f9c"),
+
+		Success: theme.RGB("#2f8a4c"),
+		Warning: theme.RGB("#a86418"),
+		Error:   theme.RGB("#c22a3c"),
+		Info:    theme.RGB("#12798a"),
+
+		Link:    theme.RGB("#1a4f9c"),
+		Mention: theme.RGB("#a03f8e"),
+		Code:    theme.RGB("#a5562a"),
+	}
+
+	return theme.Theme{
+		Name:    lightFixtureThemeName,
+		Mode:    theme.ThemeModeLight,
+		Palette: palette,
+		Tokens:  theme.TokensFor(palette, theme.ThemeModeLight),
+	}
+}
+
+// lightChannelFeed is the screen of the long channel in the light theme of
+// the fixtures: the same conversation of thirty messages, the same three
+// positions in it, and a background the track of the feed has to be quiet on
+// in the other direction.
+func lightChannelFeed(profile theme.Profile) snapshotFixture {
+	f := snapshotFixture{
+		width:   120,
+		height:  40,
+		built:   lightFixtureTheme(),
+		profile: profile,
+		chats:   snapshotWidthChats(),
+	}
+
+	return f
+}
+
+// channelFeedWalkTop is how many times ↑ takes the cursor of the channel from
+// the newest message to the oldest loaded one: the conversation of the
+// fixture has thirty messages and a page of keys moves the cursor by about a
+// screenful of them, so this is a walk past the end rather than a number
+// that lands on it exactly.
+const channelFeedWalkTop = 60

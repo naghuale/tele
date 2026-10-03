@@ -704,12 +704,15 @@ func (m Model) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	// the rows of the feed are not the rows it was placed against: a taller
 	// screen would leave empty rows under the newest message and a shorter
 	// one would cut it off. A window a reader has scrolled away from keeps
-	// its message at the top (§10.5), and the cut that belonged to the rows
-	// it was placed against is nothing to do with the new ones.
+	// its message at the top (§10.5) — the cut that belonged to the rows it
+	// was placed against is nothing to do with the new ones, and the window
+	// is filled again from the heights of the new size, so it does not end
+	// with empty rows under the header.
+	m.timelineCut = 0
 	if following {
 		m = m.anchorAtNewest()
 	} else {
-		m.timelineCut = 0
+		m = m.anchorCursor()
 	}
 
 	// The search is a region of the chat list, and a narrow screen has no

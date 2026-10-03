@@ -119,7 +119,10 @@ func (m Model) conversationRegion(
 	// against the rows that are really there.
 	newBelow := m.newMessagesLines(layout, width)
 	rows := maxInt(height-len(header)-len(newBelow), 0)
-	body := anchorTimelineToBottom(m.timelineBody(layout, width, rows), rows)
+	body := anchorTimeline(
+		m.timelineBody(layout, width, rows), rows,
+		m.feedFillsFromTheTop(layout, width),
+	)
 
 	return m.renderRegion(
 		styles.conversation,
@@ -129,26 +132,43 @@ func (m Model) conversationRegion(
 	)
 }
 
-// anchorTimelineToBottom puts the rows of the feed on the last rows of the
-// area it has.
+// anchorTimeline puts the rows of the feed on the rows of the area it has,
+// on the side the window is anchored to.
 //
-// Fewer messages than the area holds means the empty rows are above them:
-// the newest message sits on the row directly above the composer, which is
-// where a user looks after sending something. More rows than the area holds
-// means the view is over budget, and the top goes: the oldest message is
-// the one a reader scrolls back for.
-func anchorTimelineToBottom(body []string, rows int) []string {
+// fromTop says which side that is, and the window itself says it
+// (feedFillsFromTheTop): a conversation that ends at its newest message, or
+// reaches it, has nothing below it to show — the newest message stands on the
+// row directly above the composer, which is where a user looks after sending
+// something, and the rows a conversation shorter than the area does not fill
+// are above it (§8.3).
+//
+// A window that reaches neither end is a window a reader has, and its first
+// row is the message they scrolled to. The rows the conversation does not
+// fill are below it, because a window that pushes its own first message down
+// by however many rows it is short moves that message on every page that
+// arrives and on every resize — the feed that lost messages and jerked while
+// the focus moved, which the owner found on a channel on 03.10: a bar of
+// nothing under the header, and with the anchor on the last message an area of
+// empty rows with the last one or two at the bottom of it.
+//
+// More rows than the area holds means the view is over budget, and the top
+// goes on either side: the oldest message is the one a reader scrolls back
+// for.
+func anchorTimeline(body []string, rows int, fromTop bool) []string {
 	if rows < 1 {
 		return nil
 	}
 
-	if len(body) < rows {
-		pad := make([]string, rows-len(body))
+	if len(body) >= rows {
+		return body[len(body)-rows:]
+	}
 
+	pad := make([]string, rows-len(body))
+	if fromTop {
 		return append(pad, body...)
 	}
 
-	return body[len(body)-rows:]
+	return append(body, pad...)
 }
 
 // timelineBody returns the rows the messages take: the part of the history

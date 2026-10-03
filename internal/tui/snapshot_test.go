@@ -775,6 +775,12 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotFullFeedFromTheNewest", func(t *testing.T) Model {
 			return snapshotFullFeed(t)
 		}},
+		{"TestSnapshotChannelFeedAtTheNewest", func(t *testing.T) Model {
+			return snapshotChannelFeed(t, 0)
+		}},
+		{"TestSnapshotChannelFeedReadUp", func(t *testing.T) Model {
+			return snapshotChannelFeed(t, 18)
+		}},
 		{"TestSnapshotUntrustedNames", func(t *testing.T) Model {
 			f := wide(theme.ProfileTrueColor)
 			f.chats = untrustedChats()
@@ -1801,6 +1807,111 @@ func snapshotLongConversation() []Message {
 	}
 
 	return messages
+}
+
+// A channel whose feed is drawn twice: once as it was drawn with the
+// placeholder name above every message, and once after the names of the
+// channel arrived and were put back in the same rows.
+//
+// It is the screen the owner reported on 03.10 — a long channel of
+// photographs and emoji, the name of the channel arriving after the messages
+// were already on the screen — and it is kept twice: with the cursor on the
+// newest message, which is where a chat opens and what a reader walks back to
+// with G, and with it eighteen messages up, which is a window a reader has and
+// is the case the empty rows were drawn on the wrong side of.
+//
+// walk is how many times ↑ is pressed before the frame is taken.
+func snapshotChannelFeed(t *testing.T, walk int) Model {
+	t.Helper()
+
+	f := snapshotFixture{
+		width:   120,
+		height:  40,
+		profile: theme.ProfileTrueColor,
+		chats:   snapshotWidthChats(),
+	}
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: snapshotChannelFeedMessages()},
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	// The names arrive: the same rows, drawn again with the name of the
+	// channel where the placeholder was (the sender names of #57 are handed
+	// over as one more event per message they belong to).
+	events := make([]LiveMessageEvent, 0, len(m.selected().Messages))
+	for _, message := range m.selected().Messages {
+		named := message
+		named.Author, named.AuthorID = snapshotChannelName, snapshotChannelID
+		events = append(events, LiveMessageEvent{
+			Kind: LiveMessageReplaced, OldID: message.ID, Message: named,
+		})
+	}
+
+	m = m.applyLiveEvents(events)
+
+	for range walk {
+		m, _ = updateModel(t, m, press(tea.KeyUp))
+	}
+
+	return m
+}
+
+// snapshotChannelName is the name of the channel of the two screens above.
+// It is a name and not a word, so the width the author line takes is a width
+// worth drawing.
+const (
+	snapshotChannelName = `ХК "Совкомбанк" | Хабаровск`
+	snapshotChannelID   = 900
+)
+
+// snapshotChannelFeedMessages is a channel of thirty messages, every one of
+// them a photograph, a file or a line of emoji: the widths the author line
+// and the text of a message are measured in are the ones a channel is read
+// at, and an emoji is two columns or eight.
+func snapshotChannelFeedMessages() []Message {
+	messages := make([]Message, 0, 30)
+
+	for index := 30; index >= 1; index-- {
+		message := Message{
+			ID:     int64(index),
+			At:     mockMoment(fmt.Sprintf("11:%02d", index%60)),
+			Author: unknownAuthor,
+		}
+
+		switch index % 4 {
+		case 0:
+			message.Text = "🌍 ветер с моря 🌬️ и 🌅 рано"
+		case 1:
+			message.Text, message.Media = "", "photo"
+		case 2:
+			message.Text, message.Media = "", "photo"
+			message.AlbumID = 700
+		case 3:
+			message.Text = "👍 👨‍👩‍👧‍👦 🇷🇺 всё по плану"
+		}
+
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
+// The feed of a channel filled to the top of the area, with the name of the
+// channel above every message.
+func TestSnapshotChannelFeedAtTheNewest(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChannelFeedAtTheNewest"))
+}
+
+// The same channel with the cursor eighteen messages up: a window a reader
+// has, drawn from the message they are on.
+func TestSnapshotChannelFeedReadUp(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotChannelFeedReadUp"))
 }
 
 // A channel, with an album of two photographs drawn as one entry and its

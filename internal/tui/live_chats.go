@@ -382,7 +382,18 @@ func (m Model) applyLiveEvents(events []LiveMessageEvent) Model {
 	}
 
 	if added == 0 {
-		return m.normalizeTimeline()
+		// The conversation changed and no message arrived in it: a name
+		// took the placeholder above a message — the sender names of #57
+		// are handed over as one more event of the chat, the same row drawn
+		// again with the name — or a message was deleted.
+		//
+		// Nothing is counted and nothing follows the newest, but the window
+		// is placed again rather than left where a change of the rows has
+		// nothing to do with it: the heights the window was measured with
+		// are not necessarily the heights the view draws now, and a window
+		// that is not the window those heights place is a window with rows
+		// above it that hold nothing.
+		return m.normalizeTimeline().placeTimeline()
 	}
 
 	if following {

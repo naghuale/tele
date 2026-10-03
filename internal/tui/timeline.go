@@ -424,22 +424,74 @@ func (m Model) moveTimelineCursor(delta int) Model {
 	return m.scrollCursorIntoView()
 }
 
-// scrollCursorIntoView moves the anchor so the cursor is on screen.
+// feedFillsFromTheTop reports whether the rows the feed does not fill are
+// the ones above the conversation.
 //
-// A cursor that walks off the bottom of the window takes the window with
-// it, and one that walks off the top takes it the other way. Nothing else
-// moves: the window stays where it is while the cursor is inside it, which
-// is what makes reading a conversation feel like reading and not like
-// chasing the cursor.
+// It is the two ends of the window that say, and nothing else. A conversation
+// that is being followed ends at its newest message, and a window that reaches
+// the newest message of the conversation has nothing below it to show: both
+// are filled from the bottom, so the newest message sits on the row directly
+// above the composer — where a user looks after sending something — and the
+// rows a conversation shorter than the area does not fill are above it (§8.3).
 //
-// A cursor on a pending message is inside the window like any other, so
-// nothing special is done for it: the same walk by the same real heights
-// brings it into view.
+// A window that reaches neither end is a window a reader has, and its first
+// row is the message they scrolled to. The rows the conversation does not
+// fill are below it, because a window that pushes its own first message down
+// by however many rows it is short moves that message on every page that
+// arrives and on every resize, and because the fill of §18.1 stops on the
+// anchor too: a window placed on the wrong side is not only drawn wrong, it
+// also tells the fill that the feed is full while the rows above it hold
+// nothing.
 //
-// Both ends of the walk are measured by the heights the entries really
-// take, so the cursor is never left on a row the view is not drawing and
-// the window never ends with empty rows in it.
-func (m Model) scrollCursorIntoView() Model {
+// That is the screen the owner found on a channel on 03.10: an area of empty
+// rows under the header with the last message or two at the bottom of it, and
+// a feed that lost messages and jerked while the focus moved. The window it
+// came from was the anchor clamped onto the newest message with the cut left
+// at zero — what a deleted message, or a row of the queue leaving the feed,
+// leaves behind — and normalizeTimeline places the window again instead.
+//
+// The question is asked through the walk the view draws the window with
+// (newestMessageDrawn), so the side the rows go on and the rows that are
+// drawn cannot be two different answers to two different questions.
+func (m Model) feedFillsFromTheTop(layout Layout, width int) bool {
+	return m.timelineFollowsNewest() || m.newestMessageDrawn(layout, width)
+}
+
+// placeTimeline puts the window where the reader is, out of the heights
+// the entries really take.
+//
+// It is the one place that says where the window goes, and both the windows
+// it places are the walk of anchoredAt over the heights of
+// len(entryLines(...)) — the function the view draws with. What differs is
+// the entry the walk starts from and which side the rows a window does not
+// fill end up on (anchorTimeline):
+//
+//   - a conversation that is being followed is filled from the bottom, so
+//     the newest message is on the last row of the area;
+//   - a window a reader has is put back on the message the cursor is on,
+//     whole, on the first row of the area, and the rows the conversation
+//     does not fill are below it.
+//
+// The window used to be placed in a third way — the anchor set by hand with
+// timelineCut left at zero — on every path that moves the conversation
+// under the window without walking it: a cursor that walked above the
+// window, a page that arrived for a reader, a resize, and an anchor that
+// pointed at a message which is no longer there. Such a window is not a
+// window the heights placed: entryRowsFrom stops at the first entry that
+// does not fit in the rows that are left, so the body came up short by the
+// blank row the view drops off the first entry and by whatever the last
+// entry did not use — and those rows were drawn above the conversation.
+func (m Model) placeTimeline() Model {
+	if m.timelineFollowsNewest() {
+		return m.anchorAtNewest()
+	}
+
+	return m.anchorCursor()
+}
+
+// anchorCursor is scrollCursorIntoView without the normalisation, so that
+// normalizeTimeline can place the window again without walking back into it.
+func (m Model) anchorCursor() Model {
 	total := m.timelineTotal()
 	if total == 0 {
 		return m
@@ -456,7 +508,7 @@ func (m Model) scrollCursorIntoView() Model {
 		// cursor is on is never cut.
 		m.timelineTop, m.timelineCut = m.selectedMsg, 0
 
-		return m.normalizeTimeline()
+		return m
 	}
 
 	// The cursor is below the last row the window draws: the window moves
@@ -468,7 +520,26 @@ func (m Model) scrollCursorIntoView() Model {
 		m = m.anchorAt(cursor)
 	}
 
-	return m.normalizeTimeline()
+	return m
+}
+
+// scrollCursorIntoView moves the anchor so the cursor is on screen.
+//
+// A cursor that walks off the bottom of the window takes the window with
+// it, and one that walks off the top takes it the other way. Nothing else
+// moves: the window stays where it is while the cursor is inside it, which
+// is what makes reading a conversation feel like reading and not like
+// chasing the cursor.
+//
+// A cursor on a pending message is inside the window like any other, so
+// nothing special is done for it: the same walk by the same real heights
+// brings it into view.
+//
+// Both ends of the walk are measured by the heights the entries really
+// take, so the cursor is never left on a row the view is not drawing and
+// the window never ends with empty rows in it.
+func (m Model) scrollCursorIntoView() Model {
+	return m.anchorCursor().normalizeTimeline()
 }
 
 // normalizeTimeline puts the cursor and the anchor back inside the loaded
@@ -477,6 +548,13 @@ func (m Model) scrollCursorIntoView() Model {
 // A resize, a chat with no messages and a page that added nothing all make
 // one of the two point at a message that is not there, and an anchor past
 // the end of the history is a view that starts in the middle of nowhere.
+//
+// An anchor that was pointing at a message that is gone takes the window
+// with it: the cut belongs to a window that is not there, and the anchor is
+// placed again by the heights that are. Clamping it onto the newest message
+// and leaving it there is the screen the owner found on 03.10 — a deleted
+// message above the window leaves the anchor past the end, and the whole
+// area above the newest message goes empty.
 func (m Model) normalizeTimeline() Model {
 	total := m.timelineTotal()
 	if total == 0 {
@@ -492,14 +570,13 @@ func (m Model) normalizeTimeline() Model {
 	// pending message was never inside the window; now that it is, the
 	// clamp is the whole feed.
 	anchor := minInt(maxInt(m.timelineTop, 0), total-1)
-	if anchor != m.timelineTop {
-		// The anchor was pointing at a message that is not there, so the
-		// cut belongs to a window that is gone with it.
-		m.timelineCut = 0
+	if anchor == m.timelineTop {
+		return m
 	}
-	m.timelineTop = anchor
 
-	return m
+	m.timelineTop, m.timelineCut = anchor, 0
+
+	return m.placeTimeline()
 }
 
 // updateHistoryKey handles the keys of the message timeline (§8.3).

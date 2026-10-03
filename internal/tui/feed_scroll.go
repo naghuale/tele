@@ -48,49 +48,65 @@ const scrollTrackColumns = 1
 // measurement of it.
 const scrollMarkerGlyph = "█"
 
-// feedWindow is where the window of the feed stands in the conversation,
-// in the rows the entries really take.
+// feedWindow is where the reader is in the conversation, in the rows the
+// entries really take.
 //
-// It is three numbers and not an index: the feed is placed by the heights
-// of the entries and not by how many of them there are (timeline.go,
-// anchoredAt), and a square placed by counting messages would walk past a
-// conversation of long ones and crawl through a conversation of short ones.
-// The rows are the measure of the whole of the scroll model, and the
-// drawing has no other one either.
+// It is three numbers and not an index: the feed is placed by the heights of
+// the entries and not by how many of them there are (timeline.go, anchoredAt),
+// and a square placed by counting messages would walk past a conversation of
+// long ones and crawl through a conversation of short ones. The rows are the
+// measure of the whole of the scroll model, and the drawing has no other one
+// either.
 type feedWindow struct {
-	// above is how many rows of the conversation stand above the window.
-	above int
+	// focus is how many rows of the conversation stand above the message
+	// under the cursor.
+	//
+	// It is the message under the cursor and not the first row of the
+	// window, because the message under the cursor is what the keys act on
+	// and what the reader is reading: the window is a screenful of the
+	// conversation and the cursor walks inside it without moving it, so a
+	// square placed by the window stands still while j and k walk the
+	// reader up and down the same screenful (owner, 03.10, a real
+	// account: «маркер стоит не там»).
+	focus int
 
 	// visible is how many rows of the conversation the window is showing.
 	visible int
 
 	// total is how many rows the whole conversation takes.
 	total int
+
+	// newest is how many rows the newest entry takes: the row it starts
+	// on is the end of the conversation, and the square is on the last row
+	// of the track when the cursor is on it.
+	newest int
 }
 
 // canScroll reports whether the conversation is longer than the window on
-// it: whether there is anything to move the window to.
+// it: whether there is anything to move the reader through.
 func (w feedWindow) canScroll() bool { return w.total > w.visible }
 
 // trackOn returns the track for a feed area of the given height, with the
-// square standing where the window is on it.
+// square standing where the message under the cursor is on it.
 //
-// The square is on the last row of the track when the window ends with the
-// newest message, and there is nothing below that to scroll to. A
-// conversation that fits on the screen altogether is at its end too, and
-// says it in the same place: that is where a reader is after opening a
-// chat and after sending a message, and a track that said anything else
-// about those two moments would be telling the reader a story about a
-// conversation they are not reading.
+// The track is the conversation and the square is a message in it: the oldest
+// loaded message stands on the first row of the track, the newest one on the
+// last row, and a reader in between stands where their message stands. The
+// newest message is the end of the conversation, so it is the bottom of the
+// track however tall that message is and however much of it is on the screen —
+// a message taller than the feed is taller than the feed, and the middle of it
+// is nowhere near the end of the conversation.
 //
-// Where the conversation is longer than the window, the square stands
-// where the window stands among the rows there are to scroll through: at
-// the top of the track when the beginning of the conversation is open, in
-// the middle of it when the reader is in the middle. The division rounds
-// down rather than to the nearest row, so that the square reaches the
-// bottom of the track exactly when the bottom of the conversation is on the
-// screen and not one row before it — «внизу дорожки — когда открыт самый
+// The division rounds down rather than to the nearest row, so that the square
+// reaches the bottom of the track exactly when the cursor is on the newest
+// message and not one row before it — «внизу дорожки — когда открыт самый
 // низ» (владелец, 03.10).
+//
+// rows is the height of the area the track is drawn along and the feed is
+// drawn into: every row of it carries the track, whether the row says
+// something or is the air a conversation shorter than its feed leaves, and the
+// square is placed against that height and not against the rows the messages
+// happen to fill.
 func (w feedWindow) trackOn(rows int) scrollTrack {
 	if rows < 1 || w.total < 1 {
 		return scrollTrack{}
@@ -98,12 +114,25 @@ func (w feedWindow) trackOn(rows int) scrollTrack {
 
 	track := scrollTrack{rows: rows, marker: rows - 1}
 
+	// A conversation that fits on the screen is at its end, and says so in
+	// the same place: that is where a reader is after opening a chat and
+	// after sending a message, and a track that said anything else about
+	// those two moments would be telling the reader a story about a
+	// conversation they are not reading.
 	if !w.canScroll() {
 		return track
 	}
 
-	scrollable := w.total - w.visible
-	track.marker = minInt(maxInt(w.above*(rows-1)/scrollable, 0), rows-1)
+	// The row the newest message starts on is the last row of the track.
+	// A conversation of one entry has no such row — it is all of the
+	// newest message — and its square is on the last row of the track with
+	// nothing to walk through.
+	end := w.total - w.newest
+	if end < 1 {
+		return track
+	}
+
+	track.marker = minInt(maxInt(w.focus, 0)*(rows-1)/end, rows-1)
 
 	return track
 }
@@ -127,22 +156,23 @@ func (t scrollTrack) markerOn(row int) bool {
 	return t.rows > 0 && row == t.marker
 }
 
-// timelineFeed draws the feed and measures where it stands, in one walk
-// over the entries of the conversation.
+// timelineFeed draws the feed and measures where the reader is in it, in one
+// walk over the entries of the conversation.
 //
-// It is one function and not two because the square of the track and the
-// rows of the feed are the same question asked twice, and two answers to
-// it are two answers that can differ: the anchor, the cut and the heights
-// of the entries are read once here, and the walk that draws the rows is
-// the walk of entryRowsFrom the view has always drawn with — the function
-// that cuts a message taller than the feed and drops the air off the
-// topmost one.
+// It is one function and not two because the square of the track and the rows
+// of the feed are the same question asked twice, and two answers to it are two
+// answers that can differ: the anchor, the cut and the heights of the entries
+// are read once here, and the walk that draws the rows is the walk of
+// entryRowsFrom the view has always drawn with — the function that cuts a
+// message taller than the feed and drops the air off the topmost one.
 //
-// Everything above the window is counted on the way to it and everything
-// below it on the way out, so the track knows how long the conversation is
-// as well as where the window stands in it. Every entry is measured once,
-// by entryRows, which is len(entryLines(...)) — the height the view draws
-// the entry at, and the height the window itself was placed against
+// The three sums the walk keeps are the three numbers the track is drawn from:
+// the rows above the window (which is how much of the conversation the reader
+// has walked through, and so how many rows are left to scroll), the rows above
+// the message under the cursor (which is where the square stands) and the rows
+// below the window (which is how long the conversation is). Every entry is
+// measured once, by entryRows, which is len(entryLines(...)) — the height the
+// view draws the entry at, and the height the window itself was placed against
 // (anchoredAt).
 func (m Model) timelineFeed(layout Layout, width, rows int) feedDrawing {
 	drawing := feedDrawing{rows: m.timelineBody(layout, width, rows)}
@@ -163,13 +193,30 @@ func (m Model) timelineFeed(layout Layout, width, rows int) feedDrawing {
 	styles := m.styles()
 	entries := m.feedEntries()
 	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
+	cursor := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
 
-	// The whole conversation, counted once: the entries above the window,
-	// the entry it starts on and the entries below it.
-	aboveRows := m.rowsFromTopTo(entries, 0, top-1, layout, width, styles)
-	totalRows := aboveRows +
-		m.entryRows(entries[top], layout, width, styles) +
-		m.rowsFromTopTo(entries, top+1, len(entries)-1, layout, width, styles)
+	var beforeTop, beforeCursor, totalRows, newest int
+
+	for index, entry := range entries {
+		height := m.entryRows(entry, layout, width, styles)
+		totalRows += height
+
+		// The rows above the window: the entries before it.
+		if index < top {
+			beforeTop += height
+		}
+
+		// The rows above the message under the cursor: the entries before
+		// it, which are the entries before the window and the ones inside
+		// it that the cursor has already walked past.
+		if index < cursor {
+			beforeCursor += height
+		}
+
+		if index == len(entries)-1 {
+			newest = height
+		}
+	}
 
 	// The rows above the window are the entries above it whole and the rows
 	// the cut takes off the top of the entry it starts on: those rows are
@@ -177,12 +224,13 @@ func (m Model) timelineFeed(layout Layout, width, rows int) feedDrawing {
 	// above it, and counting them on neither side puts the square two cuts
 	// away from the bottom of the track at the newest message — which is
 	// exactly where it has to be.
-	above := aboveRows + m.timelineCut
+	above := beforeTop + m.timelineCut
 
 	drawing.window = feedWindow{
-		above:   above,
+		focus:   beforeCursor,
 		visible: minInt(budget, maxInt(totalRows-above, 0)),
 		total:   totalRows,
+		newest:  newest,
 	}
 
 	return drawing

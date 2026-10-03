@@ -33,7 +33,7 @@
                                                                                                        ✓ sent 12:05     
                                                                                                                         
                                          Anna Example  12:07                                                            
-                                         Спасибо, посмотрю после обеда                                                  
+                                         Спасибо, посмотрю после обеда                                                 █
                                                                                                                         
                                     › Write a message…                                                                  
                                     Enter open · Tab composer · / search · q quit                                       
@@ -65,7 +65,7 @@
 "\x1b[1G                                  \x1b[35G                                                     \x1b[37m \x1b[0m               \x1b[32m✓ sent 12:05\x1b[0m     "
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G    \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[32;107mAnna Example\x1b[0m\x1b[107m  \x1b[0m\x1b[90;107m12:07\x1b[0m\x1b[107m          \x1b[0m\x1b[107m  \x1b[0m                                                "
-"\x1b[1G                                  \x1b[35G    \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[97;107mСпасибо, посмотрю после обеда\x1b[0m\x1b[107m  \x1b[0m                                                "
+"\x1b[1G                                  \x1b[35G    \x1b[1;37m \x1b[0m\x1b[107m  \x1b[0m\x1b[97;107mСпасибо, посмотрю после обеда\x1b[0m\x1b[107m  \x1b[0m                                               \x1b[31m█\x1b[0m"
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G  \x1b[90m› \x1b[0m\x1b[90mWrite a message…\x1b[0m                                                                  "
 "\x1b[1G                                  \x1b[35G  \x1b[37mEnter open · Tab composer · / search · q quit                                       \x1b[0m"

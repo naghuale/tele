@@ -571,7 +571,7 @@ func (m Model) newestMessageDrawn(layout Layout, width int) bool {
 
 	entries := m.feedEntries()
 	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
-	_, drawn := m.entryRowsFrom(
+	_, drawn, _ := m.entryRowsFrom(
 		entries,
 		top,
 		layout,

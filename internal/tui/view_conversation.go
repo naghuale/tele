@@ -127,11 +127,15 @@ func (m Model) conversationRegion(
 	// that can stand at the top of the track while the newest message is on
 	// the last row of the feed.
 	feed := m.timelineFeed(layout, width, rows)
-	body := anchorTimeline(
-		m.withScrollTrack(feed.rows, feed.window.trackOn(rows), width),
-		rows,
-		m.feedFillsFromTheTop(layout, width),
-	)
+	body := anchorTimeline(feed.rows, rows, m.feedFillsFromTheTop(layout, width))
+
+	// The track goes on last, over the whole area and not over the rows the
+	// messages happen to fill: the rows a conversation shorter than its
+	// feed leaves are rows of the feed as much as the rows with a message
+	// in them, and a track that stopped where the messages stop is a track
+	// with a hole in it (owner, 03.10, a channel of long messages — the
+	// area was mostly air and neither the track nor the square was on it).
+	body = m.withScrollTrack(body, feed.window.trackOn(len(body)), width)
 
 	return m.renderRegion(
 		styles.conversation,
@@ -558,14 +562,16 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 	entries := m.feedEntries()
 	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
 
-	lines, drawn := m.entryRowsFrom(entries, top, layout, width, rows, styles, m.timelineCut)
+	lines, drawn, _ := m.entryRowsFrom(
+		entries, top, layout, width, rows, styles, m.timelineCut,
+	)
 
 	selected := entryIndexOfFeed(entries, clampIndex(m.selectedMsg, total-1))
 	if selected < top || selected >= top+len(drawn) {
 		// The cursor is not in the window the model placed, and the message
 		// it is on is drawn whole: the cut belongs to a window that is not
 		// this one.
-		lines, _ = m.entryRowsFrom(
+		lines, _, _ = m.entryRowsFrom(
 			entries,
 			selected,
 			layout,
@@ -580,21 +586,28 @@ func (m Model) timelineLines(layout Layout, width, rows int) []string {
 }
 
 // entryRowsFrom draws the entries from first onwards until the rows run
-// out, and returns the rows and the entries it drew.
+// out, and returns the rows, the entries it drew, and whether the last of
+// them was cut at the bottom of the feed.
 //
 // The entries are returned as well as the rows because the window is a
-// question with two answers: the view needs the rows, and the model needs
-// to know which messages are on the screen to mark them read. Both are
-// answered here, so the window that is drawn and the window that is read
-// are the same window by construction.
+// question with two answers: the view needs the rows, and the model needs to
+// know which messages are on the screen to mark them read. Both are answered
+// here, so the window that is drawn and the window that is read are the same
+// window by construction.
 //
-// cutRows are the rows left off the top of the first entry, and they are
-// the window the model placed: the rows of a feed are not a whole number of
+// cutLast is for the one caller that must tell a message that is whole on the
+// screen from a message whose head is: a message cut at the bottom of the feed
+// is on the screen and is not read (visibleMessageIDs), and the two are one
+// question with two answers only because the walk can say which of them
+// happened.
+//
+// cutRows are the rows left off the top of the first entry, and they are the
+// window the model placed: the rows of a feed are not a whole number of
 // messages, and a window that ends at the newest message is full when the
 // entry at its top is drawn from the middle. What is left off there is the
 // blank row that separates the message from the one above it, and at worst
-// its author line; the newest message is never the one cut, because the
-// walk that placed the window started from it.
+// its author line; the newest message is never the one cut, because the walk
+// that placed the window started from it.
 func (m Model) entryRowsFrom(
 	entries []timelineEntry,
 	first int,
@@ -603,10 +616,11 @@ func (m Model) entryRowsFrom(
 	rows int,
 	styles viewStyles,
 	cutRows int,
-) ([]string, []timelineEntry) {
+) ([]string, []timelineEntry, bool) {
 	var (
-		lines []string
-		drawn []timelineEntry
+		lines   []string
+		drawn   []timelineEntry
+		cutLast bool
 	)
 
 	for index := first; index < len(entries); index++ {
@@ -627,18 +641,28 @@ func (m Model) entryRowsFrom(
 			block = block[1:]
 		}
 
-		// An entry taller than the rows that are left is cut at them, and
-		// it is the first one that is cut rather than skipped: a long
-		// message would otherwise leave the timeline empty, and letting it
-		// grow past its rows would push the composer off the screen, which
-		// §3.4 does not allow. The head of the message is what is kept —
-		// a message whose text is missing is a message nobody can read.
+		// The window is filled with the entries, and an entry that does not
+		// fit in the rows that are left is cut at them rather than left
+		// out.
+		//
+		// It used to be the other way round: the walk stopped in front of
+		// the entry that did not fit, and the rows it left were the air of
+		// §8.3. A conversation of one-line messages never showed the
+		// difference — the air is the gap between two messages and is one
+		// row of it — and a conversation with a message taller than a good
+		// part of the window showed it at every key: one `k` above such a
+		// message and the feed was that message, thirty rows of nothing
+		// under it, and no track on either (owner, 03.10, a channel of
+		// long messages).
+		//
+		// The head of the message is what is kept — the way it was kept for
+		// the entry the window opens on — and the rows of an entry are cut
+		// only where the window ends: what is inside the window is whole,
+		// and a long text is wrapped inside its block rather than cut
+		// (§4.4).
 		if len(block) > rows-len(lines) {
-			if len(lines) > 0 {
-				break
-			}
-
-			block = block[:maxInt(rows, 0)]
+			block = block[:maxInt(rows-len(lines), 0)]
+			cutLast = true
 		}
 
 		lines = append(lines, block...)
@@ -649,7 +673,7 @@ func (m Model) entryRowsFrom(
 		}
 	}
 
-	return lines, drawn
+	return lines, drawn, cutLast
 }
 
 // entrySelected reports whether the cursor is anywhere in a run, so that

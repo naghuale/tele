@@ -33,7 +33,7 @@
                                                                                                        ✓ sent 12:05     
                                                                                                                         
                                       ›  Anna Example  12:07                                                            
-                                      ›  Спасибо, посмотрю после обеда                                                  
+                                      ›  Спасибо, посмотрю после обеда                                                 █
                                                                                                                         
                                     › Write a message…                                                                  
                                     Enter open · Tab composer · / search · q quit                                       
@@ -65,7 +65,7 @@
 "\x1b[1G                                  \x1b[35G                                                                     ✓ sent 12:05     "
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G    ›  Anna Example  12:07                                                            "
-"\x1b[1G                                  \x1b[35G    ›  Спасибо, посмотрю после обеда                                                  "
+"\x1b[1G                                  \x1b[35G    ›  Спасибо, посмотрю после обеда                                                 █"
 "\x1b[1G                                  \x1b[35G                                                                                      "
 "\x1b[1G                                  \x1b[35G  › Write a message…                                                                  "
 "\x1b[1G                                  \x1b[35G  Enter open · Tab composer · / search · q quit                                       "

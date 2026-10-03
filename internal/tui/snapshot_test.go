@@ -795,6 +795,24 @@ func snapshotScreens() []snapshotScreen {
 		{"TestSnapshotChannelFeedReadToTheTop", func(t *testing.T) Model {
 			return snapshotChannelFeed(t, channelFeedWalkTop)
 		}},
+		{"TestSnapshotTallMessageAtTheNewest", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, 0, 20)
+		}},
+		{"TestSnapshotTallMessageScrolledUp", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, 7, 20)
+		}},
+		{"TestSnapshotTallMessageFocussed", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, 6, 20)
+		}},
+		{"TestSnapshotTallMessageAtTheOldestLoaded", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, channelFeedWalkTop, 20)
+		}},
+		{"TestSnapshotMessageTallerThanTheFeedAtTheNewest", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, 0, 45)
+		}},
+		{"TestSnapshotMessageTallerThanTheFeedScrolledUp", func(t *testing.T) Model {
+			return snapshotTallChannelFeed(t, 7, 45)
+		}},
 		{"TestSnapshotLightChannelFeedAtTheNewest", func(t *testing.T) Model {
 			return snapshotChannelFeedAt(t, lightChannelFeed(theme.ProfileTrueColor), 0)
 		}},
@@ -3011,6 +3029,125 @@ func lightChannelFeed(profile theme.Profile) snapshotFixture {
 	}
 
 	return f
+}
+
+// A channel with a long message in it, walked up from the newest one
+// message at a time — the screen the owner found on 03.10 and the reason
+// this file has three more screens than it had.
+//
+// A message that does not fit in what is left of the window used to be left
+// out of it, and the rows it left were empty: one `k` above such a message
+// and the feed was that one message, a band of empty rows under it, and no
+// track and no square on any of it. The three screens here are the three
+// places a reader can be in a conversation with a long message in it: at the
+// newest, on the long message itself, and at the oldest loaded one — and the
+// long message is drawn whole at the first and the last and cut at the bottom
+// of the window at the middle, which is the whole of what the change was.
+//
+// lines is how many lines the long message is. Twenty is taller than half of
+// the feed of this size, forty-five is taller than all of it.
+func snapshotTallChannelFeed(t *testing.T, walk, lines int) Model {
+	t.Helper()
+
+	f := snapshotFixture{
+		width:   120,
+		height:  40,
+		profile: theme.ProfileTrueColor,
+		chats:   snapshotWidthChats(),
+	}
+
+	m := snapshotModel(t, f, Dependencies{AccountKey: snapshotAccountKey})
+	m, _ = updateModel(t, m, press(tea.KeyEnter))
+	m, _ = updateModel(t, m, historyLoadedMsg{
+		chatID:    snapshotChatID,
+		operation: m.historyOperation,
+		page:      HistoryPage{Messages: snapshotTallChannelMessages(lines)},
+	})
+	m = m.scrollToNewest()
+	m.focus = FocusHistory
+
+	// Every message of the page is the channel, so the names are here and
+	// not handed over one event at a time afterwards (#57).
+	events := make([]LiveMessageEvent, 0, len(m.selected().Messages))
+	for _, message := range m.selected().Messages {
+		named := message
+		named.Author, named.AuthorID = snapshotChannelName, snapshotChannelID
+		events = append(events, LiveMessageEvent{
+			Kind: LiveMessageReplaced, OldID: message.ID, Message: named,
+		})
+	}
+
+	m = m.applyLiveEvents(events)
+
+	for range walk {
+		m, _ = updateModel(t, m, press(tea.KeyUp))
+	}
+
+	return m
+}
+
+// The page of the long-message channel: twelve messages, the sixth of them a
+// long one, and nothing else in it.
+func snapshotTallChannelMessages(lines int) []Message {
+	messages := make([]Message, 0, 12)
+
+	for index := 12; index >= 1; index-- {
+		message := Message{
+			ID:     int64(index),
+			At:     mockMoment(fmt.Sprintf("11:%02d", index)),
+			Author: snapshotChannelName,
+			Text:   fmt.Sprintf("message %d of the channel", index),
+		}
+		if index == 6 {
+			message.Text = strings.Repeat(
+				"a long line of a message that does not fit in what is left of the window ",
+				lines,
+			)
+		}
+
+		messages = append(messages, message)
+	}
+
+	return messages
+}
+
+// A channel with a long message in it, at the newest message of the
+// conversation: the window ends with the newest message and the square is on
+// the last row of the track.
+func TestSnapshotTallMessageAtTheNewest(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotTallMessageAtTheNewest"))
+}
+
+// One `k` above the long message: the window the owner found on 03.10, with
+// the long message drawn at the bottom of the window and the track and the
+// square on every row of it.
+func TestSnapshotTallMessageScrolledUp(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotTallMessageScrolledUp"))
+}
+
+// The cursor on the long message, in the middle of the conversation: the
+// square stands where that message is in the whole feed.
+func TestSnapshotTallMessageFocussed(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotTallMessageFocussed"))
+}
+
+// The cursor on the oldest loaded message of the same conversation: the square
+// on the first row of the track.
+func TestSnapshotTallMessageAtTheOldestLoaded(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotTallMessageAtTheOldestLoaded"))
+}
+
+// The same channel with a message taller than the whole feed, at the newest:
+// there is no window in which that message is whole, and the square is at the
+// bottom of the track all the same.
+func TestSnapshotMessageTallerThanTheFeedAtTheNewest(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotMessageTallerThanTheFeedAtTheNewest"))
+}
+
+// And one `k` above it: the window is filled with the head of that message
+// rather than with empty rows, and the track is on all of them.
+func TestSnapshotMessageTallerThanTheFeedScrolledUp(t *testing.T) {
+	assertSnapshot(t, snapshotScreenByName(t, "TestSnapshotMessageTallerThanTheFeedScrolledUp"))
 }
 
 // channelFeedWalkTop is how many times ↑ takes the cursor of the channel from

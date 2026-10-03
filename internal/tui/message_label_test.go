@@ -244,7 +244,13 @@ func TestAServiceMessageIsARowOfItsOwnInTheMiddle(t *testing.T) {
 
 	// The phrase stands in the middle of the row: there is air on both
 	// sides of it, and it is against neither edge of the feed.
-	before, after, _ := strings.Cut(row, "joined the chat")
+	//
+	// The track of the feed (§4.4.3) stands in the last column of the
+	// pane and is a column beside the feed rather than its edge, so it is
+	// taken off the row before the edges are looked at.
+	before, after, _ := strings.Cut(
+		strings.TrimSuffix(row, scrollMarkerGlyph), "joined the chat",
+	)
 	if !strings.HasPrefix(before, " ") || !strings.HasSuffix(after, " ") {
 		t.Errorf("the phrase is against an edge of the feed: %q", row)
 	}

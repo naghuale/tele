@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -392,4 +393,294 @@ func (m Model) headOf(row string, width int) string {
 	return head + spaces(
 		maxInt(width-scrollTrackColumns-m.widths.StringWidth(head), 0),
 	)
+}
+
+// The two defects the owner found on the live account on 03.10, walking up a
+// channel of long messages with k: an area of empty rows under the messages
+// where the window had stopped in front of a message taller than the whole
+// feed, and neither the track nor the square anywhere on that area.
+//
+// The walk goes up one message at a time, because that is the gesture the
+// owner used and because it is the one that puts the cursor above the window —
+// the state the empty rows were found in.
+
+// tallConversation opens a conversation of short messages with one long one in
+// the middle of it, and puts the cursor in the history.
+//
+// lines is how many lines the long message is: twenty is taller than half of
+// the feed of the window tests and forty-five is taller than all of it.
+func tallConversation(t *testing.T, lines int) Model {
+	t.Helper()
+
+	page := HistoryPage{HasMore: false}
+	for index := 12; index >= 1; index-- {
+		message := Message{
+			ID:     int64(index),
+			At:     mockMoment(fmt.Sprintf("12:%02d", index)),
+			Text:   fmt.Sprintf("message %d", index),
+			Author: "Anna Example", AuthorID: 5,
+		}
+		if index == 6 {
+			message.Text = strings.Repeat("a long line of the long message ", lines)
+		}
+
+		page.Messages = append(page.Messages, message)
+	}
+
+	source := &recordingChatSource{pages: []HistoryPage{page}}
+	m := openConversationWithHistory(t, source, 7, page)
+	m, _ = updateModel(t, m, tea.WindowSizeMsg{
+		Width: windowWidth, Height: windowHeight,
+	})
+	m = withMockClock(m).scrollToNewest()
+	m.focus = FocusHistory
+
+	return m
+}
+
+// feedWalk returns the rows the window's own walk filled and the entries it
+// drew, which is the walk of the view (timelineLines).
+//
+// What is compared here is rows and entries rather than words, because a row
+// of the feed with nothing written in it is not necessarily an empty one: a
+// block of a message with two rows of text has a row of its own background
+// above and below the words, and the gap between two messages is a row of the
+// background of the feed. The rows of the window are counted by the walk that
+// draws them, which is the only count that agrees with the screen.
+func feedWalk(t *testing.T, m Model) (rows []string, drawn []timelineEntry) {
+	t.Helper()
+
+	layout := LayoutFor(m.width, m.height)
+	width := layout.ChatContentWidth()
+	total := m.timelineTotal()
+	if total == 0 {
+		return nil, nil
+	}
+
+	entries := m.feedEntries()
+	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
+
+	filled, drawnEntries, _ := m.entryRowsFrom(
+		entries, top, layout, width, m.feedRows(), m.styles(), m.timelineCut,
+	)
+
+	return filled, drawnEntries
+}
+
+// The window of the feed is filled with messages whatever the height of them,
+// and the walk is a `k` at a time through a conversation with a message
+// taller than a good part of the window.
+//
+// This is the owner's screen of 03.10: one `k` above a long message and the
+// feed was that one message, thirty rows of nothing under it, and no track
+// and no square anywhere on the empty part. The walk used to stop in front of
+// the message that did not fit and leave the rows it had left as air, which
+// is the right answer for a conversation of one-line messages — the air is
+// the gap between two of them and is a row of it — and is the wrong answer
+// the moment a message does not fit in what is left of the window. The entry
+// is cut at the rows that are left now, and the head of it is what is kept,
+// which is what the walk has always done with the entry a window opens on.
+func TestTheWindowIsFilledWhateverTheHeightOfTheMessages(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		lines int
+	}{
+		{name: "a message taller than half of the feed", lines: 20},
+		{name: "a message taller than the whole feed", lines: 45},
+	} {
+		m := tallConversation(t, testCase.lines)
+		feed := m.feedRows()
+
+		for step := range 12 {
+			rows, drawn := feedWalk(t, m)
+			if len(rows) < feed && len(drawn) < len(m.feedEntries()) {
+				t.Errorf(
+					"%s, step %d (cursor on message %d): the window filled %d of the "+
+						"%d rows of the feed and there were messages left to draw",
+					testCase.name, step, m.selectedMsg, len(rows), feed,
+				)
+			}
+
+			// And the track and the square are on the screen at every
+			// step: they went missing with the air.
+			if _, found := lastRowOf(plain(m.View()), scrollMarkerGlyph); !found {
+				t.Errorf(
+					"%s, step %d: there is no square on the screen:\n%s",
+					testCase.name, step, plain(m.View()),
+				)
+			}
+
+			m, _ = updateModel(t, m, press(tea.KeyUp))
+		}
+	}
+}
+
+// The track is drawn wherever the feed is drawn, including the rows a
+// conversation shorter than its feed leaves: those rows are rows of the feed
+// as much as the rows with a message in them, and a track that stopped where
+// the messages stop is a track with a hole in it (owner, 03.10, the screen
+// where neither the track nor the square was to be seen).
+//
+// It is asked of the screen and not of the drawing, because the drawing is
+// where the order of the two passes is decided: the track goes on after the
+// rows the conversation did not fill have been put where they belong, and a
+// test of withScrollTrack on its own cannot see that.
+func TestTheTrackIsPaintedOnTheRowsTheConversationDoesNotFill(t *testing.T) {
+	m := openedProgramModel(t, theme.ProfileTrueColor, windowWidth, windowHeight)
+	m.focus = FocusHistory
+	m.chats[0].Messages = []Message{{
+		ID: 1, Text: "the only message of the chat", At: mockMoment("12:01"),
+		Author: "Anna Example", AuthorID: 5,
+	}}
+
+	layout := LayoutFor(m.width, m.height)
+	area := m.historyFeedRows(layout, layout.ChatContentWidth())
+
+	// One message in an area of this many rows: the rows it does not fill
+	// are the air of §8.3, and they are rows of the feed all the same.
+	body := rowsOfTheFeed(t, m)
+	if len(body) != area {
+		t.Fatalf("the area of the feed is %d rows and the view drew %d", area, len(body))
+	}
+
+	// The track is the background of one cell on the last column of a row,
+	// and no other thing on the screen is painted in that colour: the blocks
+	// of messages are on ComposerBackground, which is a step below it. The
+	// style of one cell of the track is the style the view writes it with.
+	track := strings.TrimSuffix(m.styles().scrollTrack().Render("x"), "x\x1b[0m")
+	cells, squares := 0, 0
+
+	for _, row := range viewLines(m.View()) {
+		if strings.Contains(row, track) {
+			cells++
+		}
+
+		if strings.Contains(row, scrollMarkerGlyph) {
+			squares++
+		}
+	}
+
+	// One row of the area carries the square rather than a cell of the
+	// track: the square is punched through the track and stands on the
+	// background of the feed (styles.go, scrollMarker). Every other row of
+	// the area carries a cell of the track, including the rows the
+	// conversation did not fill.
+	if cells != area-1 || squares != 1 {
+		t.Errorf(
+			"an area of %d rows has the track on %d of them and the square on %d: "+
+				"want the track on %d and the square on one",
+			area, cells, squares, area-1,
+		)
+	}
+
+	// And the square is at the bottom of the track: the whole conversation
+	// is on the screen, so the reader is at its end.
+	if _, found := lastRowOf(plain(m.View()), scrollMarkerGlyph); !found {
+		t.Errorf("there is no square on the screen:\n%s", plain(m.View()))
+	}
+}
+
+// The square stands where the message under the cursor is, not where the
+// window begins: the cursor walks inside one window without moving it, and a
+// square placed by the window stands still while the reader walks up and down
+// the same screenful (owner, 03.10: «маркер стоит не там»).
+//
+// The window is the same one in every step below — the model says so — so the
+// square that moves is the only thing on the screen that answered the keys.
+func TestTheSquareFollowsTheMessageUnderTheCursor(t *testing.T) {
+	// maxInt is the row above every row of a track, so the first step has
+	// nothing to compare itself with.
+	const maxInt = 1 << 30
+
+	m := mixedConversation(t, 40)
+	m.focus = FocusHistory
+
+	window := m.timelineTop
+	seen := map[int]bool{}
+	previous := maxInt
+
+	for range 8 {
+		m, _ = updateModel(t, m, press(tea.KeyUp))
+
+		if m.timelineTop != window {
+			break
+		}
+
+		track, rows := feedScrollOf(t, m)
+		marker, ok := markerRow(track)
+		if !ok {
+			t.Fatal("the track is gone while the cursor walks inside the window")
+		}
+		if !strings.Contains(plain(rows[marker]), scrollMarkerGlyph) {
+			t.Errorf("row %d of the feed should carry the square:\n%q", marker, plain(rows[marker]))
+		}
+
+		// The track is coarser than the conversation — three rows of
+		// messages are about one row of it — so the square does not move
+		// on every key. It does not go down while the reader walks up
+		// either.
+		if marker > previous {
+			t.Errorf(
+				"the square went from row %d to row %d of the track while the cursor "+
+					"walked up",
+				previous, marker,
+			)
+		}
+
+		previous = marker
+		seen[marker] = true
+	}
+
+	if len(seen) < 2 {
+		t.Fatalf(
+			"the square stood on %d rows while the cursor walked inside one window: "+
+				"it is placed by the window and not by the message under the cursor",
+			len(seen),
+		)
+	}
+}
+
+// The newest message is the end of the conversation, so a reader on it is at
+// the bottom of the track — whatever height that message is, and however much
+// of it is on the screen. A message taller than the feed is the case where the
+// two answers differ: its first row is nowhere near the end of it.
+func TestTheSquareIsAtTheBottomWhenTheNewestMessageIsTallerThanTheFeed(t *testing.T) {
+	m := tallConversation(t, 45)
+	m = selectOldestMessage(t, m)
+	m, _ = updateModel(t, m, pressRunes("G"))
+
+	track, rows := feedScrollOf(t, m)
+
+	marker, ok := markerRow(track)
+	if !ok {
+		t.Fatalf("there is no track of %d rows on the screen", len(rows))
+	}
+	if marker != track.rows-1 {
+		t.Errorf(
+			"the square is on row %d of %d with the newest message focused, want the "+
+				"last row of the track",
+			marker, track.rows,
+		)
+	}
+}
+
+// The oldest loaded message is the beginning of the conversation, so a reader
+// on it is at the top of the track.
+func TestTheSquareIsAtTheTopWhenTheOldestLoadedMessageIsFocused(t *testing.T) {
+	m := tallConversation(t, 20)
+	m = selectOldestMessage(t, m)
+
+	track, rows := feedScrollOf(t, m)
+
+	marker, ok := markerRow(track)
+	if !ok {
+		t.Fatalf("there is no track of %d rows on the screen", len(rows))
+	}
+	if marker != 0 {
+		t.Errorf(
+			"the square is on row %d of %d with the oldest message focused, want the "+
+				"first row of the track",
+			marker, track.rows,
+		)
+	}
 }

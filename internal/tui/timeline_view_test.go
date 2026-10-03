@@ -219,9 +219,15 @@ func firstTimelineMessage(t *testing.T, m Model) string {
 
 	view := plain(m.View())
 	for _, line := range viewLines(view) {
-		if strings.Contains(line, m.selected().Messages[0].Text) {
-			return strings.TrimSpace(line)
+		if !strings.Contains(line, m.selected().Messages[0].Text) {
+			continue
 		}
+
+		// The track of the feed (§4.4.3) stands in the last column of the
+		// pane and is a column beside the feed, not part of the message on
+		// the row: it moves with the window and the message does not, so it
+		// is not part of what this helper returns.
+		return strings.TrimSpace(strings.TrimSuffix(line, scrollMarkerGlyph))
 	}
 
 	t.Fatalf("no message on the screen:\n%s", view)

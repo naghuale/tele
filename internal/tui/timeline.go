@@ -443,6 +443,16 @@ func (m Model) moveTimelineCursor(delta int) Model {
 // also tells the fill that the feed is full while the rows above it hold
 // nothing.
 //
+// The rows a window is short by are the gap between two messages and at most
+// one message taller than that: a window is filled with whole messages and
+// never with the top half of one (§4.4), so a reader who walks up into a
+// conversation shorter than the feed, or up to the end of the messages that fit
+// in it, sees the air under them. It is not the band of empty rows of a
+// window that stopped short of a message taller than the whole feed: that one
+// is filled by cutting that message (entryRowsFrom), and the walk that used to
+// stop before it is what the owner found on 03.10 in a channel of long
+// messages.
+//
 // That is the screen the owner found on a channel on 03.10: an area of empty
 // rows under the header with the last message or two at the bottom of it, and
 // a feed that lost messages and jerked while the focus moved. The window it

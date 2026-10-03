@@ -140,7 +140,7 @@ func (m Model) visibleMessageIDs() []int64 {
 	width := layout.ChatContentWidth()
 	entries := m.feedEntries()
 	top := entryIndexOfFeed(entries, clampIndex(m.timelineTop, total-1))
-	_, drawn := m.entryRowsFrom(
+	_, drawn, cutLast := m.entryRowsFrom(
 		entries,
 		top,
 		layout,
@@ -151,6 +151,17 @@ func (m Model) visibleMessageIDs() []int64 {
 	)
 	if len(drawn) == 0 {
 		return nil
+	}
+
+	// A message cut at the bottom of the feed is not a message the user has
+	// read: its head is on the screen and the rest of it is under the
+	// window, and it was not marked before the walk filled the window with
+	// it (entryRowsFrom). What is marked is the same set of messages as it
+	// was then — the window, whole messages and a cut at the top of the
+	// oldest one — so a scrollbar that fills the feed changes nothing about
+	// what Telegram is told has been read.
+	if cutLast {
+		drawn = drawn[:maxInt(len(drawn)-1, 0)]
 	}
 
 	// The indices of an entry are the conversation's, and the history is

@@ -172,6 +172,157 @@ func (o *slowCloseOpener) lastCallAbout(chatID int64) string {
 	return ""
 }
 
+// gatedOpener is a presence opener whose calls wait at a gate until the test
+// opens it, and that keeps what TDLib keeps: which chats are open, and how
+// many calls were in flight at once.
+//
+// The gate is TDLib on a round trip that is not coming back soon, which is a
+// thing a person lives with rather than a thing a test usually sees: a network
+// that is down, a proxy that holds a connection. It is the case the interface
+// has to keep answering keys in, and the case in which switches pile up behind
+// one another.
+//
+// It also says which calls have reached it, so that a test can wait for the
+// queue to be inside a turn rather than hope it is: a test that does not know
+// that the first switch is in flight cannot say what the switches behind it
+// were overtaken by.
+type gatedOpener struct {
+	mu        sync.Mutex
+	calls     []string
+	openNow   map[int64]bool
+	inFlight  int
+	crossings int
+
+	// gate is closed until the test opens it. Every call waits on it, so a
+	// call that was asked for before the gate opened is still in flight when
+	// the gate opens, and a call asked for after it goes straight through.
+	gate chan struct{}
+
+	// entered is where a call that has reached the opener says which call it
+	// is.
+	entered chan string
+}
+
+func newGatedOpener() *gatedOpener {
+	return &gatedOpener{
+		openNow: map[int64]bool{},
+		gate:    make(chan struct{}),
+		entered: make(chan string, gatedOpenerCalls),
+	}
+}
+
+// gatedOpenerCalls is how many calls the opener can report having reached it
+// without a test listening, which is a hundred switches and a few to spare.
+const gatedOpenerCalls = 128
+
+// openTheGate lets every call that is waiting go through, and every call after
+// it.
+func (o *gatedOpener) openTheGate() {
+	close(o.gate)
+}
+
+func (o *gatedOpener) OpenChat(_ context.Context, chatID int64) error {
+	call := fmt.Sprintf("open %d", chatID)
+	o.remember(call)
+	defer o.answered(chatID, true)
+
+	o.announce(call)
+	<-o.gate
+
+	return nil
+}
+
+func (o *gatedOpener) CloseChat(_ context.Context, chatID int64) error {
+	call := fmt.Sprintf("close %d", chatID)
+	o.remember(call)
+	defer o.answered(chatID, false)
+
+	o.announce(call)
+	<-o.gate
+
+	return nil
+}
+
+// announce says which call has reached the opener. It waits for nothing: a
+// test that is not listening to a call loses that call and not the opener.
+func (o *gatedOpener) announce(call string) {
+	select {
+	case o.entered <- call:
+	default:
+	}
+}
+
+// waitForCall waits until the opener has been asked for that call, which is
+// the moment the queue is inside a turn: nothing asked for after it can be
+// carried out before it has finished.
+func (o *gatedOpener) waitForCall(t *testing.T, call string) {
+	t.Helper()
+
+	select {
+	case entered := <-o.entered:
+		if entered != call {
+			t.Fatalf("the first call the opener was asked for was %q, want %q", entered, call)
+		}
+	case <-time.After(commandDeadline):
+		t.Fatalf("the opener was never asked for %q", call)
+	}
+}
+
+// remember writes a call down the moment it is asked for and counts how many
+// calls are in flight at that moment.
+func (o *gatedOpener) remember(call string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.calls = append(o.calls, call)
+	o.inFlight++
+	if o.inFlight > 1 {
+		o.crossings++
+	}
+}
+
+// answered is a call that has come back: the chat is open or it is not, and
+// one call fewer is in flight.
+func (o *gatedOpener) answered(chatID int64, open bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.inFlight--
+	o.openNow[chatID] = open
+}
+
+// asked is what the opener was asked for, in the order it was asked.
+func (o *gatedOpener) asked() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return slices.Clone(o.calls)
+}
+
+// counting is which chats TDLib would be counting right now, in order.
+func (o *gatedOpener) counting() []int64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	counted := make([]int64, 0, len(o.openNow))
+	for chatID, isOpen := range o.openNow {
+		if isOpen {
+			counted = append(counted, chatID)
+		}
+	}
+	slices.Sort(counted)
+
+	return counted
+}
+
+// crossed says whether two calls were in flight at the same time.
+func (o *gatedOpener) crossed() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return o.crossings > 0
+}
+
 // runCommands runs the commands a key press returned.
 //
 // The open and the close are commands and not calls: a chat that cannot be
@@ -261,9 +412,70 @@ func waitFor(t *testing.T, finished <-chan struct{}) {
 
 	select {
 	case <-finished:
-	case <-time.After(5 * time.Second):
+	case <-time.After(commandDeadline):
 		t.Fatal("a command was started and never finished")
 	}
+}
+
+// commandDeadline is how long a test waits for a command that was started in a
+// goroutine, and how long it waits for an Update to come back. It is not a
+// measure of speed: it is there so that a command that never finishes, or an
+// Update that never returns, fails the test instead of hanging the suite.
+const commandDeadline = 5 * time.Second
+
+// updateWithin is Update with a bound on how long it may take.
+//
+// Update is what a key press goes through, and it is what has to come back
+// while TDLib is on a round trip: a person walking through chats cannot be
+// held at a key because the network is down. The bound is five seconds
+// because it is a bound and not a measurement — an Update of this model takes
+// microseconds, and one that takes seconds is one that is waiting for
+// something it must not wait for.
+func updateWithin(t *testing.T, model Model, msg tea.Msg) (Model, tea.Cmd) {
+	t.Helper()
+
+	type answered struct {
+		model Model
+		cmd   tea.Cmd
+	}
+	updates := make(chan answered, 1)
+	go func() {
+		updated, cmd := model.Update(msg)
+
+		next, isModel := updated.(Model)
+		if !isModel {
+			t.Errorf("Update returned %T, want Model", updated)
+
+			return
+		}
+		updates <- answered{model: next, cmd: cmd}
+	}()
+
+	select {
+	case got := <-updates:
+		return got.model, got.cmd
+	case <-time.After(commandDeadline):
+		t.Fatalf("Update did not come back within %s of %T", commandDeadline, msg)
+
+		return model, nil
+	}
+}
+
+// isSubsequence says whether every call of got is one of the calls of want, in
+// that order. A queue that coalesces switches carries out fewer calls than the
+// presses asked for — that is what it is for — but never a call the presses
+// did not ask for and never two of them out of order.
+func isSubsequence(want, got []string) bool {
+	rest := want
+	for _, call := range got {
+		found := slices.Index(rest, call)
+		if found < 0 {
+			return false
+		}
+		rest = rest[found+1:]
+	}
+
+	return true
 }
 
 // openerModel is a model with a presence opener and two chats loaded.
@@ -287,11 +499,27 @@ func openerModelAt(
 ) Model {
 	t.Helper()
 
+	return openerModelOfChats(t, opener, width, twoChats)
+}
+
+// twoChats are the chats a test of two switches walks between: A and B.
+var twoChats = []Chat{
+	{ID: 7, Title: "A"},
+	{ID: 8, Title: "B"},
+}
+
+// openerModelOfChats is the same model with a list of any length, because a
+// walk of twenty switches needs twenty chats and a walk of two needs two.
+func openerModelOfChats(
+	t *testing.T,
+	opener ChatPresenceOpener,
+	width int,
+	chats []Chat,
+) Model {
+	t.Helper()
+
 	deps := Dependencies{
-		Source: &fakeChatSource{chats: []Chat{
-			{ID: 7, Title: "A"},
-			{ID: 8, Title: "B"},
-		}},
+		Source:           &fakeChatSource{chats: chats},
 		MessageSubmitter: &recordingSubmitter{},
 		Diagnostics:      &recordingWriter{},
 		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
@@ -307,10 +535,7 @@ func openerModelAt(
 	}
 
 	model, _ = updateModel(t, model, tea.WindowSizeMsg{Width: width, Height: 24})
-	model, _ = updateModel(t, model, chatsLoadedMsg{chats: []Chat{
-		{ID: 7, Title: "A"},
-		{ID: 8, Title: "B"},
-	}})
+	model, _ = updateModel(t, model, chatsLoadedMsg{chats: chats})
 
 	return model
 }
@@ -489,10 +714,15 @@ func TestTwoQuickSwitchesLeaveOnlyTheChosenChatOpen(t *testing.T) {
 			"open 7",
 		)
 	}
+	// The calls of the three switches, and the queue may carry out fewer of
+	// them than there are presses: a switch that was overtaken before the
+	// queue came to it is not asked for at all. What it may never do is ask
+	// for something the presses did not ask for, or ask for two of them out
+	// of order, so the calls have to be a part of that list in that order.
 	want := []string{"open 7", "close 7", "open 8", "close 8", "open 7"}
-	if got := opener.asked(); !slices.Equal(got, want) {
+	if got := opener.asked(); !isSubsequence(want, got) {
 		t.Fatalf(
-			"the opener was asked %v, want %v: the calls of two switches reach TDLib in the order the chats were entered",
+			"the opener was asked %v, want the calls of the three switches in that order %v: the calls of two switches reach TDLib in the order the chats were entered",
 			got,
 			want,
 		)
@@ -505,6 +735,201 @@ func TestTwoQuickSwitchesLeaveOnlyTheChosenChatOpen(t *testing.T) {
 	if model.openedChat != 7 {
 		t.Fatalf("openedChat = %d, want the chat the user came back to 7", model.openedChat)
 	}
+}
+
+// TDLib is not always quick, and it is not always there at all: a network that
+// is down or a proxy that holds a connection leaves a round trip open for as
+// long as the person who is trying to walk through chats can keep pressing
+// keys.
+//
+// So a switch must not wait for TDLib, not even by a queue of its own: twenty
+// switches in twenty Updates have to come back as twenty answers from Update,
+// with TDLib stuck behind the first one the whole time. What TDLib is told
+// afterwards is the last chat the user entered and nothing else — the chats
+// that were overtaken were never opened, which is the point of coalescing a
+// switch rather than queueing it.
+func TestTwentyQuickSwitchesBehindABlockedOpenerKeepTheLastOne(t *testing.T) {
+	opener := newGatedOpener()
+	model := openerModelOfChats(t, opener, 100, numberedChats(quickSwitches))
+
+	var commands []tea.Cmd
+	model, entering := updateWithin(t, model, press(tea.KeyEnter))
+	commands = append(commands, entering)
+	// The first switch is in flight and is not coming back yet, which is what
+	// the nineteen switches behind it have to get past.
+	opener.waitForCall(t, "open 1")
+
+	for range quickSwitches - 1 {
+		model.focus = FocusChatList
+		model, _ = updateWithin(t, model, press(tea.KeyDown))
+		model, entering = updateWithin(t, model, press(tea.KeyEnter))
+		commands = append(commands, entering)
+	}
+
+	// TDLib answers at last, and every command comes back: the ones for the
+	// switches that were overtaken are given nothing to wait for, which is
+	// not the same as never coming back.
+	opener.openTheGate()
+	for _, command := range commands {
+		waitFor(t, runInBackground(command))
+	}
+
+	// The first chat was opened, the last chat is the one that is open, and
+	// the eighteen chats in between were never opened at all.
+	want := []string{"open 1", "close 1", "open 20"}
+	if got := opener.asked(); !slices.Equal(got, want) {
+		t.Fatalf(
+			"the opener was asked %v, want %v: the switches that were overtaken are not carried out",
+			got,
+			want,
+		)
+	}
+	if got := opener.counting(); !slices.Equal(got, []int64{20}) {
+		t.Fatalf(
+			"TDLib would be counting %v, want only the chat the user is in [20]",
+			got,
+		)
+	}
+	if opener.crossed() {
+		t.Fatal(
+			"two calls to TDLib were in flight at once: a round trip that is not coming back is still a round trip",
+		)
+	}
+	if model.openedChat != 20 {
+		t.Fatalf("openedChat = %d, want the chat that was entered last 20", model.openedChat)
+	}
+}
+
+// Leaving the program closes the chat TDLib has, not the chat the model
+// remembers, and it does so with switches still waiting behind it: the way out
+// is the last thing wanted, so the queue does that one thing and nothing else.
+func TestQuittingClosesTheOpenChatWhileSwitchesAreWaiting(t *testing.T) {
+	opener := newGatedOpener()
+	model := openerModelOfChats(t, opener, 100, numberedChats(3))
+
+	// One switch is in flight behind a gate that is closed, and two more are
+	// waiting behind it.
+	model, entering := updateWithin(t, model, press(tea.KeyEnter))
+	opener.waitForCall(t, "open 1")
+	model.focus = FocusChatList
+	model, _ = updateWithin(t, model, press(tea.KeyDown))
+	model, leaving := updateWithin(t, model, press(tea.KeyEnter))
+	model.focus = FocusChatList
+	model, _ = updateWithin(t, model, press(tea.KeyDown))
+	model, leavingAgain := updateWithin(t, model, press(tea.KeyEnter))
+
+	// Ctrl+C twice is the deliberate way out (quit.go).
+	model, _ = updateWithin(t, model, press(tea.KeyCtrlC))
+	quitting, quit := updateWithin(t, model, press(tea.KeyCtrlC))
+
+	opener.openTheGate()
+	waitFor(t, runInBackground(quit))
+	for _, command := range []tea.Cmd{entering, leaving, leavingAgain} {
+		waitFor(t, runInBackground(command))
+	}
+
+	want := []string{"open 1", "close 1"}
+	if got := opener.asked(); !slices.Equal(got, want) {
+		t.Fatalf(
+			"the opener was asked %v, want %v: the way out closes the open chat and carries out nothing that was overtaken by it",
+			got,
+			want,
+		)
+	}
+	if got := opener.counting(); len(got) != 0 {
+		t.Fatalf("TDLib would be counting %v, want no chat at all", got)
+	}
+	if quitting.openedChat != 0 {
+		t.Fatalf(
+			"openedChat = %d, want 0: the chat is closed, not merely left open",
+			quitting.openedChat,
+		)
+	}
+}
+
+// A switch that was overtaken is a switch about a chat the user has already
+// left: nothing was asked of TDLib for it, so there is nothing to answer it
+// with. The command it returned still comes back — a command that waits for an
+// answer that will never come is a goroutine that waits for the rest of the
+// program.
+func TestAnOvertakenSwitchComesBackWithNothing(t *testing.T) {
+	opener := newGatedOpener()
+	queue := newChatLifecycleQueue(opener, &recordingWriter{}, context.Background())
+
+	// The first switch is carried out, and the two behind it are not: the
+	// queue is inside its first turn when the other two are asked for, and
+	// the gate is closed until all three have been.
+	carried := queue.want(2)
+	opener.waitForCall(t, "open 2")
+	overtaken := queue.want(3)
+	wanted := queue.want(4)
+
+	opener.openTheGate()
+
+	if msg := waitForAnswer(t, carried); !isChatOpened(msg, 2) {
+		t.Fatalf("the switch that was carried out was answered %v, want an open of chat 2", msg)
+	}
+	if msg := waitForAnswer(t, overtaken); msg != nil {
+		t.Fatalf(
+			"the overtaken switch was answered %v, want nothing: the chat it was about is not the chat the user is in",
+			msg,
+		)
+	}
+	if msg := waitForAnswer(t, wanted); !isChatOpened(msg, 4) {
+		t.Fatalf("the switch that is wanted was answered %v, want an open of chat 4", msg)
+	}
+
+	want := []string{"open 2", "close 2", "open 4"}
+	if got := opener.asked(); !slices.Equal(got, want) {
+		t.Fatalf("the opener was asked %v, want %v", got, want)
+	}
+}
+
+// isChatOpened says whether a message is the answer of an open of that chat.
+func isChatOpened(msg tea.Msg, chatID int64) bool {
+	opened, isOpened := msg.(chatOpenedMsg)
+
+	return isOpened && opened.chatID == chatID
+}
+
+// waitForAnswer runs a command the way Bubble Tea runs it and hands back what
+// it delivered, so that a test can look at the message and not only at the
+// fact that the command came back.
+func waitForAnswer(t *testing.T, cmd tea.Cmd) tea.Msg {
+	t.Helper()
+
+	if cmd == nil {
+		return nil
+	}
+
+	delivered := make(chan tea.Msg, 1)
+	go func() {
+		delivered <- cmd()
+	}()
+
+	select {
+	case msg := <-delivered:
+		return msg
+	case <-time.After(commandDeadline):
+		t.Fatal("a command was started and never delivered anything")
+
+		return nil
+	}
+}
+
+// quickSwitches is how many switches the walk behind a blocked opener makes:
+// twenty of them, which is a hand walking a list and not a machine.
+const quickSwitches = 20
+
+// numberedChats is a list of count chats, numbered from one, which is a list
+// long enough that a walk of twenty switches is not a walk of two.
+func numberedChats(count int) []Chat {
+	chats := make([]Chat, 0, count)
+	for chatID := 1; chatID <= count; chatID++ {
+		chats = append(chats, Chat{ID: int64(chatID), Title: fmt.Sprintf("chat %d", chatID)})
+	}
+
+	return chats
 }
 
 // Opening the chat that is already open is not a second open: a user

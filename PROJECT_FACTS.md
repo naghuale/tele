@@ -85,6 +85,25 @@
 - Runtime commit source: synchronous getOption("commit_hash")
 - Compatibility manifest: internal/telegram/manifest.go
 - Compatibility status: verified on macOS arm64 against the pinned commit above
+- TDLib internal log stream: set with setLogStream before the first
+  request of the program and before the first logical client
+  (internal/telegram/log_stream.go). The destination is logStreamFile on
+  `<data_dir>/tdlib.log` with max_file_size 4 MiB, the same size the
+  interface's own reasons are rotated at, and logStreamEmpty when no data
+  folder is configured. The file is created by telecli with 0600 inside a
+  0700 folder before the request goes out, because a file TDLib creates
+  itself takes TDLib's permissions. redirect_stderr is false: telecli's own
+  reasons to the user must still reach the terminal when the program fails
+  to start. A refused setLogStream fails startup closed
+- TDLib log verbosity: tdlib.log_verbosity, 1 by default (errors and
+  warnings), 0 accepted (errors only), 2 and above refused by
+  internal/config and by telegram.Config.Validate. The reason is the
+  default the library starts with: from level 2 up it writes the requests
+  it receives into its journal, and a request carries the api_hash of
+  setTdlibParameters and the text of every message. The stream is set
+  before the verbosity, so the lines TDLib writes while it is still at
+  level 5 land in the file and not on the terminal, and nothing carrying a
+  credential is sent between the two requests
 - Receive ownership: exactly one process-wide td_receive loop per Runtime
 - Receive errors: backoff from 10ms doubling to 1s; after 32
   consecutive errors the runtime becomes failed, closes client channels,
@@ -1311,7 +1330,8 @@
     slog.SetDefault, log.SetOutput, and the TELECLI_AUTH_TRACE stream.
     A log that cannot be opened is discarded, because a program that
     refuses to start without a diagnostics file has made diagnostics a
-    dependency of its job. TDLib's own log stays off. Outside `tui`
+    dependency of its job. TDLib writes through a door of its own, the
+    log stream named in the runtime configuration. Outside `tui`
     nothing changes: reasons go to the terminal
   - `telecli doctor` prints the log file path, because a quiet log is what
     creates the question The owner's report of a message stuck on

@@ -281,8 +281,10 @@ func openUILog(dataDir string, now func() time.Time) *uiLog {
 //
 // None of the three is needed by any code this repository owns, which is
 // the point: they are set here so that nothing that does reach for one can
-// reach the terminal. TDLib writes through its own verbosity setting,
-// which stays off.
+// reach the terminal. TDLib writes through a door of its own — its log
+// stream — and that one is named in the runtime configuration
+// (telegramRuntimeConfig) rather than here, because it is the library's
+// own journal and not this program's reasons.
 func installUILog(log *uiLog) {
 	if log == nil {
 		return

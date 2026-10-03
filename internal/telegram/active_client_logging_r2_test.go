@@ -230,6 +230,12 @@ func runConfigureAfterActivation(result *activeLoggingR2Result) error {
 	// The experiment observes TDLib before the policy is installed,
 	// which production Start no longer allows.
 	runtime.startWithoutLogPolicy = true
+	// The observation is read from the stderr TDLib writes on its own. A
+	// policy that also moved the journal into a file would leave both
+	// segments empty, and the post-configuration level this case reports
+	// would then be the absence of a file rather than the effect of the
+	// verbosity.
+	runtime.keepNativeLogOnStderr = true
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

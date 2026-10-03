@@ -42,14 +42,16 @@ type Runtime struct {
 	closed    chan struct{}
 	startOnce sync.Once
 
-	// logSecured records that TDLib's verbosity was lowered, so later
-	// callers do not repeat the request.
+	// logSecured records that TDLib's journal was redirected and its
+	// verbosity was lowered, so later callers do not repeat the requests.
 	logSecured atomic.Bool
 
-	// startWithoutLogPolicy is set only by the active-client logging
-	// experiments, which must observe TDLib before the policy exists.
-	// Production code never sets it.
+	// startWithoutLogPolicy and keepNativeLogOnStderr are set only by the
+	// active-client logging experiments, which must observe TDLib before
+	// the policy exists and read the journal the library writes on its own
+	// stderr. Production code never sets either.
 	startWithoutLogPolicy bool
+	keepNativeLogOnStderr bool
 	closeOnce             sync.Once
 	startErr              error
 	closeErr              error

@@ -456,6 +456,11 @@ func citations() []struct {
 		{name: "updateSupergroup", line: 10739},
 		{name: "getUser", line: 11499},
 		{name: "getSupergroup", line: 11511},
+		// Where the library's own journal goes, and that nothing of it may
+		// drag the process's standard error along (log_stream.go).
+		{name: "logStreamFile", line: 11253},
+		{name: "logStreamEmpty", line: 11256},
+		{name: "setLogStream", line: 16234},
 		// The types a message content is named by, the first and the last
 		// of them: the labels of a message are named after them, and a
 		// name that is not one of them is a label no message can carry

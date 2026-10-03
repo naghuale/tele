@@ -140,18 +140,45 @@ func reportOutboxStatus(
 // not on the screen, because the screen belongs to the conversation, and it
 // is not in the terminal either, because a line there would break the
 // interface that is running.
+//
+// The library has a journal of its own, and it is named here too. It is not
+// this program's reasons — nothing in it is written by telecli — but it is
+// the other thing that used to reach the terminal, and a user who has just
+// watched an interface break wants both files.
 func writeUILogPath(out io.Writer, cfg config.Config) {
 	path := TUILogPath(cfg)
 	if path == "" {
 		fmt.Fprintln(out,
 			"  Log file: none (no data folder is configured)")
+	} else {
+		fmt.Fprintf(
+			out,
+			"  Log file: %s (written while the interface runs)\n",
+			path,
+		)
+	}
+
+	writeTDLibLogPath(out, cfg)
+}
+
+// writeTDLibLogPath says where the journal of the library goes.
+//
+// "nowhere" is an answer and not a missing line: with no data folder there
+// is no file to write to, and the library is told to write its journal
+// nowhere rather than to leave it on the terminal the interface owns.
+func writeTDLibLogPath(out io.Writer, cfg config.Config) {
+	path := TDLibLogPath(cfg)
+	if path == "" {
+		fmt.Fprintln(out,
+			"  TDLib log: nowhere (no data folder is configured)")
 		return
 	}
 
 	fmt.Fprintf(
 		out,
-		"  Log file: %s (written while the interface runs)\n",
+		"  TDLib log: %s (written by the Telegram library; verbosity %d)\n",
 		path,
+		cfg.TDLib.LogVerbosity,
 	)
 }
 

@@ -14,6 +14,18 @@ type TDLib struct {
 	FilesDir          string `toml:"files_dir"`
 	ReceiveTimeoutMS  int    `toml:"receive_timeout_ms"`
 	ShutdownTimeoutMS int    `toml:"shutdown_timeout_ms"`
+
+	// LogVerbosity is how much of the library's own journal is written to
+	// <data_dir>/tdlib.log.
+	//
+	// It is TDLib's own scale and not telecli's: 1 keeps the errors and
+	// the warnings, 0 keeps the errors alone. The library's default is 5,
+	// and from 2 up it writes every request it receives into the journal —
+	// and a request carries the api_hash of setTdlibParameters and the text
+	// of every message. So the two values below are the only ones accepted,
+	// and the ceiling is repeated in internal/telegram as MaxLogVerbosity,
+	// which is the layer that knows what a request holds.
+	LogVerbosity int `toml:"log_verbosity"`
 }
 
 // TUIConfig holds the interface settings.
@@ -127,6 +139,21 @@ const (
 	DefaultTUIUnreadCounter = "chats"
 )
 
+// The bounds of the library's own journal. The reasons are the ones
+// internal/telegram holds, and they are repeated rather than imported:
+// this package is a leaf above the binding and must not depend on it.
+const (
+	// DefaultTDLibLogVerbosity keeps the errors and the warnings, which is
+	// what a journal nobody reads is for: the library says when something
+	// went wrong and stays quiet while it works.
+	DefaultTDLibLogVerbosity = 1
+
+	// MaxTDLibLogVerbosity is the loudest level accepted. Above it the
+	// library writes the requests themselves, and a request carries
+	// credentials and message text into a file on the user's disk.
+	MaxTDLibLogVerbosity = 1
+)
+
 // MessageDeliveryConfig holds the durable outbox settings.
 type MessageDeliveryConfig struct {
 	Mode       MessageSendMode `toml:"mode"`
@@ -190,6 +217,7 @@ func Default() Config {
 			FilesDir:          dataSubdir(dataDir, "tdlib", "files"),
 			ReceiveTimeoutMS:  100,
 			ShutdownTimeoutMS: 5000,
+			LogVerbosity:      DefaultTDLibLogVerbosity,
 		},
 		MessageDelivery: MessageDeliveryConfig{
 			Mode: DefaultMessageSendMode,
@@ -247,6 +275,17 @@ func (c Config) Validate() error {
 	}
 	if c.TDLib.ShutdownTimeoutMS <= 0 {
 		return fmt.Errorf("tdlib.shutdown_timeout_ms must be > 0")
+	}
+	if c.TDLib.LogVerbosity < 0 || c.TDLib.LogVerbosity > MaxTDLibLogVerbosity {
+		return fmt.Errorf(
+			"tdlib.log_verbosity must be 0 or %d, got %d: "+
+				"from %d up TDLib writes every request it receives "+
+				"into the journal, and a request carries credentials "+
+				"and message text",
+			MaxTDLibLogVerbosity,
+			c.TDLib.LogVerbosity,
+			MaxTDLibLogVerbosity+1,
+		)
 	}
 	return nil
 }

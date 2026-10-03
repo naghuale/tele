@@ -136,6 +136,7 @@ telecli doctor
 ```
 Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbox)
   Log file: /Users/you/Library/Application Support/telecli/telecli.log (written while the interface runs)
+  TDLib log: /Users/you/Library/Application Support/telecli/tdlib.log (written by the Telegram library; verbosity 1)
   Messages: 0 queued, 0 sending, 1 on their way, 12 sent, 0 retrying, 0 failed, 0 uncertain, 0 canceled
   Send results: 14 seen, 13 matched, 1 named no record, 0 window gaps, over 210 passes
 ```
@@ -144,7 +145,7 @@ Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbo
 `queued` — ждёт отправки, `sending` — telecli отправляет, `on their way`
 — Telegram принял, но ещё не подтвердил, `sent` — подтвердил.
 
-Вторая строка — что видел свершитель прошлого запуска:
+Строка `Send results` — что видел свершитель прошлого запуска:
 
 - `seen` — сколько подтверждений от Telegram он получил;
 - `matched` — сколько из них он смог связать с записью очереди;
@@ -153,7 +154,7 @@ Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbo
 - `window gaps` — сколько раз он не смог прочитать окно сообщений чата.
 
 Читается она так: если `seen` заметно больше `matched`, подтверждения
-приходят, а связать их не удалось. Если `seen` равно нулю при том, что в
+приходят, а связать их не удалось. Если `seen` равен нулю при том, что в
 очереди есть `on their way`, Telegram в этом запуске не прислал
 подтверждений вовсе. Если растёт `window gaps`, окно сообщений чата
 переполнено и подтверждения вытесняются из него раньше, чем их успевают
@@ -169,6 +170,15 @@ Message queue: OK (data_dir=/Users/you/Library/Application Support/telecli/outbo
 работает и отправляет сообщения. Вне интерфейса (`telecli doctor`,
 `telecli outbox`) всё как раньше — причины идут в терминал, где есть
 человек, который их прочитает.
+
+Строка `TDLib log` — про другое: это служебный журнал самой библиотеки
+Telegram, а не причины telecli. Он тоже не попадает на экран — раньше одна
+его строка появлялась поверх интерфейса и сдвигала всё, что было ниже неё.
+Теперь он лежит в `tdlib.log` рядом с `telecli.log`, с теми же правами и
+тем же размером ротации. Насколько подробно библиотека туда пишет —
+настройкой `log_verbosity` (см. [Настройки интерфейса](settings.md)); если
+папки с данными нет, строка говорит `nowhere`, и тогда библиотека не пишет
+журнал вовсе, чтобы не отдавать его экрану.
 
 Если в первой строке есть `on their way` и счётчик не уменьшается,
 `? delivery uncertain` — состояние, при котором состояние неизвестно по

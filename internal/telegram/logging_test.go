@@ -258,11 +258,8 @@ func TestProductionSessionUsesTDLibVerbosityLevelOne(t *testing.T) {
 		t.Fatalf("setLogVerbosityLevel calls = %d, want 1", found)
 	}
 
-	if productionTDLibVerbosityLevel != 1 {
-		t.Fatalf(
-			"productionTDLibVerbosityLevel = %d, want 1",
-			productionTDLibVerbosityLevel,
-		)
+	if DefaultLogVerbosity != 1 {
+		t.Fatalf("DefaultLogVerbosity = %d, want 1", DefaultLogVerbosity)
 	}
 }
 
@@ -276,7 +273,7 @@ func TestBuildSetLogVerbosityRequestRejectsNegativeLevel(t *testing.T) {
 }
 
 func TestSetSafeTDLibLogVerbosityRejectsNilNative(t *testing.T) {
-	if err := setSafeTDLibLogVerbosity(nil); !errors.Is(
+	if err := setSafeTDLibLogVerbosity(nil, DefaultLogVerbosity); !errors.Is(
 		err,
 		ErrTDLibLogConfiguration,
 	) {
@@ -300,7 +297,10 @@ func TestSetSafeTDLibLogVerbosityFailsClosedOnNonOkResponse(t *testing.T) {
 			native := newRecordingNative()
 			native.executeResponse = []byte(response)
 
-			if err := setSafeTDLibLogVerbosity(native); !errors.Is(
+			if err := setSafeTDLibLogVerbosity(
+				native,
+				DefaultLogVerbosity,
+			); !errors.Is(
 				err,
 				ErrTDLibLogConfiguration,
 			) {

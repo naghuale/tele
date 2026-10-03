@@ -275,6 +275,11 @@ func runActiveMatrixCase(result *activeMatrixResult, caseName string) error {
 	// The experiment observes TDLib before the policy is installed,
 	// which production Start no longer allows.
 	runtime.startWithoutLogPolicy = true
+	// And it reads the journal from the stderr TDLib writes on its own:
+	// a policy that also moved the journal into a file would make every
+	// observation below empty, and an empty observation proves nothing
+	// about the verbosity this case is about.
+	runtime.keepNativeLogOnStderr = true
 
 	defer func() {
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)

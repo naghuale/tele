@@ -81,19 +81,32 @@ func newRuntimeFromNative(
 	native telegram.Native,
 	rec recorder.ComponentRecorder,
 ) (*telegram.Runtime, error) {
-	runtimeConfig := telegram.DefaultConfig()
-	runtimeConfig.ReceiveTimeout =
-		time.Duration(cfg.TDLib.ReceiveTimeoutMS) * time.Millisecond
-	runtimeConfig.ShutdownTimeout =
-		time.Duration(cfg.TDLib.ShutdownTimeoutMS) * time.Millisecond
-
-	rt, err := telegram.NewRuntime(runtimeConfig, native, rec)
+	rt, err := telegram.NewRuntime(telegramRuntimeConfig(cfg), native, rec)
 	if err != nil {
 		_ = native.Close()
 		return nil, err
 	}
 
 	return rt, nil
+}
+
+// telegramRuntimeConfig is the binding's configuration for this program.
+//
+// It is one function because the journal of the library is named here and
+// read from the same place by `telecli doctor`, and because the verbosity
+// of that journal is a setting of the user, not a constant of the binding:
+// a request must reach TDLib with the journal already named, or the
+// library prints its first lines to the terminal the interface owns.
+func telegramRuntimeConfig(cfg config.Config) telegram.Config {
+	runtimeConfig := telegram.DefaultConfig()
+	runtimeConfig.ReceiveTimeout =
+		time.Duration(cfg.TDLib.ReceiveTimeoutMS) * time.Millisecond
+	runtimeConfig.ShutdownTimeout =
+		time.Duration(cfg.TDLib.ShutdownTimeoutMS) * time.Millisecond
+	runtimeConfig.LogFilePath = TDLibLogPath(cfg)
+	runtimeConfig.LogVerbosity = cfg.TDLib.LogVerbosity
+
+	return runtimeConfig
 }
 
 // newTelegramLifecycle constructs the concrete runtime used by both

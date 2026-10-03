@@ -58,6 +58,18 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	UpdateBuffer    int
 	ErrorBuffer     int
+
+	// LogFilePath is where TDLib's own journal is written. An empty value
+	// means there is no file to write it to, and the library is told to
+	// write its journal nowhere — which is the one answer that keeps a
+	// terminal clean for a program with no data folder.
+	LogFilePath string
+
+	// LogVerbosity is how much of TDLib's journal is written, from
+	// DefaultLogVerbosity (errors) down to 0. Levels above
+	// MaxLogVerbosity are refused: what they add is a dump of the
+	// requests, and a request carries credentials and message text.
+	LogVerbosity int
 }
 
 func DefaultConfig() Config {
@@ -66,11 +78,15 @@ func DefaultConfig() Config {
 		ShutdownTimeout: 5 * time.Second,
 		UpdateBuffer:    64,
 		ErrorBuffer:     8,
+		LogVerbosity:    DefaultLogVerbosity,
 	}
 }
 
 func (c Config) Validate() error {
 	if c.ReceiveTimeout <= 0 || c.ShutdownTimeout <= 0 || c.UpdateBuffer <= 0 || c.ErrorBuffer <= 0 {
+		return ErrInvalidConfig
+	}
+	if c.LogVerbosity < 0 || c.LogVerbosity > MaxLogVerbosity {
 		return ErrInvalidConfig
 	}
 	return nil

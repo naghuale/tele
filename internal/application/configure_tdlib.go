@@ -178,7 +178,9 @@ func (nativeTDLibProbe) Probe(
 	}
 
 	// A scratch directory keeps the probe from touching the configured
-	// database or files directories.
+	// database or files directories, or the configured journal: the probe
+	// starts a real runtime, and a runtime writes the library's journal
+	// where it was told to.
 	scratch, err := os.MkdirTemp("", "telecli-tdlib-probe-")
 	if err != nil {
 		return TDLibProbeResult{}, fmt.Errorf(
@@ -191,6 +193,7 @@ func (nativeTDLibProbe) Probe(
 	}()
 
 	probeCfg := config.Default()
+	probeCfg.DataDir = scratch
 	probeCfg.TDLib.DatabaseDir = scratch + "/database"
 	probeCfg.TDLib.FilesDir = scratch + "/files"
 	probeCfg.TDLib.LibraryPath = path

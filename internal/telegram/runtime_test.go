@@ -49,8 +49,10 @@ func (f *fakeNative) Execute(request []byte) ([]byte, error) {
 	if result, ok := f.executeResults[string(request)]; ok {
 		return append([]byte(nil), result...), nil
 	}
-	// Runtime.Start lowers the log verbosity first; TDLib answers ok.
-	if requestType(request) == "setLogVerbosityLevel" {
+	// Runtime.Start names the library's journal and lowers its verbosity
+	// before anything else; TDLib answers ok to both.
+	switch requestType(request) {
+	case "setLogStream", "setLogVerbosityLevel":
 		return []byte(`{"@type":"ok"}`), nil
 	}
 	return nil, nil

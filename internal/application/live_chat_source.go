@@ -267,14 +267,21 @@ func (u *TelegramLiveUpdates) Chats() []tui.LiveChat {
 // why the chat is where it is, and the mute is what keeps it out of the
 // number in the header. Neither is read from the name or guessed from the
 // kind — a channel is not silenced because it is a channel.
+//
+// The read pointer crosses with them, and it crosses because the store keeps
+// it rather than because it is part of the name or the preview: it is the
+// number the line over the unread messages of the open chat is drawn from,
+// and a row that came without it left the interface drawing that line from
+// whatever the loaded list said when the program started (#77).
 func (u *TelegramLiveUpdates) chatOf(chat telegram.LiveChat) tui.LiveChat {
 	row := tui.LiveChat{
-		ID:     int64(chat.ID),
-		Title:  chat.Title,
-		Unread: chat.UnreadCount,
-		Pinned: chat.Pinned,
-		Muted:  chat.Muted,
-		Kind:   liveChatKind(chat),
+		ID:                     int64(chat.ID),
+		Title:                  chat.Title,
+		Unread:                 chat.UnreadCount,
+		Pinned:                 chat.Pinned,
+		Muted:                  chat.Muted,
+		Kind:                   liveChatKind(chat),
+		LastReadInboxMessageID: int64(chat.LastReadInboxMessageID),
 	}
 
 	if chat.LastMessage == nil {

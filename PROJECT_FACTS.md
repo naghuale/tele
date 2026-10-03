@@ -291,6 +291,19 @@
     scope's setting is not read, so a chat that defers to it is not
     muted here; updateChatNotificationSettings changes only this field
     and an update that carries no settings keeps the mute it has
+  - LiveChat carries LastReadInboxMessageID, the read pointer of the chat,
+    and updateChatReadInbox moves it: the update carries
+    last_read_inbox_message_id beside unread_count (td_api.tl:10521), so
+    the count and the pointer are one fact and the store keeps both. It
+    came in with updateNewChat too, whose chat carries the pointer as a
+    field of itself. A payload with no pointer says nothing about it —
+    decodeReadPointer — rather than taking the chat for never read in it,
+    the same rule the mute follows; zero is what a chat with nothing read
+    in it has, so it is not a value to fall back to. Without it the store
+    knew that a chat has nothing unread and not where it was read up to,
+    and the unread line of the feed kept standing over messages the read
+    had just taken in while the badge beside it had already fallen (the
+    owner on a real account, 2026-10-03, #77)
   - a live message carries its sender_id (identifier and kind, never a
     name); the interface asks TDLib for the name when it draws the row
     (#41)
@@ -381,10 +394,12 @@
     and ends it when the program is over, so `q` leaves no goroutine
     waiting on the change signal of a store nobody will write to again (#47)
   - a live row keeps what the live state does not carry: the messages of
-    the conversation behind it, the aliases of the search, where Telegram
-    had been told the reader got to, and the kind of the chat (the store
-    cannot tell a channel from a group). What the live state does carry is
-    taken from it: the pin and the mute of the chat as well (#46)
+    the conversation behind it, the aliases of the search, and the kind of
+    the chat (the store cannot tell a channel from a group). What the live
+    state does carry is taken from it: the pin and the mute of the chat as
+    well (#46), and the read pointer (#77) — that one is the field a row
+    must not keep, because TDLib moves it on every read and the unread
+    line of the feed is drawn from it
   - a loaded list says nothing about the pin or the mute, so a reload (R)
     keeps the answers the live state gave the rows rather than taking them
     away
@@ -567,8 +582,8 @@
     nothing else
   - chat rows carry LastReadInboxMessageID from
     `chat.last_read_inbox_message_id`; the TUI draws the unread line of the
-    feed from the row as it stands, and the live list keeps a row's pointer
-    when it brings a newer name, a newer count and a newer last message
+    feed from the row as it stands, and the live list brings the pointer of
+    a row rather than keeping the one the list was loaded with (#77)
   - an empty FIRST page of a chat whose summary carries LastMessageID
     is not the end of the history (#27, owner 02.10: a channel that was
     in no local database read "No messages yet" until the program was
@@ -832,10 +847,16 @@
     than a value frozen when the chat was opened (#75, owner on a real
     account 2026-10-03). It was frozen: this program tells Telegram what
     the window holds, and the line stayed over messages that had just been
-    read, so the list and the feed disagreed about one chat. Now the read
-    moves the pointer, Telegram answers updateChatReadInbox, the list is
-    read again (updateMessagesViewed) and the line has nothing left to
-    stand over. In a preview of a chat nobody entered the line is where the
+    read, so the list and the feed disagreed about one chat. The read moves
+    the pointer and Telegram answers updateChatReadInbox, and the pointer
+    reaches the row with the live list that answers it — not only with a
+    chat list read again (updateMessagesViewed), which is asked for only
+    while the row still has a count to lose, so in some chats the line went
+    and in others it stayed over messages read on purpose with the badge
+    already at zero (#77). A message that arrives in the chat that is open
+    does not bring it back: it is on the screen at once, the window is
+    marked with it, and Telegram answers with the pointer on it. In a
+    preview of a chat nobody entered the line is where the
     unread messages of that chat begin, which is the hint it is for. Zero is
     a chat with nothing read in it and a chat the source cannot say anything
     about, and neither draws a line

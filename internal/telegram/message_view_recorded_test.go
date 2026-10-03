@@ -197,6 +197,52 @@ func TestTheRecordedRoundTripOfAChannelRead(t *testing.T) {
 	if got := live.ChatList()[0].UnreadCount; got != 0 {
 		t.Fatalf("UnreadCount = %d, want 0", got)
 	}
+
+	// The two numbers arrive together, and the store keeps both of them:
+	// the count is what the badge of a row shows and the pointer is what
+	// the line over the unread messages of the open chat is drawn from
+	// (td_api.tl:10521). A store that kept the count alone left the
+	// interface drawing a line over the messages the read had just taken
+	// in — the owner's account of 03.10 on a real account, #77.
+	if got := live.ChatList()[0].LastReadInboxMessageID; got != 991 {
+		t.Fatalf(
+			"LastReadInboxMessageID = %d, want the recorded 991", got,
+		)
+	}
+}
+
+// A chat this store learns of through updateNewChat carries its read pointer
+// with it: the update brings the whole chat, and a chat the store has only
+// ever heard of this way has never been through a getChats that could have
+// told it where the reader had got to.
+func TestTheRecordedNewChatCarriesTheReadPointer(t *testing.T) {
+	session, _, _, _ := newSessionWithFakes(t)
+	live := session.LiveState()
+
+	if _, err := live.ApplyUpdate(RawMessage(recordedNewChatChannel)); err != nil {
+		t.Fatalf("apply updateNewChat: %v", err)
+	}
+
+	// The pointer the recorded chat was read up to, as updateNewChat sends
+	// it: the same shape, with the chat field of the update.
+	const readTo = `{"@type":"updateNewChat","chat":{"@type":"chat",` +
+		`"id":-1001234567890,"title":"Release Notes","unread_count":2,` +
+		`"last_read_inbox_message_id":980,"last_message":null,` +
+		`"type":{"@type":"chatTypeSupergroup","is_channel":true},"positions":[` +
+		`{"@type":"chatPosition","list":{"@type":"chatListMain"},"order":"700",` +
+		`"is_pinned":false,"source":null}]}}`
+	if _, err := live.ApplyUpdate(RawMessage(readTo)); err != nil {
+		t.Fatalf("apply updateNewChat with a pointer: %v", err)
+	}
+
+	// The chat is one the store already holds, so this update is a patch
+	// onto it rather than a second record, and the pointer it carries
+	// stands.
+	if got := live.ChatList()[0].LastReadInboxMessageID; got != 980 {
+		t.Fatalf(
+			"LastReadInboxMessageID = %d, want the recorded 980", got,
+		)
+	}
 }
 
 // askRecordedHistory reads one page of a chat's history over the recorded

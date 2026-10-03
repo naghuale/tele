@@ -23,7 +23,8 @@ var ErrLiveStateOrder = errors.New("telegram live state: invalid chat position o
 //
 //	chatPosition list:ChatList order:int64 is_pinned:Bool source:ChatSource
 //	    = ChatPosition;                                              // :3545
-//	chat ... last_message:message positions:vector<chatPosition> ...;  // :3628
+//	chat ... last_message:message positions:vector<chatPosition> ...;
+//	    last_read_inbox_message_id:int53 ...;                      // :3628
 //	updateNewChat chat:chat = Update;                              // :10483
 //	updateChatLastMessage chat_id:int53 last_message:message
 //	    positions:vector<chatPosition> = Update;                    // :10507
@@ -31,6 +32,8 @@ var ErrLiveStateOrder = errors.New("telegram live state: invalid chat position o
 //	    = Update;                                                  // :10512
 //	updateChatDraftMessage chat_id:int53 draft_message:draftMessage
 //	    positions:vector<chatPosition> = Update;                    // :10539
+//	updateChatReadInbox chat_id:int53 last_read_inbox_message_id:int53
+//	    unread_count:int32 = Update;                                 // :10521
 //	chatNotificationSettings use_default_mute_for:Bool mute_for:int32 ...;
 //	    = ChatNotificationSettings;                                // :3364
 //	updateChatNotificationSettings chat_id:int53
@@ -59,6 +62,20 @@ type LiveChat struct {
 	Order       int64
 	UnreadCount int
 	LastMessage *Message
+
+	// LastReadInboxMessageID is the last incoming message of this chat that
+	// Telegram has been told was read (chat.last_read_inbox_message_id,
+	// td_api.tl:3610).
+	//
+	// It is beside the count because they are the two numbers one update
+	// carries: updateChatReadInbox (td_api.tl:10521) says how far the read
+	// pointer of the chat reached and how many messages are left unread,
+	// and neither of them means anything without the other. A list that
+	// kept the count and dropped the pointer says a chat has nothing unread
+	// while the line over its unread messages is still drawn — which is
+	// what the owner found on a real account (03.10, #77): the circle was
+	// gone and the line stayed.
+	LastReadInboxMessageID MessageID
 
 	// Pinned is the is_pinned of the chat's chatListMain position, and it
 	// is what puts a chat above the rest however old its last message is.
@@ -104,6 +121,13 @@ type liveChatEntry struct {
 	Muted       bool
 	UnreadCount int
 	lastMessage *Message
+
+	// lastReadInboxMessageID is the read pointer of the chat as TDLib last
+	// sent it. It is kept beside the count because they arrive together and
+	// are read together, and it is kept rather than derived because TDLib
+	// moves it both ways: a read moves it up and marking a chat unread
+	// moves it down.
+	lastReadInboxMessageID MessageID
 
 	// chatKind, peerUserID and onlineMemberCount are what the presence of
 	// the other side is read from. They are on the chat record because a
@@ -413,6 +437,14 @@ type livePatch struct {
 	setMessage  bool
 	message     *Message
 
+	// setReadInbox carries the read pointer of the chat together with the
+	// count, which is how TDLib sends the one: updateChatReadInbox carries
+	// last_read_inbox_message_id and unread_count in a single update
+	// (td_api.tl:10521), and a pointer that was not taken from it would be
+	// whatever the list said when the program started.
+	setReadInbox bool
+	readInbox    MessageID
+
 	// setMuted carries the mute of the chat's own notification settings,
 	// which is a question asked of the chat and not of its place in the
 	// list — the same update that says a chat is pinned says nothing about
@@ -447,6 +479,9 @@ func (p livePatch) applyTo(base *liveChatEntry) *liveChatEntry {
 	if p.setUnread {
 		after.UnreadCount = p.unreadCount
 	}
+	if p.setReadInbox {
+		after.lastReadInboxMessageID = p.readInbox
+	}
 	if p.setMessage {
 		after.lastMessage = p.message
 	}
@@ -474,6 +509,7 @@ func (e *liveChatEntry) equal(other *liveChatEntry) bool {
 		e.Muted != other.Muted ||
 		e.chatKind != other.chatKind ||
 		e.UnreadCount != other.UnreadCount ||
+		e.lastReadInboxMessageID != other.lastReadInboxMessageID ||
 		e.peerUserID != other.peerUserID ||
 		e.onlineMemberCount != other.onlineMemberCount {
 		return false
@@ -499,6 +535,8 @@ func (e *liveChatEntry) clone() LiveChat {
 		Pinned:      e.Pinned,
 		Muted:       e.Muted,
 		Grouped:     e.chatKind == chatKindGroup,
+
+		LastReadInboxMessageID: e.lastReadInboxMessageID,
 	}
 	if e.lastMessage != nil {
 		message := *e.lastMessage
@@ -522,6 +560,17 @@ type livePatchJSON struct {
 	LastMessage json.RawMessage `json:"last_message"`
 	Positions   json.RawMessage `json:"positions"`
 	Type        chatTypeJSON    `json:"type"`
+
+	// LastReadInboxMessageID is the read pointer of the chat as the chat
+	// itself carries it (chat.last_read_inbox_message_id, td_api.tl:3610).
+	// updateNewChat brings the whole chat, pointer and count among the rest,
+	// and a chat this store learns of that way has never been through a
+	// getChats to say anything about its pointer.
+	//
+	// It is read by decodeReadPointer, so a chat that does not carry the
+	// field says nothing about the pointer rather than taking the chat for
+	// never read in it.
+	LastReadInboxMessageID json.RawMessage `json:"last_read_inbox_message_id"`
 
 	// NotificationSettings is the chat's own quietness, which the chat
 	// carries as a field of itself (td_api.tl:3628) and which is updated on
@@ -553,6 +602,13 @@ type updateChatDraftMessageJSON struct {
 type updateChatReadInboxJSON struct {
 	ChatID      int64 `json:"chat_id"`
 	UnreadCount int   `json:"unread_count"`
+
+	// LastReadInboxMessageID is the identifier the read pointer reached,
+	// which the update carries beside the count (td_api.tl:10521). Without
+	// it a store knows that a chat has nothing unread and not where it was
+	// read up to, and the line the interface draws over the unread messages
+	// of that chat is asked of the pointer alone.
+	LastReadInboxMessageID json.RawMessage `json:"last_read_inbox_message_id"`
 }
 
 type updateChatNotificationSettingsJSON struct {
@@ -602,6 +658,27 @@ func decodeChatMute(raw json.RawMessage) (muted, known bool) {
 	}
 
 	return settings.muted(), true
+}
+
+// decodeReadPointer reads the read pointer of a chat out of the field that
+// carries it, and reports whether there was anything to read.
+//
+// It is decodeChatMute's rule applied to the pointer: a field that is absent
+// says nothing, so the store keeps the pointer it has rather than taking a
+// chat for never read in it on an update that never mentioned it. A pointer
+// is the one number of a chat that a zero would speak about — zero is what
+// a chat with nothing read in it has — so it is not a value to fall back to.
+func decodeReadPointer(raw json.RawMessage) (pointer MessageID, known bool) {
+	if isAbsentJSON(raw) {
+		return 0, false
+	}
+
+	var read tdInt
+	if err := json.Unmarshal(raw, &read); err != nil {
+		return 0, false
+	}
+
+	return MessageID(read), true
 }
 
 // chatPositionRaw mirrors chatPosition (td_api.tl:3545).
@@ -715,6 +792,12 @@ func decodeNewChatPatch(raw RawMessage) (livePatch, bool, error) {
 		setMessage:  true,
 		message:     decodeLiveMessage(update.Chat.LastMessage),
 	}
+	if pointer, known := decodeReadPointer(
+		update.Chat.LastReadInboxMessageID,
+	); known {
+		patch.setReadInbox = true
+		patch.readInbox = pointer
+	}
 	if kind, userID := chatTypePatch(update.Chat.Type); kind != chatKindUnknown {
 		patch.setChatType = true
 		patch.chatKind = kind
@@ -747,11 +830,20 @@ func decodeChatReadInboxPatch(raw RawMessage) (livePatch, bool, error) {
 	if err := json.Unmarshal(raw, &update); err != nil {
 		return livePatch{}, false, fmt.Errorf("decode updateChatReadInbox: %w", err)
 	}
-	return livePatch{
+
+	patch := livePatch{
 		chatID:      ChatID(update.ChatID),
 		setUnread:   true,
 		unreadCount: update.UnreadCount,
-	}, true, nil
+	}
+	if pointer, known := decodeReadPointer(
+		update.LastReadInboxMessageID,
+	); known {
+		patch.setReadInbox = true
+		patch.readInbox = pointer
+	}
+
+	return patch, true, nil
 }
 
 // decodeChatNotificationSettingsPatch reads the quietness of a chat off the

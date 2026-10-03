@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,10 @@ import (
 const (
 	separatorWidth  = 120
 	separatorHeight = 30
+
+	// narrowSeparatorWidth is a screen of one region: the only shape in
+	// which a conversation can be left for the chat list.
+	narrowSeparatorWidth = 60
 )
 
 // The rows of the feed that belong to no message: the name of the day a
@@ -439,6 +444,256 @@ func TestTheLineFollowsThePointerOfTheChat(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+// liveSeparatorsModel is separatorsModel for a program whose chat list is
+// live: the same conversation of two messages, opened, with a viewer that
+// records the windows the interface marks read.
+//
+// pointer is the read pointer of the chat as Telegram last sent it, and
+// unread is the count of the badge of its row. They are parameters because
+// they are two fields of one update: the loaded list and the live list both
+// carry them, and a program that watches only one of them is a program that
+// draws half of what Telegram said.
+func liveSeparatorsModel(
+	t *testing.T,
+	chat Chat,
+	unread int,
+	pointer int64,
+) (Model, *fakeLiveSource, *recordingViewer) {
+	t.Helper()
+
+	page := liveSeparatorPage()
+	source := &recordingChatSource{pages: []HistoryPage{page}}
+	live := newFakeLiveSource()
+	viewer := &recordingViewer{}
+
+	m, err := NewModelWithDependencies(context.Background(), Dependencies{
+		Source:           source,
+		MessageSubmitter: &recordingSubmitter{},
+		LiveUpdates:      live,
+		MessageViewer:    viewer,
+		PresenceOpener:   &recordingOpener{},
+		Theme:            theme.DefaultTheme().ForProfile(theme.ProfileNoColor),
+		ColorProfile:     theme.ProfileNoColor,
+	})
+	if err != nil {
+		t.Fatalf("NewModelWithDependencies: %v", err)
+	}
+	m.widths = termwidth.Unmeasured(termwidth.ModeAuto)
+	m.theme = theme.DefaultTheme().ForProfile(theme.ProfileNoColor)
+	m.rendererForProfile = newRenderer(theme.ProfileNoColor)
+
+	chat.LastReadInboxMessageID = pointer
+	chat.Unread = unread
+	live.setChats([]LiveChat{{
+		ID:                     chat.ID,
+		Title:                  chat.Title,
+		Unread:                 unread,
+		Pinned:                 chat.Pinned,
+		LastReadInboxMessageID: pointer,
+	}})
+
+	m.chats = []Chat{chat}
+	m.chatsState = loadStateLoaded
+	m, _ = updateModel(t, m, tea.WindowSizeMsg{
+		Width: separatorWidth, Height: separatorHeight,
+	})
+
+	// Enter opens the chat, the answer of the open is what lets the read of
+	// its window go out, and the page of history is the conversation.
+	m, cmd := updateModel(t, m, press(tea.KeyEnter))
+	m = deliverOpen(t, m, cmd)
+	m, read := updateModel(t, m, historyLoadedMsg{
+		chatID:    chat.ID,
+		operation: m.historyOperation,
+		page:      page,
+	})
+	runCommands(t, read)
+
+	return withClock(
+		m.normalizeTimeline().scrollToNewest(), separatorNow, separatorZone,
+	), live, viewer
+}
+
+// The line follows the pointer of the chat as the live state carries it.
+//
+// The pointer of a chat arrives twice: with the list the program loaded, and
+// with every update that moves it. What TDLib answers a read with is
+// updateChatReadInbox, and it carries both numbers at once — the identifier
+// the pointer reached and the count that is left (td_api.tl:10521). A list
+// that watches only the count draws the badge falling over messages that are
+// still behind the pointer, which is what the owner saw on a real account
+// (03.10, #77): the circle was gone, the line stayed.
+//
+// It is asked of every kind of chat and of a pinned one, because the owner
+// met it in a pinned channel and it must not be a fact about channels: what
+// is drawn is decided by the pointer of the row, and nothing about the kind
+// of the chat is read to decide it.
+func TestTheUnreadLineFollowsThePointerOfTheLiveList(t *testing.T) {
+	for name, chat := range map[string]Chat{
+		"a chat with one other person": {
+			ID: 7, Title: "Anna Example", Kind: ChatKindPrivate, Unread: 2,
+		},
+		"a group": {
+			ID: 7, Title: "Team Room", Kind: ChatKindGroup, Unread: 2,
+		},
+		"a channel": {
+			ID: 7, Title: "Release Notes", Kind: ChatKindChannel, Unread: 2,
+		},
+		"a pinned channel": {
+			ID: 7, Title: "Anime & News", Kind: ChatKindChannel,
+			Unread: 2, Pinned: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, live, viewer := liveSeparatorsModel(t, chat, 2, 10)
+
+			if viewer.count() == 0 {
+				t.Fatal("nothing was marked read in an open chat")
+			}
+			if view := plain(m.View()); !strings.Contains(view, unreadSeparatorText) {
+				t.Fatalf(
+					"the line is not over the message past the pointer:\n%s", view,
+				)
+			}
+
+			// TDLib took the read and answered with its own two numbers:
+			// the pointer stands on the newest message and the count is
+			// zero. This is updateChatReadInbox as the store hands it over.
+			live.setChats([]LiveChat{{
+				ID:                     7,
+				Title:                  chat.Title,
+				Unread:                 0,
+				Pinned:                 chat.Pinned,
+				LastReadInboxMessageID: 11,
+			}})
+			m, _ = updateModel(t, m, liveChangedMsg{})
+
+			view := plain(m.View())
+			if strings.Contains(view, unreadSeparatorText) {
+				t.Fatalf(
+					"the line is still over a chat Telegram has been told was "+
+						"read:\n%s", view,
+				)
+			}
+			if got := m.chats[m.selectedChat].Unread; got != 0 {
+				t.Fatalf("the badge of the chat is %d, want the 0 Telegram sent", got)
+			}
+
+			// And it is not a line that comes back on the next entry into a
+			// chat that has been read: the pointer of the row is what is
+			// drawn from, and the row kept the pointer the update carried.
+			//
+			// The chat is left and entered again on a screen of one region,
+			// because that is the only way out of a conversation on a
+			// two-pane screen (leaveConversationRegion): there Esc moves
+			// the focus to the list beside the conversation.
+			m, _ = updateModel(t, m, tea.WindowSizeMsg{
+				Width: narrowSeparatorWidth, Height: separatorHeight,
+			})
+			m, cmd := updateModel(t, m, press(tea.KeyEsc))
+			runCommands(t, cmd)
+			m, cmd = updateModel(t, m, press(tea.KeyEsc))
+			runCommands(t, cmd)
+			if m.screen != ScreenChats {
+				t.Fatalf("screen = %v, want the chat list", m.screen)
+			}
+
+			m, cmd = updateModel(t, m, press(tea.KeyEnter))
+			m = deliverOpen(t, m, cmd)
+			m, read := updateModel(t, m, historyLoadedMsg{
+				chatID:    7,
+				operation: m.historyOperation,
+				page:      liveSeparatorPage(),
+			})
+			runCommands(t, read)
+			m = withClock(
+				m.normalizeTimeline().scrollToNewest(), separatorNow, separatorZone,
+			)
+
+			if view := plain(m.View()); strings.Contains(view, unreadSeparatorText) {
+				t.Fatalf(
+					"the line is back over a chat that was read and left:\n%s",
+					view,
+				)
+			}
+		})
+	}
+}
+
+// liveSeparatorPage is the page of history the fixture of the live pointer
+// answers with: one message that was read and one that was not.
+func liveSeparatorPage() HistoryPage {
+	return HistoryPage{Messages: newestFirst([]Message{
+		{ID: 10, Text: "read", At: at(1, time.October, 9, 0), Author: "Anna"},
+		{ID: 11, Text: "unread", At: at(1, time.October, 9, 1), Author: "Anna"},
+	})}
+}
+
+// A message that arrives in the chat that is open does not draw the line
+// again: it is on the screen the moment it arrives, the window is marked
+// with it, and Telegram answers with the pointer standing on it. A line
+// that stood over a message the reader is looking at would say there is
+// something below they have not seen, in the one place where the line is
+// meant to help.
+//
+// It is the same two numbers as before, one message further on, and the
+// count of a message that arrived in the open chat is zero.
+func TestTheLineDoesNotComeBackForAMessageArrivingInTheOpenChat(t *testing.T) {
+	m, live, viewer := liveSeparatorsModel(t, Chat{
+		ID: 7, Title: "Anna Example", Kind: ChatKindPrivate,
+	}, 0, 11)
+
+	if view := plain(m.View()); strings.Contains(view, unreadSeparatorText) {
+		t.Fatalf("a chat with nothing unread is drawn with the line:\n%s", view)
+	}
+
+	marked := viewer.count()
+
+	// The message arrives in the open chat and is on the screen with it.
+	live.setEvents(7, LiveMessageEvents{
+		Cursor: 1,
+		Events: []LiveMessageEvent{{
+			Kind:    LiveMessageAdded,
+			Message: Message{ID: 12, Text: "just arrived", Author: "Anna", At: at(1, time.October, 9, 2)},
+		}},
+	})
+	m, cmd := updateModel(t, m, liveChangedMsg{})
+	runCommands(t, cmd)
+
+	if viewer.count() == marked {
+		t.Fatal("the window was not marked again after the message arrived")
+	}
+	window := viewer.last()
+	if len(window) == 0 {
+		t.Fatal("an empty window was marked")
+	}
+	if got := window[len(window)-1]; got != 12 {
+		t.Fatalf("the window read up to %d, want the 12 that arrived", got)
+	}
+
+	// Telegram took that read too, so the pointer is on the message that
+	// arrived and the count is the zero of a chat nothing is waiting in.
+	//
+	// The redraw interval passes first: the change before this one is still
+	// owed a frame, and a change that arrives before that frame is folded
+	// into it rather than drawn of its own.
+	m = withClock(m, separatorNow.Add(liveRepaintInterval), separatorZone)
+	live.setChats([]LiveChat{{
+		ID: 7, Title: "Anna Example", Unread: 0, LastReadInboxMessageID: 12,
+	}})
+	m, _ = updateModel(t, m, liveChangedMsg{})
+
+	view := plain(m.View())
+	if strings.Contains(view, unreadSeparatorText) {
+		t.Fatalf(
+			"the line stands over a message the reader is looking at:\n%s", view,
+		)
+	}
+	if !strings.Contains(view, "just arrived") {
+		t.Fatalf("the message that arrived is not on the screen:\n%s", view)
 	}
 }
 

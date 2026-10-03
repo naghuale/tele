@@ -22,7 +22,7 @@ import (
 //	updateNewChat chat:chat = Update;
 //	updateChatLastMessage chat_id last_message positions = Update;
 //	updateChatPosition chat_id position = Update;
-//	updateChatReadInbox chat_id unread_count = Update;
+//	updateChatReadInbox chat_id last_read_inbox_message_id unread_count = Update;
 //	updateNewMessage message = Update;
 //
 // positions is a bare JSON array of chatPosition, and the list is its `list`
@@ -69,7 +69,15 @@ func recordedLastMessage(
 }
 
 func recordedReadInbox(chatID, unread int) string {
+	return recordedReadInboxTo(chatID, unread, 9000+chatID)
+}
+
+// recordedReadInboxTo is updateChatReadInbox with the pointer it carries:
+// last_read_inbox_message_id is how far the read reached and unread_count is
+// what is left of it (td_api.tl:10521), and TDLib sends both in one update.
+func recordedReadInboxTo(chatID, unread, readTo int) string {
 	return `{"@type":"updateChatReadInbox","chat_id":` + strconv.Itoa(chatID) +
+		`,"last_read_inbox_message_id":` + strconv.Itoa(readTo) +
 		`,"unread_count":` + strconv.Itoa(unread) + `}`
 }
 
@@ -202,6 +210,39 @@ func TestTheCountFallsWhenTheChatIsReadElsewhere(t *testing.T) {
 	for _, chat := range live.Chats() {
 		if chat.ID == 3 && chat.Unread != 0 {
 			t.Fatalf("unread = %d after the chat was read, want 0", chat.Unread)
+		}
+	}
+}
+
+// The read pointer crosses the boundary with the count, because the two are
+// the two numbers of one update and the interface draws the line over the
+// unread messages of the open chat from the pointer alone.
+//
+// A row that arrived with the count and without the pointer left the owner
+// looking at a chat with no circle and a line over messages that had been
+// read (real account, 03.10, #77) — so this is asked of the update that
+// Telegram really sends, with both of its numbers.
+func TestTheReadPointerOfTheRowFollowsTelegram(t *testing.T) {
+	store := recordedAccount(t)
+
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
+	if err != nil {
+		t.Fatalf("NewTelegramLiveUpdates: %v", err)
+	}
+	applyRecorded(t, store, recordedReadInboxTo(3, 0, 3003))
+
+	for _, chat := range live.Chats() {
+		if chat.ID != 3 {
+			continue
+		}
+		if chat.LastReadInboxMessageID != 3003 {
+			t.Fatalf(
+				"LastReadInboxMessageID = %d, want the 3003 Telegram sent",
+				chat.LastReadInboxMessageID,
+			)
+		}
+		if chat.Unread != 0 {
+			t.Fatalf("Unread = %d, want the 0 Telegram sent", chat.Unread)
 		}
 	}
 }

@@ -207,12 +207,21 @@ func (m Model) applyLiveChats(live []LiveChat) Model {
 //
 // The row a chat already has keeps everything the live state does not
 // carry: the messages of the conversation behind it, the other names it is
-// found by in the search, where Telegram had been told the reader had got
-// to, and the kind of the chat — the store knows that a chat has more than
-// one person in it, and not whether it is a channel. What TDLib keeps
-// updating is what the live list brings: the name, the unread count, the
-// preview and the moment of the last message, the pin of the chat's position
-// and the mute of its notification settings.
+// found by in the search, and the kind of the chat — the store knows that a
+// chat has more than one person in it, and not whether it is a channel. What
+// TDLib keeps updating is what the live list brings: the name, the unread
+// count, the read pointer, the preview and the moment of the last message,
+// the pin of the chat's position and the mute of its notification settings.
+//
+// The read pointer is the one of these that a row the interface already held
+// must not keep: it is where Telegram has been told the reader has got to,
+// it moves on every read, and the line over the unread messages of the open
+// chat is drawn from it (view_separators.go). A row that kept the pointer of
+// the loaded list drew that line over messages that had been read on purpose
+// while the badge beside it had already fallen — the owner's account of 03.10
+// on a real account, and the reason it happened in some chats and not in
+// others (#77): only a chat whose row came from a list that was read again
+// after the read had the pointer the read moved it to.
 //
 // The open conversation keeps its row even when the chat has left the main
 // list, for the reason mergeLoadedChats keeps it: the conversation on the
@@ -262,6 +271,7 @@ func liveChatRow(was Chat, known bool, live LiveChat) Chat {
 	chat.At = live.At
 	chat.Pinned = live.Pinned
 	chat.Muted = live.Muted
+	chat.LastReadInboxMessageID = live.LastReadInboxMessageID
 
 	if !known {
 		chat.Kind = live.Kind

@@ -809,7 +809,8 @@ help/message-labels.md](help/message-labels.md).
 **Разделитель непрочитанных** — та же пилюля, `Unread messages`, над первым
 **входящим** сообщением с ID больше `last_read_inbox_message_id` чата
 (`chat.last_read_inbox_message_id`, td_api.tl:3610;
-`telegram.ChatSummary.LastReadInboxMessageID` → `tui.Chat.LastReadInboxMessageID`
+`telegram.ChatSummary.LastReadInboxMessageID` и
+`telegram.LiveChat.LastReadInboxMessageID` → `tui.Chat.LastReadInboxMessageID`
 → `Model.unreadBoundary()`). Указатель Telegram — это последнее сообщение,
 которое ему сказали прочитанным, поэтому выше него прочитано, а от
 следующего — нет. У чата без непрочитанных такой строки нет вовсе.
@@ -819,8 +820,7 @@ help/message-labels.md](help/message-labels.md).
 знает прочитанным, и подсказка, которая переживает свою правду, становится
 ложью: пока чат открыт, программа сама говорит Telegram, что видно в ленте
 (`message_viewing.go`), Telegram двигает указатель и отвечает
-`updateChatReadInbox`, список чатов перечитывается
-(`updateMessagesViewed`) — и строки над этими сообщениями больше нет. Так и
+`updateChatReadInbox` — и строки над этими сообщениями больше нет. Так и
 должно быть: чат прочитан по-настоящему, и разделитель про непрочитанные у него
 исчезает (владелец, настоящий аккаунт, 03.10, задача #75). До того, как чат
 открыт, строка стоит в предпросмотре над теми же сообщениями — это и есть
@@ -828,7 +828,21 @@ help/message-labels.md](help/message-labels.md).
 
 Раньше указатель читался при открытии и не перечитывался, пока чат открыт:
 тогда строка оставалась над сообщениями, которые только что прочитаны, и
-список с лентой говорили о разных вещах.
+список с лентой говорили о разных вещах. Потом указатель стал читаться из
+строки чата заново — но только из той, что пришла с перечитанным списком
+(`updateMessagesViewed`), а тот перечитывается не всегда: к моменту ответа
+счётчик у чата уже нарисован нулём, и перечитывать список не за чем. Живой
+список этот ответ обгонял всегда, а указателя в нём не было вовсе, поэтому
+он оставался тем, с которым список был загружен: разделитель стоял над
+сообщениями, которые Telegram только что отметил прочитанными, при уже
+исчезнувшем кружке у чата (владелец, настоящий аккаунт, 03.10, задача
+#77) — то есть в части чатов: там, где перечитывание успевало ответить
+раньше, строка уходила.
+
+Теперь указатель приходит с той же строкой, что и счётчик, и приходит обоими
+путями: `updateChatReadInbox` несёт `last_read_inbox_message_id` и
+`unread_count` в одном обновлении (td_api.tl:10521), и живой список отдаёт
+их при каждом изменении состояния (`liveChatRow`).
 
 Своё сообщение над указателем не считается непрочитанным: это сообщение
 этого аккаунта, написанное после того, как прочитано до указателя.
@@ -842,6 +856,8 @@ help/message-labels.md](help/message-labels.md).
 `TestAChatWithNothingUnreadSaysNothingAboutIt`,
 `TestTheUnreadLineGoesOnceTelegramHasReadTheWindow`,
 `TestTheLineFollowsThePointerOfTheChat`,
+`TestTheUnreadLineFollowsThePointerOfTheLiveList`,
+`TestTheLineDoesNotComeBackForAMessageArrivingInTheOpenChat`,
 `TestTheWindowIsFilledWithTheSeparatorsInIt`,
 `TestASeparatorIsAPillInTheMiddleOfTheFeed`, `TestAPillHasARowOfAirAboveAndBelowIt`,
 `TestSnapshotThreeDaysWithUnread`,

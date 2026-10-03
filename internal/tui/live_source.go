@@ -84,6 +84,19 @@ type LiveChat struct {
 	Preview string
 	At      time.Time
 
+	// LastReadInboxMessageID is the last incoming message of this chat
+	// that Telegram has been told was read, and it is the chat's own number
+	// (chat.last_read_inbox_message_id, td_api.tl:3610).
+	//
+	// It travels with the row because the line the feed draws over the
+	// unread messages of the chat is asked of it, and a line that outlives
+	// the read it stands for is a claim about a read nobody made (see
+	// view_separators.go). TDLib moves it in updateChatReadInbox
+	// (td_api.tl:10521), so a row that kept the pointer the loaded list
+	// carried would draw the line over messages that were read on purpose
+	// while the count beside it had already fallen.
+	LastReadInboxMessageID int64
+
 	// Kind is what kind of chat this is, as far as the badge of the row is
 	// concerned. It says "more than one person in it" and nothing more: a
 	// channel is a supergroup here, and the row a live update brings keeps

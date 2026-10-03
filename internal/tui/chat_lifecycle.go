@@ -56,14 +56,6 @@ func (m *Model) switchConversationChat(chatID int64) tea.Cmd {
 		return nil
 	}
 
-	var cmds []tea.Cmd
-	if previous != 0 {
-		cmds = append(cmds, m.closeChatCmd(previous))
-	}
-	if chatID != 0 {
-		cmds = append(cmds, m.openChatCmd(chatID))
-	}
-
 	// The chat is remembered as open even when the call fails: the opener
 	// is told once, and a failure is a presence that does not arrive rather
 	// than a reason to ask again on every key.
@@ -75,11 +67,48 @@ func (m *Model) switchConversationChat(chatID int64) tea.Cmd {
 		m.openedAck = 0
 	}
 
-	if len(cmds) == 0 {
+	return m.switchChatCmd(previous, chatID)
+}
+
+// switchChatCmd closes the chat that was open and opens the one that is, in
+// that order and in one command.
+//
+// It is a command and not a batch of two because a batch promises no order at
+// all: Bubble Tea runs the members of a batch in goroutines of their own, so
+// TDLib can be asked to open the new chat before, or beside, the close of the
+// old one. The two calls then overlap, and TDLib counts a chat for as long as
+// it is open — the presence of the chat that was left keeps arriving under the
+// header of the one that was opened, and a broadcast chat, which TDLib loads
+// by openChat (see markVisibleMessagesViewed), is read by the call that came
+// out of order.
+//
+// The close is asked for even when the open is refused afterwards: the two are
+// best effort (see ChatPresenceOpener), and a chat the user has left is closed
+// whether or not the next one opened.
+func (m *Model) switchChatCmd(previous, chatID int64) tea.Cmd {
+	var closeCmd, openCmd tea.Cmd
+	if previous != 0 {
+		closeCmd = m.closeChatCmd(previous)
+	}
+	if chatID != 0 {
+		openCmd = m.openChatCmd(chatID)
+	}
+	if closeCmd == nil && openCmd == nil {
 		return nil
 	}
 
-	return tea.Batch(cmds...)
+	return func() tea.Msg {
+		if closeCmd != nil {
+			// The close answers nothing: nothing on the screen waits for
+			// it, and only the open has an answer to deliver.
+			closeCmd()
+		}
+		if openCmd == nil {
+			return nil
+		}
+
+		return openCmd()
+	}
 }
 
 // openChatCmd asks TDLib to open a chat.

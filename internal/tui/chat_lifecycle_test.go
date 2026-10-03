@@ -3,8 +3,12 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -37,6 +41,61 @@ func (o *recordingOpener) CloseChat(_ context.Context, chatID int64) error {
 	return nil
 }
 
+// slowCloseOpener is a presence opener that needs a round trip to close a chat
+// and that remembers the order in which it was asked for things.
+//
+// The round trip is the whole of it. A close to TDLib is a query, and a query
+// is not over by the time the program has sent the next one: in a batch the
+// open of the new chat is on its way while the close of the old one is still in
+// flight, and that is what this opener writes down when the two calls are a
+// batch rather than one command.
+//
+// The order is written under a lock because the members of a batch are
+// goroutines: reading a list that two of them append to is a race, and a race
+// in a test of order proves nothing about the order.
+type slowCloseOpener struct {
+	mu    sync.Mutex
+	calls []string
+
+	closeRoundTrip time.Duration
+}
+
+// closeRoundTrip is how long closing a chat takes in slowCloseOpener.
+//
+// It is a hundred times longer than a goroutine takes to start, which is all
+// the test asks of the machine: the open has to be running before the close is
+// over for the order to be wrong, and a goroutine that has not started within
+// a tenth of a second belongs to a machine that has stopped.
+const closeRoundTrip = 100 * time.Millisecond
+
+func (o *slowCloseOpener) OpenChat(_ context.Context, chatID int64) error {
+	o.remember(fmt.Sprintf("open %d", chatID))
+
+	return nil
+}
+
+func (o *slowCloseOpener) CloseChat(_ context.Context, chatID int64) error {
+	time.Sleep(o.closeRoundTrip)
+	o.remember(fmt.Sprintf("close %d", chatID))
+
+	return nil
+}
+
+func (o *slowCloseOpener) remember(call string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.calls = append(o.calls, call)
+}
+
+// asked is what the opener was asked for, in the order it was asked.
+func (o *slowCloseOpener) asked() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return slices.Clone(o.calls)
+}
+
 // runCommands runs the commands a key press returned.
 //
 // The open and the close are commands and not calls: a chat that cannot be
@@ -65,12 +124,45 @@ func runResult(msg tea.Msg) {
 	}
 }
 
+// runLikeBubbleTea runs a command the way Bubble Tea runs it: the members of
+// a batch are commands in their own right and are run at the same time as one
+// another, and a batch may be nested inside another one.
+//
+// runCommands above is not this one, and the difference is the whole of a
+// promise about order. It walks the members one after another, which is the
+// order a reader of it expects and not the order the program has: the members
+// of a batch are goroutines, and nothing makes one of them wait for another.
+func runLikeBubbleTea(t *testing.T, cmd tea.Cmd) {
+	t.Helper()
+
+	if cmd == nil {
+		return
+	}
+
+	msg := cmd()
+	batch, isBatch := msg.(tea.BatchMsg)
+	if !isBatch {
+		return
+	}
+
+	var running sync.WaitGroup
+	for _, member := range batch {
+		running.Add(1)
+		go func() {
+			defer running.Done()
+
+			runLikeBubbleTea(t, member)
+		}()
+	}
+	running.Wait()
+}
+
 // openerModel is a model with a presence opener and two chats loaded.
 //
 // A nil opener is a nil interface and not a typed nil pointer: a nil
 // pointer in an interface is a dependency that exists and panics, which is
 // not what "no dependency" means.
-func openerModel(t *testing.T, opener *recordingOpener) Model {
+func openerModel(t *testing.T, opener ChatPresenceOpener) Model {
 	t.Helper()
 
 	return openerModelAt(t, opener, 100)
@@ -81,7 +173,7 @@ func openerModel(t *testing.T, opener *recordingOpener) Model {
 // not, and both have their own way of leaving a chat.
 func openerModelAt(
 	t *testing.T,
-	opener *recordingOpener,
+	opener ChatPresenceOpener,
 	width int,
 ) Model {
 	t.Helper()
@@ -152,6 +244,44 @@ func TestFollowingTheSelectionClosesTheOldChatAndOpensTheNew(t *testing.T) {
 	}
 	if model.openedChat != 8 {
 		t.Fatalf("openedChat = %d, want 8", model.openedChat)
+	}
+}
+
+// Walking through the chat list is the fastest way a user changes the chat they
+// are looking at, and TDLib has to hear of it in one order: the chat that was
+// open is closed before the chat that is opened now is opened. A batch of two
+// commands promises no order at all — Bubble Tea runs the members of a batch at
+// the same time — so the open can reach TDLib before, or beside, the close:
+// two chats counted as open at once, and a broadcast chat, which TDLib loads
+// by openChat, read by the very call that came out of order.
+//
+// This is the check the promise in chat_lifecycle.go is kept by. It fails
+// while the two calls are a batch, and it holds when they are one command.
+func TestTheNewChatIsOpenedAfterTheOldOneIsClosed(t *testing.T) {
+	opener := &slowCloseOpener{closeRoundTrip: closeRoundTrip}
+	model := openerModel(t, opener)
+
+	// The first chat has no chat before it, so nothing is closed here and
+	// this open is not the question.
+	model, cmd := updateModel(t, model, press(tea.KeyEnter))
+	runCommands(t, cmd)
+
+	// The keys are on the chat list, which is where a user walks through
+	// chats; the conversation follows the selection.
+	model.focus = FocusChatList
+	_, cmd = updateModel(t, model, press(tea.KeyDown))
+	// Run the commands as the program runs them, because a runner that walks
+	// a batch one member at a time is the one thing that cannot see the two
+	// calls out of order.
+	runLikeBubbleTea(t, cmd)
+
+	want := []string{"open 7", "close 7", "open 8"}
+	if got := opener.asked(); !slices.Equal(got, want) {
+		t.Fatalf(
+			"the opener was asked %v, want %v: the chat that was left is closed before the chat that is opened",
+			got,
+			want,
+		)
 	}
 }
 

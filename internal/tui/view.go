@@ -437,23 +437,32 @@ func (m Model) chatListBodyRegion(
 	)
 }
 
-// composerHeight returns how many rows the composer takes, which is its
-// own line and, when a send says something, the lines of that.
+// composerHeight returns how many rows the composer takes: the boundary that
+// separates the feed from the band, the band itself, and, when a send says
+// something, the lines of that.
 func (m Model) composerHeight(layout Layout, width int) int {
-	return len(m.composerLines(layout, width))
+	return feedBoundaryRows(layout) + len(m.composerLines(layout, width))
 }
 
 // composerRegion draws the composer.
+//
+// The boundary between the feed and the band is drawn first and belongs to
+// the feed: the band's own surface starts one row below the messages, which
+// is what §4.5 draws and what a message the window cut at the bottom must be
+// read against (view_boundary.go).
 //
 // The composer is one line of text and takes the rest of its height when
 // the screen is too short for anything else, which is §3.4: a screen too
 // short for messages shows the composer, and it still fills the screen.
 func (m Model) composerRegion(layout Layout, width, height int) string {
-	return m.renderRegion(
-		m.styles().composer,
-		width,
-		m.composerLines(layout, width),
-		height,
+	return m.joinRegions(
+		m.feedBoundaryRegion(layout, width),
+		m.renderRegion(
+			m.styles().composer,
+			width,
+			m.composerLines(layout, width),
+			height-feedBoundaryRows(layout),
+		),
 	)
 }
 

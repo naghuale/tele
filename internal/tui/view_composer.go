@@ -34,13 +34,15 @@ const composerMaxRows = 4
 // (§4.5: "максимум — до 30% высоты conversation view").
 const composerMaxShare = 0.3
 
-// composerLines returns the rows of the composer region: a line of space,
-// the draft, whatever the last send has to say about itself, and the hints.
+// composerLines returns the rows of the band of the composer: the draft,
+// whatever the last send has to say about itself, and the keys that work in
+// it.
 //
-// The space above the field is what §4.5 draws and what a full-width band
-// needs: the composer's surface starts one row below the messages instead
-// of cutting into the last line of them, and the band reads as a band
-// rather than as a background that happens to be there.
+// The row of space above the field is not one of them. It is the boundary
+// between the feed and the band, and it is drawn on the background of the
+// feed (view_boundary.go): a row of the band's own surface is the first row
+// of the band rather than air, and a message the window cut at the bottom
+// runs into it in the very colour it ends in.
 func (m Model) composerLines(layout Layout, width int) []string {
 	// A chat Telegram refuses is drawn as one line where the field would be,
 	// and there is nothing else in the region: no draft to lay out, no
@@ -50,8 +52,7 @@ func (m Model) composerLines(layout Layout, width int) []string {
 	}
 
 	rows := m.composerRowCount(layout, width)
-	lines := []string{""}
-	lines = append(lines, m.composerTextLines(layout, width, rows)...)
+	lines := m.composerTextLines(layout, width, rows)
 
 	// A composer-only screen has no room for a second line, and the reason
 	// a send failed is worth less than the composer a user is typing in.
@@ -66,7 +67,7 @@ func (m Model) composerLines(layout Layout, width int) []string {
 }
 
 // blockedComposerLines returns the rows of a chat this account cannot write
-// in: the space above the composer and one line that says why.
+// in: one line that says why.
 //
 // The line is drawn in the muted step and has no prompt marker and no
 // cursor, because there is nothing to type into and a blinking cursor in a
@@ -82,12 +83,11 @@ func (m Model) blockedComposerLines(
 	line := styles.dimmed(m.tokens().MutedText).
 		Render(m.widths.Fit(m.chatAccess.Blocked.line(), width, ellipsis))
 
-	lines := []string{"", line}
 	if layout.ComposerOnly() {
-		return lines
+		return []string{line}
 	}
 
-	return append(lines, m.bandHintLines(layout, width)...)
+	return append([]string{line}, m.bandHintLines(layout, width)...)
 }
 
 // bandHintLines returns the hints as they are drawn inside the composer's

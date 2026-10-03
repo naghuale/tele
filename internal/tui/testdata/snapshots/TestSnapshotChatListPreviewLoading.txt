@@ -34,8 +34,8 @@
                                                                                                                         
                                                                                                                         
                                                                                                                         
-                                                                                                                        
                                     Loading history...                                                                  
+                                                                                                                        
                                     Preview · Enter or Tab to open                                                      
 #
 # Escaped: the same screen with its escape sequences, one line at a time.
@@ -66,6 +66,6 @@
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
-"\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m                                                                                    \x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[38;2;166;173;200mLoading history...                                                                  \x1b[0m\x1b[0m"
+"\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;17;17;27m \x1b[0m\x1b[48;2;17;17;27m\x1b[48;2;17;17;27m                                                                                    \x1b[0m\x1b[0m"
 "\x1b[1G \x1b[48;2;24;24;36m \x1b[0m\x1b[48;2;24;24;36m                               \x1b[0m \x1b[35G \x1b[48;2;48;50;68m \x1b[0m\x1b[48;2;48;50;68m\x1b[38;2;166;173;200mPreview · Enter or Tab to open                                                      \x1b[0m\x1b[0m"

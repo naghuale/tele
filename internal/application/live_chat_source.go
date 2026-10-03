@@ -27,6 +27,13 @@ import (
 // interface reads an empty list, and the list on the screen is the one that
 // was loaded at startup. LoadChats is asked once, here, before the program
 // starts drawing.
+//
+// The name of whoever sent a message is asked here too, and it is asked in
+// the background (live_sender_names.go): the interface reads the events of a
+// chat from the loop of the program, and a loop that stands in TDLib's door
+// until TDLib answers is a screen that neither draws nor takes keys. A
+// message whose sender has no name yet goes out with the placeholder above
+// it, and the name is handed over as one more event of that chat.
 
 // TelegramLiveUpdates is the live Telegram state as the interface reads it.
 type TelegramLiveUpdates struct {
@@ -34,6 +41,36 @@ type TelegramLiveUpdates struct {
 	names    TelegramSenderNames
 	chatList int
 	cache    *nameCache
+	senders  *liveSenderNames
+
+	// unnamed are the messages that went to the interface with a placeholder
+	// above them, and the key of the name that is being asked for. The
+	// answer is handed over as one more event of that chat, which is how a
+	// name replaces the placeholder without the interface having asked for
+	// it again.
+	//
+	// It is a memory and not a store: an entry is dropped as soon as the
+	// name arrives or the message is gone, the whole of it is emptied when
+	// it grows past the names the cache holds, and nothing here is ever
+	// written to disk, to a log or to a report.
+	//
+	// Only the loop of the interface touches it, in the one call it makes
+	// per redraw, so it needs no lock of its own; the names it points at do
+	// (nameCache).
+	unnamed map[unnamedKey]unnamedMessage
+}
+
+// unnamedKey is which message of which chat is waiting for a name.
+type unnamedKey struct {
+	chat    int64
+	message int64
+}
+
+// unnamedMessage is the message the interface already holds and the key of
+// the name that is on its way for it.
+type unnamedMessage struct {
+	sender  string
+	message tui.Message
 }
 
 // LiveChatState is the part of the live store the interface is drawn from.
@@ -67,12 +104,18 @@ type LiveChatState interface {
 // no chats in it as if that were the truth. A program with no store does not
 // build this at all, and says so in the status line instead.
 //
+// ctx is the program's context, and it is what every read of a sender's name
+// is made under (live_sender_names.go): the interface asks for names and
+// never waits for one, so the reads of them are the ones that have to be
+// called off when the program leaves.
+//
 // names is optional and is the reader of the one thing the store
 // deliberately does not keep: the name of whoever sent a message (#41). A
 // message in a group is signed with it, so an adapter without a reader
 // draws "Unknown" above the messages of a live conversation — which is the
 // truth about a name nobody could read, and not about the live list.
 func NewTelegramLiveUpdates(
+	ctx context.Context,
 	store LiveChatState,
 	names TelegramSenderNames,
 ) (*TelegramLiveUpdates, error) {
@@ -80,11 +123,15 @@ func NewTelegramLiveUpdates(
 		return nil, errors.New("live updates: store is required")
 	}
 
+	cache := newNameCache(nameCacheLimit)
+
 	return &TelegramLiveUpdates{
 		store:    store,
 		names:    names,
 		chatList: defaultChatListLimit,
-		cache:    newNameCache(nameCacheLimit),
+		cache:    cache,
+		senders:  newLiveSenderNames(ctx, names, cache),
+		unnamed:  make(map[unnamedKey]unnamedMessage),
 	}, nil
 }
 
@@ -160,9 +207,16 @@ func (u *TelegramLiveUpdates) Available() bool {
 // WaitForChange implements tui.ChatLiveSource.
 //
 // It blocks on the store's coalesced signal and on the program's context,
-// and nothing else: the read of the state happens in the interface's own
-// goroutine when the loop delivers the message, so the pump that writes the
-// store is never waited on here.
+// and on one more thing: a name of a sender that has arrived. A message is
+// drawn with a placeholder above it while its name is being read, and the
+// answer is delivered to the interface as another event of that chat — so
+// without this the placeholder above it would stay until Telegram happened
+// to send the next update of anything. A reader with no names has no such
+// signal, and a nil one is a case of this wait that never fires.
+//
+// The read of the state itself happens in the interface's own goroutine when
+// the loop delivers the message, so the pump that writes the store is never
+// waited on here — and neither is TDLib, which is what this wait was for.
 //
 // What woke it is written to the diagnostic of the live list when one is
 // named, because a wait that never returns is the first step a report of a
@@ -178,6 +232,8 @@ func (u *TelegramLiveUpdates) WaitForChange(ctx context.Context) {
 	select {
 	case <-u.store.Changed():
 		livewatch.WaitReturned("change")
+	case <-u.senders.changes():
+		livewatch.WaitReturned("name")
 	case <-ctx.Done():
 		livewatch.WaitReturned("context")
 	}
@@ -249,6 +305,12 @@ func liveChatKind(chat telegram.LiveChat) tui.ChatKind {
 }
 
 // MessageEvents implements tui.ChatLiveSource.
+//
+// It is called from the loop of the interface, and it waits for nothing: the
+// events come from memory, and the name of a sender whose name is not known
+// yet is asked for in the background and handed over with a later read of
+// this chat (withNames). What is left on the screen while a name is on its
+// way is the placeholder, not a screen that has stopped drawing.
 func (u *TelegramLiveUpdates) MessageEvents(
 	chatID int64,
 	cursor uint64,
@@ -271,19 +333,23 @@ func (u *TelegramLiveUpdates) MessageEvents(
 		case telegram.MessageAdded:
 			out.Events = append(out.Events, tui.LiveMessageEvent{
 				Kind:    tui.LiveMessageAdded,
-				Message: u.messageOf(changed.Message),
+				Message: u.messageOf(chatID, changed.Message),
 			})
 
 		case telegram.MessageReplaced:
 			out.Events = append(out.Events, tui.LiveMessageEvent{
 				Kind:    tui.LiveMessageReplaced,
 				OldID:   int64(changed.OldID),
-				Message: u.messageOf(changed.Message),
+				Message: u.messageOf(chatID, changed.Message),
 			})
 
 		case telegram.MessagesDeleted:
 			ids := make([]int64, 0, len(changed.IDs))
 			for _, id := range changed.IDs {
+				// A message that is gone must not come back as the
+				// answer to a question about its sender.
+				delete(u.unnamed, unnamedKey{chat: chatID, message: int64(id)})
+
 				ids = append(ids, int64(id))
 			}
 			out.Events = append(out.Events, tui.LiveMessageEvent{
@@ -299,18 +365,107 @@ func (u *TelegramLiveUpdates) MessageEvents(
 		}
 	}
 
+	return u.withNames(chatID, out)
+}
+
+// withNames hands the interface the names that have arrived since it last
+// read this chat, as one more event per message they belong to.
+//
+// The event is the one a replaced message already is: the same row, drawn
+// again with the name above it. The interface puts it where the message
+// stands, so a name that arrives replaces the placeholder in place and the
+// message itself neither moves nor counts as a new one.
+//
+// An entry is dropped as it is handed over, so a name is delivered once. An
+// entry whose name has not arrived is kept, and the message it belongs to
+// keeps the placeholder above it until it does — the interface is not asked
+// anything in the meantime, because it is the one that is not waiting.
+func (u *TelegramLiveUpdates) withNames(
+	chatID int64,
+	out tui.LiveMessageEvents,
+) tui.LiveMessageEvents {
+	for key, waiting := range u.unnamed {
+		if key.chat != chatID {
+			continue
+		}
+
+		name, known := u.cache.lookup(waiting.sender)
+		if !known {
+			continue
+		}
+
+		delete(u.unnamed, key)
+
+		waiting.message.Author = name
+		out.Events = append(out.Events, tui.LiveMessageEvent{
+			Kind:    tui.LiveMessageReplaced,
+			OldID:   key.message,
+			Message: waiting.message,
+		})
+	}
+
 	return out
 }
 
-// messageOf projects one message of the live store into a message the
-// interface draws, and signs it with the name of whoever sent it.
-func (u *TelegramLiveUpdates) messageOf(message telegram.Message) tui.Message {
-	return tui.Message{
+// rememberUnnamed keeps a message whose sender has no name yet, so that the
+// name can replace the placeholder above it when it arrives.
+//
+// What is kept is the message the interface already holds and the key of the
+// name that is on its way for it — the key, and not a name, because the same
+// sender writes many messages and one read of one name is what answers for
+// all of them (live_sender_names.go).
+//
+// The memory is emptied rather than grown when it is over its limit. What it
+// held keeps its placeholder until its chat is read again, which is the
+// smaller of the two mistakes: a program that has been running for days must
+// not hold every message whose name never came, and a name that is late is
+// decoration over a message a reader can read either way.
+func (u *TelegramLiveUpdates) rememberUnnamed(
+	chatID, messageID int64,
+	sender string,
+	message tui.Message,
+) {
+	if sender == "" {
+		return
+	}
+
+	key := unnamedKey{chat: chatID, message: messageID}
+
+	if message.Author != unknownAuthor {
+		// The name was known when this message went to the interface, so
+		// there is nothing left to answer for it: it is either the name
+		// from the cache, or a sender this build cannot name at all.
+		delete(u.unnamed, key)
+
+		return
+	}
+
+	if _, waiting := u.unnamed[key]; waiting {
+		return
+	}
+
+	if len(u.unnamed) >= nameCacheLimit {
+		clear(u.unnamed)
+	}
+
+	u.unnamed[key] = unnamedMessage{sender: sender, message: message}
+}
+
+// messageOf projects one message of the live store into the message the
+// interface draws, and asks for the name of whoever sent it when there is
+// none yet.
+func (u *TelegramLiveUpdates) messageOf(
+	chatID int64,
+	message telegram.Message,
+) tui.Message {
+	author, sender := u.authorOf(message)
+
+	projected := tui.Message{
 		ID:          int64(message.ID),
 		Outgoing:    message.Outgoing,
 		Text:        message.Text,
 		At:          message.Timestamp,
-		Author:      u.authorOf(message),
+		Author:      author,
 		AuthorID:    message.Sender.ID,
 		Media:       message.Media,
 		MediaDetail: message.MediaDetail,
@@ -318,73 +473,61 @@ func (u *TelegramLiveUpdates) messageOf(message telegram.Message) tui.Message {
 		Service:     message.Service,
 		AlbumID:     int64(message.MediaAlbumID),
 	}
+	u.rememberUnnamed(chatID, projected.ID, sender, projected)
+
+	return projected
 }
 
-// authorOf returns the name to write above a message of the live store.
+// authorOf returns the name to write above a message of the live store, and
+// the key of the name it is read from.
 //
 // It is the same rule the chat service follows for a page of history: a
 // message of this user is signed "You", a person is signed with the name
 // TDLib gives for them and a channel with its own, and a sender this build
 // cannot name is "Unknown" rather than the name of the chat.
 //
+// A name that is not in the adapter's memory is asked for in the background
+// and is not waited for: the message goes to the interface with the
+// placeholder above it, and the answer comes back as another event of that
+// chat (withNames). The key is empty where there is nothing to ask for — a
+// message of this user, a sender this build cannot name, a session that
+// cannot answer — and nothing is remembered for it.
+//
 // Every name is read from a local TDLib and kept in this adapter's memory
 // for as long as the program runs. None of them reaches the store, a log
 // line, a report or an error message (#41).
-func (u *TelegramLiveUpdates) authorOf(message telegram.Message) string {
+func (u *TelegramLiveUpdates) authorOf(message telegram.Message) (string, string) {
 	if message.Outgoing {
-		return "You"
+		return "You", ""
 	}
 	if u == nil || u.names == nil {
-		return unknownAuthor
+		return unknownAuthor, ""
 	}
 
 	switch message.Sender.Kind {
 	case telegram.MessageSenderUser:
-		return u.nameOf(userNameKey(message.Sender.ID), func() string {
-			name, err := u.names.GetUserName(context.Background(), message.Sender.ID)
-			if err != nil {
-				return ""
-			}
+		sender := userNameKey(message.Sender.ID)
+		if name, known := u.cache.lookup(sender); known {
+			return name, sender
+		}
 
-			return name
-		})
+		u.senders.askUserName(message.Sender.ID)
+
+		return unknownAuthor, sender
 
 	case telegram.MessageSenderChat:
-		return u.nameOf(chatNameKey(message.Sender.ID), func() string {
-			summary, err := u.names.GetChat(
-				context.Background(), telegram.ChatID(message.Sender.ID),
-			)
-			if err != nil {
-				return ""
-			}
+		sender := chatNameKey(message.Sender.ID)
+		if name, known := u.cache.lookup(sender); known {
+			return name, sender
+		}
 
-			return summary.Title
-		})
+		u.senders.askChatName(telegram.ChatID(message.Sender.ID))
+
+		return unknownAuthor, sender
 
 	default:
-		return unknownAuthor
+		return unknownAuthor, ""
 	}
-}
-
-// nameOf returns a name from the cache, reading it from TDLib when it is
-// not there.
-//
-// A read that fails leaves the cache alone and answers "Unknown": the name
-// above a message is decoration around a message the user can already read,
-// and a chat that waits for it is a chat that has stopped drawing.
-func (u *TelegramLiveUpdates) nameOf(key string, read func() string) string {
-	if name, ok := u.cache.lookup(key); ok {
-		return name
-	}
-
-	name := read()
-	if name == "" {
-		return unknownAuthor
-	}
-
-	u.cache.remember(key, name)
-
-	return name
 }
 
 var _ tui.ChatLiveSource = (*TelegramLiveUpdates)(nil)

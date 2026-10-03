@@ -272,7 +272,7 @@ func prepareDeliveryAuthResult(
 		// direct send would lose messages silently, which is the thing
 		// the outbox exists to prevent, so the TUI starts with a
 		// submitter that refuses and keeps the draft.
-		return sendingPausedAuthResult(session, cfg, ownUserID, err), nil
+		return sendingPausedAuthResult(ctx, session, cfg, ownUserID, err), nil
 	}
 	if delivery == nil {
 		return AuthRunResult{}, errors.Join(
@@ -456,7 +456,11 @@ func liveChatUpdatesFor(
 	// for by what it can answer, the same way the chat service asks for the
 	// names it reads. A session that can answer neither still has a live
 	// list: it is one that never moves, and the status line says so.
-	adapter, err := NewTelegramLiveUpdates(store, senderNamesOf(session))
+	//
+	// The program's context goes with it: every read of a sender's name is
+	// made under it, so leaving the program ends the reads still on their
+	// way.
+	adapter, err := NewTelegramLiveUpdates(ctx, store, senderNamesOf(session))
 	if err != nil {
 		return nil
 	}
@@ -509,7 +513,12 @@ func senderNamesOf(session LiveChatSession) TelegramSenderNames {
 // sending is paused, and the submitter refuses rather than falling back to
 // a direct send. MessageStatuses is nil because there is no outbox to read
 // delivery state from.
+//
+// ctx is the program's context and goes to the live chat list with the rest,
+// for the reason it goes there on the other path: the names it reads in the
+// background are reads that the program leaving must end.
 func sendingPausedAuthResult(
+	ctx context.Context,
 	session deliverySession,
 	cfg config.Config,
 	ownUserID int64,
@@ -521,7 +530,7 @@ func sendingPausedAuthResult(
 	// Only sending is paused. The chat list is read from Telegram and the
 	// conversation is read from it, so a paused queue does not stop the
 	// list from moving either.
-	liveUpdates := liveChatUpdatesFor(context.Background(), session, nil)
+	liveUpdates := liveChatUpdatesFor(ctx, session, nil)
 
 	accountKey := deliveryAccountKey(cfg)
 

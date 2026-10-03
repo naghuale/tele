@@ -125,7 +125,7 @@ func TestTheLiveListIsInTheOrderTelegramKeeps(t *testing.T) {
 	store := recordedAccount(t)
 	applyRecorded(t, store, recordedPosition(3, 100, true))
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestTheLiveListIsInTheOrderTelegramKeeps(t *testing.T) {
 func TestAMessageMovesItsChatToTheTopOfTheList(t *testing.T) {
 	store := recordedAccount(t)
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestAMessageMovesItsChatToTheTopOfTheList(t *testing.T) {
 func TestTheCountFallsWhenTheChatIsReadElsewhere(t *testing.T) {
 	store := recordedAccount(t)
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestTheCountFallsWhenTheChatIsReadElsewhere(t *testing.T) {
 func TestAChatThatLeftTheMainListIsNotInTheList(t *testing.T) {
 	store := recordedAccount(t)
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -231,11 +231,16 @@ func TestAChatThatLeftTheMainListIsNotInTheList(t *testing.T) {
 // The name is read from the reader rather than from the store: the live
 // state keeps no names on purpose (#41), and this test is where that shows —
 // the store answered with an identifier and the adapter asked for a word.
+//
+// It is asked for in the background and comes back as one more event of that
+// chat, so what the message carries on the way out is the placeholder; the
+// name is checked where it arrives, in live_sender_names_test.go, and here it
+// is only checked that it arrives at all and that it was read once.
 func TestTheEventsOfAChatReachTheInterface(t *testing.T) {
 	store := recordedAccount(t)
 	names := &stubNameReader{user: "Marta Ivanova", chat: "Xiaomi News"}
 
-	live, err := NewTelegramLiveUpdates(store, names)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, names)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -256,14 +261,11 @@ func TestTheEventsOfAChatReachTheInterface(t *testing.T) {
 	if added.Message.Text != "the tag is pushed" {
 		t.Fatalf("text = %q, want the message that arrived", added.Message.Text)
 	}
-	if added.Message.Author != "Marta Ivanova" {
-		t.Fatalf(
-			"author = %q, want the name read from TDLib", added.Message.Author,
-		)
-	}
 	if added.Message.AuthorID != 77 {
 		t.Fatalf("author id = %d, want 77", added.Message.AuthorID)
 	}
+
+	readUntilNamed(t, live, 2, events.Cursor)
 	if names.reads() != 1 {
 		t.Fatalf(
 			"the name was read %d times, want 1: a second read is a round trip",
@@ -276,7 +278,7 @@ func TestTheEventsOfAChatReachTheInterface(t *testing.T) {
 // consumer reloads the first page of the chat rather than losing a message.
 func TestAResyncIsReportedToTheConsumer(t *testing.T) {
 	store := recordedAccount(t)
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -303,7 +305,7 @@ func TestAResyncIsReportedToTheConsumer(t *testing.T) {
 // be drawn from a state the outbox does not know about.
 func TestAFailedSendIsNotAnEventOfTheInterface(t *testing.T) {
 	store := recordedAccount(t)
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -325,7 +327,7 @@ func TestAFailedSendIsNotAnEventOfTheInterface(t *testing.T) {
 // in is a chat list that will not move.
 func TestLoadAsksTDLibForTheList(t *testing.T) {
 	loader := &stubChatListLoader{pages: 2}
-	live, err := NewTelegramLiveUpdates(telegram.NewLiveState(), nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), telegram.NewLiveState(), nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -343,7 +345,7 @@ func TestLoadAsksTDLibForTheList(t *testing.T) {
 
 func TestLoadSaysWhyTheListIsNotLive(t *testing.T) {
 	loader := &stubChatListLoader{err: errors.New("TDLib is closing")}
-	live, err := NewTelegramLiveUpdates(telegram.NewLiveState(), nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), telegram.NewLiveState(), nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -358,11 +360,11 @@ func TestLoadSaysWhyTheListIsNotLive(t *testing.T) {
 }
 
 func TestLoadNeedsAStoreAndALoader(t *testing.T) {
-	if _, err := NewTelegramLiveUpdates(nil, nil); err == nil {
+	if _, err := NewTelegramLiveUpdates(t.Context(), nil, nil); err == nil {
 		t.Fatal("an adapter with nothing to read was built")
 	}
 
-	live, err := NewTelegramLiveUpdates(telegram.NewLiveState(), nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), telegram.NewLiveState(), nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -522,7 +524,7 @@ func TestTheLiveListBringsThePinAndTheMuteOfAChat(t *testing.T) {
 	applyRecorded(t, store, recordedPosition(1, 300, true))
 	applyRecorded(t, store, recordedNotificationSettings(3, 3600))
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -565,7 +567,7 @@ func TestUnsilencingAChatIsTheSameUpdateWithNoTimeLeft(t *testing.T) {
 	applyRecorded(t, store, recordedNotificationSettings(3, 3600))
 	applyRecorded(t, store, recordedNotificationSettings(3, 0))
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, nil)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}

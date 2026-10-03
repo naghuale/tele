@@ -100,7 +100,7 @@ func recordedIncomingMessage(
 // The cursor is on the first chat, which is where it is when the list has
 // been loaded and nobody has pressed anything.
 func TestAnIncomingMessageMovesTheChatListWithTheRealStore(t *testing.T) {
-	loop := startRecordedLoop(t, recordedLoopAccount(t), nil)
+	loop := startRecordedLoop(t, recordedLoopAccount(t), nil, nil)
 
 	recordedIncomingMessage(t, loop.store, 14, firmwareOut)
 
@@ -121,7 +121,7 @@ func TestAnIncomingMessageMovesTheChatListWithTheRealStore(t *testing.T) {
 // no room for and this task does not add.
 func TestAnIncomingMessageChangesTheFrameWithTheCursorBelowTheTop(t *testing.T) {
 	down := tea.KeyMsg{Type: tea.KeyDown}
-	loop := startRecordedLoop(t, recordedLoopAccount(t), []tea.KeyMsg{
+	loop := startRecordedLoop(t, recordedLoopAccount(t), nil, []tea.KeyMsg{
 		down, down, down, down, down,
 	})
 
@@ -179,12 +179,67 @@ func rowCarries(rows []string, text string) bool {
 	return false
 }
 
+// The screen does not stand still for the name of a sender.
+//
+// The session below answers with a name in five seconds — the check the task
+// asks for, at the size a gate can afford — and the program is the real one
+// over the real loop. While that answer is on its way the frame must keep
+// being drawn and must keep answering keys: the defect this is against is
+// the loop asking TDLib for a name and standing there until TDLib answered
+// (FINDING-T1, auditor, main fdadd25), and a screen that stops is what a
+// person notices first. The name then reaches the message it belongs to.
+func TestTheScreenKeepsDrawingWhileTheNameOfASenderIsOnItsWay(t *testing.T) {
+	names := &slowNameReader{after: loopNameAnswer, name: "Marta Ivanova"}
+	loop := startRecordedLoop(t, recordedLoopAccount(t), names, []tea.KeyMsg{
+		{Type: tea.KeyEnter},
+	})
+
+	recordedIncomingMessage(t, loop.store, 1, firmwareOut)
+
+	// The message is on the screen while its sender has no name to show, and
+	// it is there long before the session has answered.
+	loop.waitForFrame(t, "the message that arrived", liveLoopBudget*4,
+		func(frame string) bool {
+			return strings.Contains(frame, firmwareOut)
+		})
+
+	// A key pressed in the same stretch of time is answered in it: the loop
+	// was not waiting for TDLib, it was drawing and taking keys.
+	loop.program.Send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(typedText)})
+	loop.waitForFrame(t, "the key that was pressed", liveLoopBudget*4,
+		func(frame string) bool {
+			return strings.Contains(frame, typedText)
+		})
+
+	// And the name that took five seconds is above the message it belongs
+	// to, without the chat being read again and without a key pressed.
+	loop.waitForFrame(t, "the name that arrived", loopNameAnswer+recordedWait,
+		func(frame string) bool {
+			return strings.Contains(frame, "Marta Ivanova")
+		})
+}
+
+// loopNameAnswer is how long the session of the loop above takes to answer
+// with the name of a sender.
+//
+// It is the five seconds of the manual check: a name that takes seconds is a
+// name the program is not standing still for, and nothing in the program
+// knows how long this is.
+const loopNameAnswer = 5 * time.Second
+
+// typedText is what the key of the same test presses into the composer.
+//
+// It is two letters that no row of the fixture carries, so the frame that
+// holds it holds it because the program answered the key and not because the
+// screen said it for another reason.
+const typedText = "qx"
+
 // The diagnostic of the live list writes every step of one change, in the
 // order the steps happen in.
 //
 // The owner's next run is a run of a real account with the diagnostic on,
-// and the file it writes is the only answer this defect has until then: if a
-// step is missing between two that are there, that step is where the change
+// and the file it writes is the only answer this defect has until then: if
+// a step is missing between two that are there, that step is where the change
 // stops. So the file has to carry the whole chain — the program with a live
 // state behind it, the update that arrived, the signal it posted, the wait
 // that returned, the message the interface was given, the window it placed,
@@ -193,7 +248,7 @@ func TestTheDiagnosticCarriesEveryStepOfAChange(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "live.log")
 	t.Setenv(livewatch.EnvVar, path)
 
-	loop := startRecordedLoop(t, recordedLoopAccount(t), nil)
+	loop := startRecordedLoop(t, recordedLoopAccount(t), nil, nil)
 	recordedIncomingMessage(t, loop.store, 14, firmwareOut)
 
 	loop.waitForRows(t, "the chat that received the message", func(rows []string) bool {
@@ -394,17 +449,23 @@ type recordedLoop struct {
 // startRecordedLoop runs the program over the real store of a session and
 // returns it once the list is on the screen.
 //
+// liveNames is who the session answers the name of a sender with, and is nil
+// for a session that cannot name anybody: the live store keeps no names
+// (#41), so a session with no reader draws "Unknown" above the messages it
+// brings and nothing else changes.
+//
 // keys are pressed before the loop is returned, and they are the only keys
 // there are: after this, nothing is pressed, so what the screen says is
 // what the program did by itself.
 func startRecordedLoop(
 	t *testing.T,
 	store *telegram.LiveState,
+	liveNames TelegramSenderNames,
 	keys []tea.KeyMsg,
 ) *recordedLoop {
 	t.Helper()
 
-	live, err := NewTelegramLiveUpdates(store, nil)
+	live, err := NewTelegramLiveUpdates(t.Context(), store, liveNames)
 	if err != nil {
 		t.Fatalf("NewTelegramLiveUpdates: %v", err)
 	}
@@ -486,6 +547,60 @@ func (l *recordedLoop) waitForRows(
 
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// waitForFrame waits until the newest frame satisfies the condition within
+// the given time, and fails with the frame it saw when it does not.
+//
+// The bound is a parameter because the two halves of the check below are
+// about different amounts of time: a frame the program owes its reader now,
+// and a name that a session answers in seconds.
+func (l *recordedLoop) waitForFrame(
+	t *testing.T,
+	what string,
+	within time.Duration,
+	condition func(frame string) bool,
+) {
+	t.Helper()
+
+	deadline := time.Now().Add(within)
+	for {
+		frame := l.newestFrame()
+		if condition(frame) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"the program never drew %s within %s. The frame on the screen:\n%s",
+				what, within, frame,
+			)
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// newestFrame returns what the program drew last: everything from the last
+// heading of the chat list down, which is where the frame the renderer
+// wrote last begins.
+//
+// The screen is a writer the frames are written into one after another, so
+// the whole of it is every frame the program ever drew — and a frame that
+// says what an earlier one said is not a fact about the program now.
+func (l *recordedLoop) newestFrame() string {
+	lines := strings.Split(ansi.Strip(l.screen.String()), "\n")
+
+	heading := -1
+	for index, line := range lines {
+		if strings.Contains(line, "Chats") {
+			heading = index
+		}
+	}
+	if heading < 0 {
+		return ""
+	}
+
+	return strings.Join(lines[heading:], "\n")
 }
 
 // chatListRows returns the rows of the chat list of the newest frame.

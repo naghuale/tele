@@ -50,14 +50,30 @@ func (o *recordingOpener) CloseChat(_ context.Context, chatID int64) error {
 // flight, and that is what this opener writes down when the two calls are a
 // batch rather than one command.
 //
+// It keeps two more things, both of which are what TDLib keeps and what a
+// screen shows: which chats are open right now, and how many calls were in
+// flight at once. A chat counts its online members only while it is open, so
+// the chats that are open at the end are the presence in the header, and two
+// calls in flight at once are two switches that have crossed.
+//
 // The order is written under a lock because the members of a batch are
 // goroutines: reading a list that two of them append to is a race, and a race
 // in a test of order proves nothing about the order.
 type slowCloseOpener struct {
-	mu    sync.Mutex
-	calls []string
+	mu        sync.Mutex
+	calls     []string
+	openNow   map[int64]bool
+	inFlight  int
+	crossings int
 
 	closeRoundTrip time.Duration
+}
+
+func newSlowCloseOpener(roundTrip time.Duration) *slowCloseOpener {
+	return &slowCloseOpener{
+		openNow:        map[int64]bool{},
+		closeRoundTrip: roundTrip,
+	}
 }
 
 // closeRoundTrip is how long closing a chat takes in slowCloseOpener.
@@ -70,22 +86,43 @@ const closeRoundTrip = 100 * time.Millisecond
 
 func (o *slowCloseOpener) OpenChat(_ context.Context, chatID int64) error {
 	o.remember(fmt.Sprintf("open %d", chatID))
+	defer o.answered(chatID, true)
 
 	return nil
 }
 
 func (o *slowCloseOpener) CloseChat(_ context.Context, chatID int64) error {
-	time.Sleep(o.closeRoundTrip)
 	o.remember(fmt.Sprintf("close %d", chatID))
+	defer o.answered(chatID, false)
+
+	// The round trip is after the call has been made and before it has come
+	// back: that is where another call can reach the opener beside it.
+	time.Sleep(o.closeRoundTrip)
 
 	return nil
 }
 
+// remember writes a call down the moment it is asked for, which is the moment
+// it reaches TDLib, and counts how many calls are in flight at that moment.
 func (o *slowCloseOpener) remember(call string) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
 	o.calls = append(o.calls, call)
+	o.inFlight++
+	if o.inFlight > 1 {
+		o.crossings++
+	}
+}
+
+// answered is a call that has come back from TDLib: the chat is open or it is
+// not, and one call fewer is in flight.
+func (o *slowCloseOpener) answered(chatID int64, open bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.inFlight--
+	o.openNow[chatID] = open
 }
 
 // asked is what the opener was asked for, in the order it was asked.
@@ -94,6 +131,45 @@ func (o *slowCloseOpener) asked() []string {
 	defer o.mu.Unlock()
 
 	return slices.Clone(o.calls)
+}
+
+// counting is which chats TDLib would be counting right now, in order.
+func (o *slowCloseOpener) counting() []int64 {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	counted := make([]int64, 0, len(o.openNow))
+	for chatID, isOpen := range o.openNow {
+		if isOpen {
+			counted = append(counted, chatID)
+		}
+	}
+	slices.Sort(counted)
+
+	return counted
+}
+
+// crossed says whether two calls were in flight at the same time.
+func (o *slowCloseOpener) crossed() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return o.crossings > 0
+}
+
+// lastCallAbout is the last call the opener was asked for about one chat, or
+// an empty string if it was never asked about it.
+func (o *slowCloseOpener) lastCallAbout(chatID int64) string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	for _, call := range slices.Backward(o.calls) {
+		if strings.HasSuffix(call, fmt.Sprintf(" %d", chatID)) {
+			return call
+		}
+	}
+
+	return ""
 }
 
 // runCommands runs the commands a key press returned.
@@ -155,6 +231,39 @@ func runLikeBubbleTea(t *testing.T, cmd tea.Cmd) {
 		}()
 	}
 	running.Wait()
+}
+
+// runInBackground starts a command the way Bubble Tea starts one: in a
+// goroutine of its own, so that the commands of two updates are in flight
+// together rather than one after another.
+//
+// It is what runLikeBubbleTea does for the members of a batch, one level up:
+// two switches are two commands of two updates, and nothing joins them.
+func runInBackground(cmd tea.Cmd) <-chan struct{} {
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+
+		if cmd == nil {
+			return
+		}
+		runResult(cmd())
+	}()
+
+	return finished
+}
+
+// waitFor waits for a command that was started in a goroutine, and says so
+// rather than hanging the suite when it never finishes.
+func waitFor(t *testing.T, finished <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("a command was started and never finished")
+	}
 }
 
 // openerModel is a model with a presence opener and two chats loaded.
@@ -298,7 +407,7 @@ func TestEnteringAnotherChatClosesTheOldOneAndOpensTheNew(t *testing.T) {
 // This is the check the promise in chat_lifecycle.go is kept by. It fails
 // while the two calls are a batch, and it holds when they are one command.
 func TestTheNewChatIsOpenedAfterTheOldOneIsClosed(t *testing.T) {
-	opener := &slowCloseOpener{closeRoundTrip: closeRoundTrip}
+	opener := newSlowCloseOpener(closeRoundTrip)
 	model := openerModel(t, opener)
 
 	// The first chat has no chat before it, so nothing is closed here and
@@ -323,6 +432,78 @@ func TestTheNewChatIsOpenedAfterTheOldOneIsClosed(t *testing.T) {
 			got,
 			want,
 		)
+	}
+}
+
+// Two switches in a row are two commands of Bubble Tea, and Bubble Tea runs
+// the commands of two updates at the same time. So the close that belongs to
+// the first switch and the open that belongs to the second one can cross: a
+// user who walks A -> B -> A quickly came back to a chat that the late close
+// of the first switch closed under them, and with it went the presence in
+// the header and the read marks an open of that chat makes on every device
+// of the account (the auditor's RECHECK-FINDING-T6 on main adab9ea, the
+// recheck of #67, 03.10).
+//
+// Ordering the two calls of one switch, as the change before this one did,
+// is not enough: the order that was asked for is the order within a command,
+// and nothing orders two commands with respect to each other. What TDLib
+// ends up counting has to be the chat the user is in, and it can only be
+// that if the calls of two switches do not happen at the same time.
+func TestTwoQuickSwitchesLeaveOnlyTheChosenChatOpen(t *testing.T) {
+	opener := newSlowCloseOpener(closeRoundTrip)
+	model := openerModel(t, opener)
+
+	// Three switches in three updates, and none of them waited for: this is
+	// a hand walking A -> B -> A, which is faster than a round trip to
+	// TDLib. A walk in the list is a look and asks nothing, so it is run
+	// and none of the three commands below is run before the next switch.
+	model, enterFirst := updateModel(t, model, press(tea.KeyEnter))
+	model.focus = FocusChatList
+	model, look := updateModel(t, model, press(tea.KeyDown))
+	runCommands(t, look)
+	model, enterSecond := updateModel(t, model, press(tea.KeyEnter))
+	model.focus = FocusChatList
+	model, look = updateModel(t, model, press(tea.KeyUp))
+	runCommands(t, look)
+	model, enterFirstAgain := updateModel(t, model, press(tea.KeyEnter))
+
+	// The three commands are started the way Bubble Tea starts them: in
+	// goroutines of their own, all three at once.
+	intoFirst := runInBackground(enterFirst)
+	intoSecond := runInBackground(enterSecond)
+	intoFirstAgain := runInBackground(enterFirstAgain)
+	waitFor(t, intoFirst)
+	waitFor(t, intoSecond)
+	waitFor(t, intoFirstAgain)
+
+	if got := opener.counting(); !slices.Equal(got, []int64{7}) {
+		t.Fatalf(
+			"TDLib would be counting %v, want only the chat the user is in [7]: a chat left open is a presence under the wrong header and a chat closed late loses its read marks",
+			got,
+		)
+	}
+	if got := opener.lastCallAbout(7); got != "open 7" {
+		t.Fatalf(
+			"the last thing TDLib was told about the chat the user is in is %q, want %q: nothing closes that chat after it has been opened again",
+			got,
+			"open 7",
+		)
+	}
+	want := []string{"open 7", "close 7", "open 8", "close 8", "open 7"}
+	if got := opener.asked(); !slices.Equal(got, want) {
+		t.Fatalf(
+			"the opener was asked %v, want %v: the calls of two switches reach TDLib in the order the chats were entered",
+			got,
+			want,
+		)
+	}
+	if opener.crossed() {
+		t.Fatal(
+			"two calls to TDLib were in flight at once: the close of one switch crossed the open of the next",
+		)
+	}
+	if model.openedChat != 7 {
+		t.Fatalf("openedChat = %d, want the chat the user came back to 7", model.openedChat)
 	}
 }
 

@@ -92,9 +92,16 @@ type Model struct {
 	// worked, and the messages of a chat TDLib has not loaded yet cannot
 	// be read: a broadcast chat is loaded by openChat, and a read that
 	// arrives first is refused with nothing on the screen to say so.
+	//
+	// lifecycle is the queue those two calls go through, and it is a
+	// pointer because the model is passed by value and every copy of it has
+	// to share one queue: two switches that cross are two calls to TDLib at
+	// once, and a chat closed by the late one is a chat the user is in
+	// without a presence and without read marks.
 	presenceOpener ChatPresenceOpener
 	openedChat     int64
 	openedAck      int64
+	lifecycle      *chatLifecycleQueue
 
 	// messageViewer is told which messages of the open chat are on the
 	// screen, and viewedChat and viewedIDs are the window it was last told

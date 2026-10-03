@@ -4,13 +4,21 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
 // fakeChatSource is a scripted ChatSource.
+//
+// The lock is here because Bubble Tea calls a source from several goroutines
+// at once: the members of a batch are commands of their own, and two commands
+// of two updates are in flight together. A fake that cannot take that is not
+// a stand-in for the source, it is a race detector with a grudge (#58).
 type fakeChatSource struct {
+	mu sync.Mutex
+
 	chats       []Chat
 	chatsErr    error
 	history     HistoryPage
@@ -63,6 +71,9 @@ func (f *fakeChatSource) LoadHistory(
 	fromMessageID int64,
 	limit int,
 ) (HistoryPage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.historyCall.chatID = chatID
 	f.historyCall.fromMessageID = fromMessageID
 	f.historyCall.limit = limit
@@ -87,6 +98,9 @@ func (f *fakeChatSource) LoadHistory(
 // with, in order, which is what tells a fill from one page: a fill asks for
 // one boundary after another, going up the chat.
 func (f *fakeChatSource) historyBoundaries() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	return f.historyCalls
 }
 
@@ -95,6 +109,9 @@ func (f *fakeChatSource) SendMessage(
 	chatID int64,
 	text string,
 ) (Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.sendCall.called = true
 	f.sendCall.chatID = chatID
 	f.sendCall.text = text

@@ -974,6 +974,38 @@
     the top of the feed). In a 168x43 window the feed is 38 rows, which is
     THIRTEEN one-line messages: the same as before the air was asked for,
     because a block of one row of text has no air in it
+  - the panel under the feed — the band of the composer and the foot of a
+    preview — is separated from it by ONE row of the background of the feed
+    (ChatBackground), drawn by internal/tui/view_boundary.go. The owner
+    found the absence of it on 03.10, on a real account and in a channel he
+    reads: the band has always had a row of space above the field and has
+    always drawn it in the band's own surface, which is not air at all — it
+    is the first row of the band, and a message the window cut at the
+    bottom runs into it in the very colour that block ends in, so a cut
+    block and the line of a read-only channel were one field of grey
+    (review-tele77, 87ca0ec). The row belongs to the feed, so the surface
+    of the panel starts one row below the messages
+  - the boundary is a row and not a line, and it is that tone and not
+    another one. A line of its own would be a frame: §1 forbids frames and
+    three tests of §21 hold the screen to it, and the one rule the screen
+    draws — the heavy one under a header — is the mark of the focus and
+    not a border. A tone of its own for the panel is not available: the
+    ramp of a palette is pinned by §2.2 and every step of it means
+    something — the band is one step above the feed, a block of a message
+    is on the band's own step, the step above that is the selection and the
+    pill of a day, and what is below the feed is 1.05:1 to 1.25:1 away from
+    it (TestThePanelUnderTheFeedIsAStepFromTheFeed holds the two surfaces
+    1.25:1 apart, which the three themes give as 1.34:1 to 1.49:1)
+  - the row is one row where there is a feed above the panel and none on
+    the composer-only screen of §3.4: a boundary with nothing on one side
+    of it is a dark row through the middle of a field. composerHeight and
+    previewFooterRows count it, so the rows of the feed are measured
+    against what is really below them; before this the two of them
+    disagreed by a row on a screen that opens a preview
+  - in the profiles that print no backgrounds (§2.7 clears every surface on
+    a basic and on an uncoloured terminal) the boundary has nothing left to
+    be drawn in, like every other surface boundary on the screen: the
+    words of the panel are what carries it there
   - the words of a delivery state are in lower case ("✓ sent", "●
     queued"), as the mockup of the owner writes them: a state is a word
     inside a row of a conversation and not a heading

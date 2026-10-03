@@ -488,9 +488,10 @@ func (m Model) previewFooterLines(layout Layout, width int) []string {
 		Render(m.widths.Fit(previewHint, width, ellipsis))}
 }
 
-// previewFooterRows returns how many rows the foot of a preview takes.
+// previewFooterRows returns how many rows the foot of a preview takes: the
+// boundary that separates the messages from the foot, and the foot.
 func (m Model) previewFooterRows(layout Layout, width int) int {
-	return len(m.previewFooterLines(layout, width))
+	return feedBoundaryRows(layout) + len(m.previewFooterLines(layout, width))
 }
 
 // previewPaneRegion draws the preview of the chat under the cursor: the
@@ -518,12 +519,20 @@ func (m Model) previewPaneRegion(layout Layout) string {
 	)
 }
 
-// previewFooterRegion draws the foot of a preview.
+// previewFooterRegion draws the boundary between the messages and the foot
+// of a preview, and the foot under it.
+//
+// The boundary is the same one the band of the composer has above it: a
+// message the window cut at the bottom stands on the foot without it, and
+// the block of the message and the foot are one colour (view_boundary.go).
 func (m Model) previewFooterRegion(layout Layout, width int) string {
 	lines := m.previewFooterLines(layout, width)
 	if len(lines) == 0 {
 		return ""
 	}
 
-	return m.renderRegion(m.styles().footer, width, lines, len(lines))
+	return m.joinRegions(
+		m.feedBoundaryRegion(layout, width),
+		m.renderRegion(m.styles().footer, width, lines, len(lines)),
+	)
 }

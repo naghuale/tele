@@ -16,12 +16,14 @@ import "testing"
 // make a secondary text brighter than a primary one.
 
 // textBackgroundRoles are the surfaces PrimaryText and SecondaryText are
-// required to be readable on.
+// required to be readable on. The footer is in the list because the hint bar
+// and the foot of a preview are SecondaryText drawn on it.
 var textBackgroundRoles = []string{
 	"AppBackground",
 	"SidebarBackground",
 	"ChatBackground",
 	"ComposerBackground",
+	"FooterBackground",
 }
 
 // mutedBackgroundRoles are the surfaces MutedText is required to be
@@ -309,6 +311,53 @@ func TestTheWordsOfAMessageAreReadableOnItsOwnBlock(t *testing.T) {
 					background,
 					ratio,
 					MinimumTextContrast,
+				)
+			}
+		}
+	}
+}
+
+// The panel under the feed is a surface of its own, a step away from the
+// background of the feed.
+//
+// This is what separates the band of the composer and the foot of a preview
+// from the messages above them, and the row of the feed that separates them
+// is drawn in the background of the feed rather than in the surface of the
+// panel (view_boundary.go). The owner found the absence of that row on 03.10
+// on a real account: a message the window had cut at the bottom stood on the
+// panel in the very colour it ended in, and nothing on the screen said where
+// the message stopped and the panel began.
+//
+// So the difference between the two surfaces is a number here rather than a
+// sentence: the three themes hold the panel 1.34:1 to 1.49:1 away from the
+// background of the feed, and the bar is the 1.25:1 the pill of a day and the
+// block under the cursor are held to. What is below the feed is not an
+// answer — the ramp of a palette is pinned by §2.2 and every step of it
+// already means something else — and what is above the block surface is the
+// selection and the pill of a day.
+func TestThePanelUnderTheFeedIsAStepFromTheFeed(t *testing.T) {
+	const minimumDifference = 1.25
+
+	panels := []string{"ComposerBackground", "FooterBackground"}
+
+	for _, name := range ThemeNames() {
+		roles := colorRoles(t, mustTheme(t, name).Tokens)
+		feed := roles["ChatBackground"]
+
+		for _, panel := range panels {
+			surface := roles[panel]
+			if !surface.IsSet() {
+				t.Errorf("theme %s: %s has no surface of its own", name, panel)
+
+				continue
+			}
+
+			difference := surface.ContrastRatio(feed)
+			if difference < minimumDifference {
+				t.Errorf(
+					"theme %s: %s (%v) and the background of the feed (%v) are "+
+						"%.3f:1 apart, want at least %.2f:1",
+					name, panel, surface, feed, difference, minimumDifference,
 				)
 			}
 		}
